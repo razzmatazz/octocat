@@ -320,9 +320,11 @@ Uses the `magit-section' package for collapsible sections."
     (erase-buffer)
     (magit-insert-section (octocat-root)
       (magit-insert-heading
-        (concat (propertize repo 'face 'magit-branch-remote)))
+        (concat (propertize repo 'face 'magit-branch-remote)
+                (propertize (format "  %d PR(s)  %d issue(s)"
+                                    (length prs) (length issues))
+                            'face 'magit-dimmed)))
       (octocat--render-prs prs)
-      (insert "\n")
       (octocat--render-issues issues))))
 
 
