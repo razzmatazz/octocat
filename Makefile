@@ -8,6 +8,7 @@ ifeq ($(DOCKER),)
 endif
 
 .PHONY: test
+
 test:
 	$(DOCKER) run --rm \
 	  -v "$(PROJECT_DIR):/src" \
@@ -20,6 +21,8 @@ test:
 	    --eval "(package-refresh-contents)" \
 	    --eval "(package-install 'package-lint)" \
 	    --eval "(package-install 'magit-section)" \
+	    --eval "(setq byte-compile-error-on-warn t)" \
+	    --eval "(byte-compile-file \"$(EL_FILES)\")" \
 	    --eval "(require 'checkdoc)" \
 	    --eval "(require 'package-lint)" \
 	    --eval "(setq checkdoc-spellcheck-documentation-flag nil)" \
