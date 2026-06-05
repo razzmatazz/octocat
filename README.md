@@ -43,6 +43,32 @@ Clone the repository and add it to your Emacs load path:
 
 _Usage instructions and key bindings will be documented here as the project develops._
 
+## Development
+
+### Running the linter
+
+The `test` Makefile target runs `checkdoc` and
+[`package-lint`](https://github.com/purcell/package-lint) inside an
+Emacs 29 Docker container — no local Emacs install required.
+
+```bash
+make test
+```
+
+> **Requires:** Docker
+
+The image used is [`silex/emacs:29.4`](https://hub.docker.com/r/silex/emacs).
+Override it with `EMACS_IMAGE` if you need a different version:
+
+```bash
+make test EMACS_IMAGE=silex/emacs:29.1
+```
+
+### CI
+
+GitHub Actions runs `make test` automatically on every push and pull request.
+See [`.github/workflows/test.yml`](.github/workflows/test.yml).
+
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
