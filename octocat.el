@@ -32,17 +32,17 @@
 ;;;; Custom faces
 
 (defface octocat-ci-success
-  '((t :foreground "green"))
+  '((t :inherit success))
   "Face for a passing CI status."
   :group 'octocat)
 
 (defface octocat-ci-failure
-  '((t :foreground "red"))
+  '((t :inherit error))
   "Face for a failing CI status."
   :group 'octocat)
 
 (defface octocat-ci-pending
-  '((t :foreground "yellow"))
+  '((t :inherit warning))
   "Face for a pending CI status."
   :group 'octocat)
 
@@ -57,17 +57,17 @@
   :group 'octocat)
 
 (defface octocat-pr-state-open
-  '((t :foreground "green"))
+  '((t :inherit success))
   "Face for an open PR state badge."
   :group 'octocat)
 
 (defface octocat-pr-state-closed
-  '((t :foreground "red"))
+  '((t :inherit error))
   "Face for a closed PR state badge."
   :group 'octocat)
 
 (defface octocat-pr-state-merged
-  '((t :foreground "magenta"))
+  '((t :inherit font-lock-builtin-face))
   "Face for a merged PR state badge."
   :group 'octocat)
 
@@ -345,7 +345,8 @@ Uses the `magit-section' package for collapsible sections."
   :group 'octocat
   (setq-local buffer-read-only t)
   (setq-local truncate-lines t)
-  (setq-local revert-buffer-function #'octocat-refresh))
+  (setq-local revert-buffer-function #'octocat-refresh)
+  (font-lock-mode -1))
 
 
 ;;;; Async refresh
