@@ -1,4 +1,4 @@
-;;; octocat.el --- GitHub Client for Emacs  -*- lexical-binding: t; -*-
+;;; octocat.el --- GitHub Client powered by the gh CLI  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Saulius Menkevicius
 
@@ -83,7 +83,7 @@ is not inside a GitHub repository."
               (shell-command-to-string
                "git remote get-url origin 2>/dev/null"))))
     (when (string-empty-p url)
-      (user-error "octocat: could not find a Git remote named `origin'"))
+      (user-error "Octocat: Could not find a Git remote named `origin'"))
     (or
      ;; SSH:  git@github.com:owner/repo.git
      (and (string-match
@@ -93,7 +93,7 @@ is not inside a GitHub repository."
      (and (string-match
            "https://github\\.com/\\([^/]+/[^/]+?\\)\\(\\.git\\)?$" url)
           (match-string 1 url))
-     (user-error "octocat: `%s' does not look like a GitHub remote" url))))
+     (user-error "Octocat: `%s' does not look like a GitHub remote" url))))
 
 
 ;;;; gh integration
@@ -202,7 +202,7 @@ or the symbol `error' when the gh process fails."
                      (funcall callback 'error)))
                (error
                 (when (buffer-live-p err-buf) (kill-buffer err-buf))
-                (message "octocat sentinel error: %s" (error-message-string err))
+                (message "Octocat sentinel error: %s" (error-message-string err))
                 (funcall callback 'error))))))))))
 
 ;;;; Buffer rendering
@@ -276,7 +276,7 @@ Uses `magit-section' for collapsible entries."
   "Refresh the current octocat buffer asynchronously."
   (interactive)
   (unless octocat--repo
-    (user-error "octocat: buffer is not associated with a repository"))
+    (user-error "Octocat: Buffer is not associated with a repository"))
   (let ((buf (current-buffer))
         (repo octocat--repo))
     ;; Show loading placeholder immediately.
@@ -297,9 +297,9 @@ Uses `magit-section' for collapsible entries."
                             "  Error: could not fetch PRs.\n\
   Make sure `gh' is installed and you are authenticated (`gh auth login').\n"
                             'face 'error)))
-                 (message "octocat: failed to fetch pull requests"))
+                 (message "Octocat: Failed to fetch pull requests"))
              (octocat--render result repo)
-             (message "octocat: loaded %d pull request(s)" (length result)))))))))
+             (message "Octocat: Loaded %d pull request(s)" (length result)))))))))
 
 
 ;;;; PR visitor (stub)
@@ -309,9 +309,9 @@ Uses `magit-section' for collapsible entries."
   (interactive)
   (let ((section (magit-current-section)))
     (if (and section (eq (oref section type) 'pr))
-        (message "octocat: PR detail view coming soon!  (PR %s)"
+        (message "Octocat: PR detail view coming soon!  (PR %s)"
                  (gethash "number" (oref section value)))
-      (message "octocat: no PR at point"))))
+      (message "Octocat: No PR at point"))))
 
 
 ;;;; Entry point
