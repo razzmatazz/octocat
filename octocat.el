@@ -378,6 +378,28 @@ CALLBACK is called with a list of workflow hash-tables, or `error'."
                (propertize state 'face state-face)
                "\n"))))))))
 
+(defun octocat--render-loading (repo)
+  "Render a skeleton front view for REPO while data is still loading.
+Shows the repo header and collapsed section expanders for Pull Requests,
+Issues, and Workflows, each with a dimmed \\='Loading…\\=' placeholder."
+  (let ((inhibit-read-only t))
+    (erase-buffer)
+    (magit-insert-section (octocat-root)
+      (magit-insert-heading
+        (propertize repo 'face 'magit-branch-remote))
+      (magit-insert-section (pull-requests)
+        (magit-insert-heading
+          (propertize "Pull Requests" 'face 'magit-section-heading))
+        (insert (propertize "  Loading…\n" 'face 'magit-dimmed)))
+      (magit-insert-section (issues)
+        (magit-insert-heading
+          (propertize "Issues" 'face 'magit-section-heading))
+        (insert (propertize "  Loading…\n" 'face 'magit-dimmed)))
+      (magit-insert-section (workflows)
+        (magit-insert-heading
+          (propertize "Workflows" 'face 'magit-section-heading))
+        (insert (propertize "  Loading…\n" 'face 'magit-dimmed))))))
+
 (defun octocat--render (prs issues workflows repo)
   "Erase the current buffer and render PRS, ISSUES, and WORKFLOWS for REPO.
 Uses the `magit-section' package for collapsible sections."
@@ -431,10 +453,8 @@ Fetches pull requests and issues in parallel; renders once both arrive."
         (pr-result 'pending)
         (issue-result 'pending)
         (workflow-result 'pending))
-    ;; Show loading placeholder immediately.
-    (let ((inhibit-read-only t))
-      (erase-buffer)
-      (insert (propertize "  Loading…\n" 'face 'magit-dimmed)))
+    ;; Show skeleton view immediately while fetches are in flight.
+    (octocat--render-loading repo)
     ;; Render once all three fetches have completed.
     (cl-flet ((maybe-render ()
                 (unless (or (eq pr-result 'pending)
