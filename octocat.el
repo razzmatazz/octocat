@@ -18,6 +18,7 @@
 
 (require 'octocat-core)
 (require 'octocat-pr)
+(require 'octocat-commit)
 
 (defvar octocat--pr-repo)   ; defined as buffer-local in octocat-pr.el
 (defvar octocat--pr-number) ; defined as buffer-local in octocat-pr.el
@@ -51,7 +52,7 @@ is not inside a GitHub repository."
 
 (defun octocat--list-issues (repo callback)
   "Fetch issues for REPO asynchronously and call CALLBACK with results.
-CALLBACK is called with a list of issue hash-tables, or the symbol `error'."
+CALLBACK is called with a list of issue hash-tables, or a cons \\=(error . MSG)."
   (octocat--run-gh "issues"
                    (list "issue" "list"
                          "--repo" repo
@@ -62,7 +63,7 @@ CALLBACK is called with a list of issue hash-tables, or the symbol `error'."
 
 (defun octocat--list-workflows (repo callback)
   "Fetch workflows for REPO asynchronously and call CALLBACK with results.
-CALLBACK is called with a list of workflow hash-tables, or `error'."
+CALLBACK is called with a list of workflow hash-tables, or a cons \\=(error . MSG)."
   (octocat--run-gh "workflows"
                    (list "workflow" "list"
                          "--repo" repo
@@ -248,14 +249,15 @@ Fetches pull requests, issues, and workflows in parallel; renders once all arriv
                             (eq workflow-result 'pending))
                   (when (buffer-live-p buf)
                     (with-current-buffer buf
-                      (if (or (eq pr-result 'error)
-                              (eq issue-result 'error)
-                              (eq workflow-result 'error))
+                      (let ((failed (seq-find (lambda (r) (eq (car-safe r) 'error))
+                                              (list pr-result issue-result workflow-result))))
+                        (if failed
                           (let ((inhibit-read-only t))
                             (erase-buffer)
                             (insert (propertize
-                                     "  Error: could not fetch data.\n\
+                                     (format "  Error: %s\n\
   Make sure `gh' is installed and you are authenticated (`gh auth login').\n"
+                                             (cdr failed))
                                      'face 'error)))
                         (octocat--render pr-result issue-result workflow-result repo)))))))
       (octocat--list-prs repo
@@ -294,6 +296,23 @@ Fetches pull requests, issues, and workflows in parallel; renders once all arriv
                octocat--pr-number number)
          (octocat--render-pr-loading number title state)
          (octocat-pr-refresh)))
+      ('commit
+       (let* ((commit   (oref section value))
+              (c        (gethash "commit" commit))
+              (oid      (or (gethash "oid" commit) ""))
+              (msg      (or (and c (gethash "message" c)) ""))
+              (subject  (car (split-string msg "\n")))
+              (repo     (or octocat--pr-repo octocat--repo))
+              (short    (substring oid 0 (min 7 (length oid))))
+              (buf-name (format "*octocat-commit: %s@%s*" repo short))
+              (buf      (get-buffer-create buf-name)))
+         (pop-to-buffer buf)
+         (unless (derived-mode-p 'octocat-commit-mode)
+           (octocat-commit-mode))
+         (setq octocat--commit-repo repo
+               octocat--commit-sha  oid)
+         (octocat--render-commit-loading oid)
+         (octocat-commit-refresh)))
       ('issue
        (message "Octocat: Issue detail view coming soon!"))
       (_ nil))))
@@ -316,6 +335,12 @@ Fetches pull requests, issues, and workflows in parallel; renders once all arriv
                         "pr" "view" "--web"
                         (number-to-string number)
                         "--repo" repo)))
+      ('commit
+       (let* ((oid   (or (gethash "oid" value) ""))
+              (url   (format "https://github.com/%s/commit/%s" repo oid)))
+         (message "Octocat: Opening commit %s in browser…"
+                  (substring oid 0 (min 7 (length oid))))
+         (browse-url url)))
       ('issue
        (let ((number (gethash "number" value)))
          (message "Octocat: Opening issue #%d in browser…" number)

@@ -13,6 +13,7 @@
 ;;; Code:
 
 (require 'octocat-core)
+(require 'octocat-commit)
 
 ;; Forward declarations for buffer-locals defined later in this file.
 ;; Needed so the byte-compiler doesn't warn about free variables in
@@ -25,7 +26,7 @@
 
 (defun octocat--list-prs (repo callback)
   "Fetch open PRs for REPO asynchronously and call CALLBACK with results.
-CALLBACK is called with a list of PR hash-tables, or the symbol `error'."
+CALLBACK is called with a list of PR hash-tables, or a cons \\=(error . MSG)."
   (octocat--run-gh "prs"
                    (list "pr" "list"
                          "--repo" repo
@@ -36,7 +37,7 @@ CALLBACK is called with a list of PR hash-tables, or the symbol `error'."
 
 (defun octocat--fetch-pr (repo number callback)
   "Fetch detail for pull request NUMBER in REPO asynchronously.
-Calls CALLBACK with a single hash-table of PR data, or the symbol `error'."
+Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
   (octocat--run-gh "pr"
                    (list "pr" "view"
                          (number-to-string number)
@@ -46,7 +47,7 @@ Calls CALLBACK with a single hash-table of PR data, or the symbol `error'."
                                           "baseRefName,headRefName,"
                                           "additions,deletions,changedFiles,"
                                           "labels,reviewDecision,latestReviews,"
-                                          "comments,statusCheckRollup,url"))
+                                          "comments,statusCheckRollup,url,commits"))
                    (lambda (output) (json-parse-string (string-trim output)))
                    callback))
 
@@ -77,6 +78,9 @@ Calls CALLBACK with a single hash-table of PR data, or the symbol `error'."
       (magit-insert-section (pr-body)
         (magit-insert-heading (propertize "Body" 'face 'magit-section-heading))
         (insert (propertize "  Loading…\n" 'face 'magit-dimmed)))
+      (magit-insert-section (pr-commits)
+        (magit-insert-heading (propertize "Commits" 'face 'magit-section-heading))
+        (insert (propertize "  Loading…\n" 'face 'magit-dimmed)))
       (magit-insert-section (pr-checks)
         (magit-insert-heading (propertize "Checks" 'face 'magit-section-heading))
         (insert (propertize "  Loading…\n" 'face 'magit-dimmed)))
@@ -102,6 +106,8 @@ Calls CALLBACK with a single hash-table of PR data, or the symbol `error'."
          (additions   (or (gethash "additions"   pr) 0))
          (deletions   (or (gethash "deletions"   pr) 0))
          (files       (or (gethash "changedFiles" pr) 0))
+         (commits     (let ((v (gethash "commits" pr)))
+                        (if (or (null v) (eq v :null)) [] v)))
          (checks      (let ((v (gethash "statusCheckRollup" pr)))
                         (if (or (null v) (eq v :null)) [] v)))
          (reviews     (let ((v (gethash "latestReviews" pr)))
@@ -148,6 +154,33 @@ Calls CALLBACK with a single hash-table of PR data, or the symbol `error'."
             (insert (propertize "  (no description)\n" 'face 'magit-dimmed))
           (dolist (line (split-string body "\n"))
             (insert "  " line "\n"))))
+      ;; ── Commits ─────────────────────────────────────────────────────────
+      (magit-insert-section (pr-commits)
+        (magit-insert-heading
+          (propertize (format "Commits (%d)" (length commits))
+                      'face 'magit-section-heading))
+        (if (zerop (length commits))
+            (insert (propertize "  (no commits)\n" 'face 'magit-dimmed))
+          (cl-loop for commit across commits do
+                   (let* ((oid     (or (gethash "oid"             commit) ""))
+                          (subject (or (gethash "messageHeadline" commit) ""))
+                          (authors (gethash "authors" commit))
+                          (author  (or (and authors
+                                           (> (length authors) 0)
+                                           (gethash "name" (aref authors 0)))
+                                       ""))
+                          (short   (substring oid 0 (min 7 (length oid)))))
+                     (magit-insert-section (commit commit)
+                       (magit-insert-heading
+                         (concat
+                          "  "
+                          (propertize short 'face 'magit-hash)
+                          "  "
+                          (truncate-string-to-width
+                           (format "%-60s" subject) 60 nil ?\s "…")
+                          "  "
+                          (propertize author 'face 'octocat-pr-author)
+                          "\n")))))))
       ;; ── Checks ──────────────────────────────────────────────────────────
       (magit-insert-section (pr-checks)
         (magit-insert-heading
@@ -204,21 +237,29 @@ Calls CALLBACK with a single hash-table of PR data, or the symbol `error'."
 ;;;; Major mode
 
 (defvar octocat-pr-mode-map
-  (let ((map (make-sparse-keymap)))
+  (let ((map (make-sparse-keymap))
+        (g   (make-sparse-keymap)))   ; "g" prefix — lets evil's "gg" through
     (set-keymap-parent map magit-section-mode-map)
+    (define-key map (kbd "q")       #'quit-window)
+    (define-key map (kbd "RET")     #'octocat-visit)
+    (define-key map (kbd "o")       #'octocat-browse)
+    (define-key map (kbd "C-c C-o") #'octocat-browse)
+    ;; Shadow magit-section-mode-map's "g" → revert-buffer with a prefix map.
+    (define-key map (kbd "g")  g)
+    (define-key map (kbd "gr") #'octocat-pr-refresh)
     map)
   "Keymap for `octocat-pr-mode'.")
-(define-key octocat-pr-mode-map (kbd "q")       #'quit-window)
-(define-key octocat-pr-mode-map (kbd "g")       #'octocat-pr-refresh)
-(define-key octocat-pr-mode-map (kbd "o")       #'octocat-browse)
-(define-key octocat-pr-mode-map (kbd "C-c C-o") #'octocat-browse)
 (when (fboundp 'evil-define-key*)
+  ;; Clear any stale "g" binding from evil's auxiliary keymap so "gr" can
+  ;; be registered as a two-key sequence without conflict.
+  (let ((aux (evil-get-auxiliary-keymap octocat-pr-mode-map 'normal t)))
+    (define-key aux (kbd "g") nil))
   (evil-define-key* 'normal octocat-pr-mode-map
     (kbd "RET")     #'octocat-visit
     (kbd "o")       #'octocat-browse
     (kbd "C-c C-o") #'octocat-browse
     (kbd "q")       #'quit-window
-    (kbd "g")       #'octocat-pr-refresh))
+    (kbd "gr")      #'octocat-pr-refresh))
 
 (define-derived-mode octocat-pr-mode magit-section-mode "Octocat-PR"
   "Major mode for viewing a GitHub Pull Request.
@@ -253,11 +294,11 @@ Calls CALLBACK with a single hash-table of PR data, or the symbol `error'."
                        (lambda (result)
                          (when (buffer-live-p buf)
                            (with-current-buffer buf
-                             (if (eq result 'error)
+                             (if (eq (car-safe result) 'error)
                                  (let ((inhibit-read-only t))
                                    (erase-buffer)
                                    (insert (propertize
-                                            "  Error: could not fetch PR data.\n"
+                                            (format "  Error: %s\n" (cdr result))
                                             'face 'error)))
                                (octocat--render-pr result))))))))
 

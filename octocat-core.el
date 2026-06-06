@@ -95,10 +95,13 @@
 NAME is a short identifier used for the process and temp-buffer names.
 ARGS is a list of string arguments passed directly to the `gh' executable.
 PARSE-FN is called with the raw output string on success; its return value
-is forwarded to CALLBACK.  On failure CALLBACK receives the symbol `error'."
+is forwarded to CALLBACK.  On a `gh' non-zero exit or a parse failure,
+CALLBACK receives a cons cell \\=(error . MESSAGE) where MESSAGE is the
+human-readable reason.  Errors raised inside CALLBACK propagate normally
+so they appear in the *Backtrace* buffer."
   (let* ((gh-executable (executable-find "gh")))
     (if (not gh-executable)
-        (funcall callback 'error)
+        (funcall callback '(error . "`gh' executable not found"))
       (let* ((buf     (generate-new-buffer (format " *octocat-gh-%s*" name)))
              (err-buf (generate-new-buffer (format " *octocat-gh-%s-stderr*" name)))
              (cmd     (cons gh-executable args))
@@ -111,25 +114,31 @@ is forwarded to CALLBACK.  On failure CALLBACK receives the symbol `error'."
          :sentinel
          (lambda (proc event)
            (when (string-match-p "\\(finished\\|exited\\)" event)
-             (condition-case err
-                 (let* ((exit-code (process-exit-status proc))
-                        (output    (with-current-buffer (process-buffer proc)
-                                     (buffer-string)))
-                        (stderr    (with-current-buffer err-buf
-                                     (buffer-string))))
-                   (kill-buffer (process-buffer proc))
-                   (when (buffer-live-p err-buf) (kill-buffer err-buf))
-                   (octocat--debug-log
-                    (format "gh %s exit-code: %d" name exit-code) output)
-                   (octocat--debug-log
-                    (format "gh %s stderr" name) stderr)
-                   (if (= exit-code 0)
-                       (funcall callback (funcall parse-fn output))
-                     (funcall callback 'error)))
-               (error
-                (when (buffer-live-p err-buf) (kill-buffer err-buf))
-                (message "Octocat sentinel error: %s" (error-message-string err))
-                (funcall callback 'error))))))))))
+             ;; Collect output before buffers are killed.
+             (let* ((exit-code (process-exit-status proc))
+                    (output    (with-current-buffer (process-buffer proc)
+                                 (buffer-string)))
+                    (stderr    (with-current-buffer err-buf
+                                 (buffer-string))))
+               (kill-buffer (process-buffer proc))
+               (when (buffer-live-p err-buf) (kill-buffer err-buf))
+               (octocat--debug-log
+                (format "gh %s exit-code: %d" name exit-code) output)
+               (octocat--debug-log
+                (format "gh %s stderr" name) stderr)
+               ;; Resolve to a parsed value or an (error . msg) cell.
+               ;; The condition-case only covers parse-fn; callback runs
+               ;; outside it so renderer errors surface as real Lisp errors.
+               (let ((result
+                      (if (= exit-code 0)
+                          (condition-case err
+                              (funcall parse-fn output)
+                            (error (cons 'error (error-message-string err))))
+                        (cons 'error (string-trim
+                                      (if (string-empty-p stderr)
+                                          (format "gh exited with code %d" exit-code)
+                                        stderr))))))
+                 (funcall callback result))))))))))
 
 (defun octocat--parse-json-list (json-string)
   "Parse JSON-STRING from gh into a list of hash-tables.

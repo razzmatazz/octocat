@@ -41,7 +41,84 @@ Clone the repository and add it to your Emacs load path:
 
 ## Usage
 
-_Usage instructions and key bindings will be documented here as the project develops._
+### Opening the dashboard
+
+Run `M-x octocat` inside any Git repository that has a GitHub `origin` remote.
+This opens a front-page buffer listing Pull Requests, Issues, and Workflows.
+
+### PR detail view (`octocat-pr-mode`)
+
+Press `RET` on any PR row to open its detail buffer.  The buffer contains the
+following collapsible sections (toggle with `TAB`):
+
+| Section | Contents |
+|---------|----------|
+| **Info** | Author, head→base branch, creation / merge / close date, diff stats |
+| **Body** | The PR description |
+| **Commits (N)** | One line per commit: short SHA · subject · author |
+| **Checks (N)** | CI check name, workflow, and pass/fail/pending icon |
+| **Reviews (N)** | Reviewer login and review state |
+| **Comments (N)** | Commenter login and a truncated snippet |
+
+#### Commit navigation
+
+From the **Commits** section, press `RET` on a commit line to open the commit
+detail view (see below).  Press `o` (or `C-c C-o`) on a commit line to open
+it directly in your browser.
+
+#### PR detail keybindings
+
+| Key | Action |
+|-----|--------|
+| `RET` | Open item at point (commit → commit view) |
+| `o` / `C-c C-o` | Open item at point in browser |
+| `g` | Refresh PR data |
+| `q` | Close buffer |
+
+---
+
+### Commit detail view (`octocat-commit-mode`)
+
+Navigate to a commit from the PR detail view (press `RET` on a commit row).
+The commit buffer mirrors Magit's commit layout:
+
+```
+owner/repo  commit a1b2c3d  Commit subject line
+├── Info
+│     Author   Jane Doe
+│     Date     2026-06-01
+│     SHA      a1b2c3d…
+│     <optional multi-line commit body>
+└── Files (3)
+      M  src/foo.el       +12 -3
+         @@ -10,6 +10,18 @@
+          (context line)
+         +(added line)
+         -(removed line)
+      A  src/bar.el       +40 -0
+      D  src/old.el       +0  -15
+```
+
+Each file entry is a collapsible section.  The diff hunks are rendered with
+`diff-added` / `diff-removed` faces, and hunk headers (`@@…@@`) use the
+`magit-diff-hunk-heading` face.
+
+#### Commit view keybindings
+
+| Key | Action |
+|-----|--------|
+| `o` / `C-c C-o` | Open commit in browser |
+| `g` | Refresh commit data |
+| `q` | Close buffer |
+
+---
+
+### Global keybindings (all octocat buffers)
+
+| Key | Action |
+|-----|--------|
+| `TAB` | Expand / collapse section at point |
+| `S-TAB` | Cycle visibility of all sections |
 
 ## Development
 
