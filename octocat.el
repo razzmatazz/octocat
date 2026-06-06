@@ -181,7 +181,7 @@ Issues, and Workflows, each with a dimmed \\='Loading…\\=' placeholder."
 
 (defun octocat--render (prs issues workflows repo)
   "Erase the current buffer and render PRS, ISSUES, and WORKFLOWS for REPO.
-Uses magit-section for collapsible sections."
+Renders collapsible sections; delegates to the individual render helpers."
   (let ((inhibit-read-only t))
     (erase-buffer)
     (magit-insert-section (octocat-root)
@@ -233,7 +233,8 @@ Uses magit-section for collapsible sections."
 
 (defun octocat-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current octocat buffer asynchronously.
-Fetches pull requests, issues, and workflows in parallel; renders once all arrive."
+Fetches pull requests, issues, and workflows in parallel; renders once all
+arrive."
   (interactive)
   (unless octocat--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
@@ -243,7 +244,7 @@ Fetches pull requests, issues, and workflows in parallel; renders once all arriv
         (issue-result 'pending)
         (workflow-result 'pending))
     (octocat--render-loading repo)
-    (cl-flet ((maybe-render ()
+    (cl-labels ((maybe-render ()
                 (unless (or (eq pr-result 'pending)
                             (eq issue-result 'pending)
                             (eq workflow-result 'pending))
@@ -259,7 +260,7 @@ Fetches pull requests, issues, and workflows in parallel; renders once all arriv
   Make sure `gh' is installed and you are authenticated (`gh auth login').\n"
                                              (cdr failed))
                                      'face 'error)))
-                        (octocat--render pr-result issue-result workflow-result repo)))))))
+                        (octocat--render pr-result issue-result workflow-result repo))))))))
       (octocat--list-prs repo
                          (lambda (result)
                            (setq pr-result result)
@@ -301,7 +302,7 @@ Fetches pull requests, issues, and workflows in parallel; renders once all arriv
               (c        (gethash "commit" commit))
               (oid      (or (gethash "oid" commit) ""))
               (msg      (or (and c (gethash "message" c)) ""))
-              (subject  (car (split-string msg "\n")))
+              (_subject (car (split-string msg "\n")))
               (repo     (or octocat--pr-repo octocat--repo))
               (short    (substring oid 0 (min 7 (length oid))))
               (buf-name (format "*octocat-commit: %s@%s*" repo short))

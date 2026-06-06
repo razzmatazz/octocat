@@ -21,6 +21,17 @@
 (defvar octocat--pr-repo)
 (defvar octocat--pr-number)
 
+;; Evil is an optional dependency; declare its functions so the byte-compiler
+;; does not warn when they are called inside `(when (fboundp ...))' guards.
+(declare-function evil-get-auxiliary-keymap "evil-core" (keymap state &optional create))
+(declare-function evil-define-key* "evil-core" (state keymap &rest bindings))
+(declare-function evil-normalize-keymaps "evil-core" (&optional hook))
+
+;; These commands are defined in octocat.el which loads this file, so we
+;; cannot require it here.  Declare them to silence the byte-compiler.
+(declare-function octocat-browse "octocat" ())
+(declare-function octocat-visit  "octocat" ())
+
 
 ;;;; Data fetching
 
@@ -164,10 +175,10 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
           (cl-loop for commit across commits do
                    (let* ((oid     (or (gethash "oid"             commit) ""))
                           (subject (or (gethash "messageHeadline" commit) ""))
-                          (authors (gethash "authors" commit))
-                          (author  (or (and authors
-                                           (> (length authors) 0)
-                                           (gethash "name" (aref authors 0)))
+                          (commit-authors (gethash "authors" commit))
+                          (author  (or (and commit-authors
+                                           (> (length commit-authors) 0)
+                                           (gethash "name" (aref commit-authors 0)))
                                        ""))
                           (short   (substring oid 0 (min 7 (length oid)))))
                      (magit-insert-section (commit commit)

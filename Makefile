@@ -2,6 +2,7 @@ EMACS_BASE_IMAGE ?= silex/emacs:29.4
 TEST_IMAGE       := octocat-test
 PROJECT_DIR      := $(shell pwd)
 EL_FILES         := octocat-core.el octocat-pr.el octocat.el
+PLATFORM         ?= linux/arm64
 
 DOCKER := $(shell command -v docker 2>/dev/null || command -v podman 2>/dev/null)
 ifeq ($(DOCKER),)
@@ -11,10 +12,11 @@ endif
 .PHONY: test image
 
 image:
-	$(DOCKER) build --build-arg BASE=$(EMACS_BASE_IMAGE) -t $(TEST_IMAGE) .
+	$(DOCKER) build --platform $(PLATFORM) --build-arg BASE=$(EMACS_BASE_IMAGE) -t $(TEST_IMAGE) .
 
 test: image
 	$(DOCKER) run --rm \
+	  --platform $(PLATFORM) \
 	  -v "$(PROJECT_DIR):/src" \
 	  -w /src \
 	  $(TEST_IMAGE) \

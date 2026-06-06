@@ -15,6 +15,16 @@
 
 (require 'octocat-core)
 
+;; Evil is an optional dependency; declare its functions so the byte-compiler
+;; does not warn when they are called inside `(when (fboundp ...))' guards.
+(declare-function evil-get-auxiliary-keymap "evil-core" (keymap state &optional create))
+(declare-function evil-define-key* "evil-core" (state keymap &rest bindings))
+(declare-function evil-normalize-keymaps "evil-core" (&optional hook))
+
+;; These commands are defined in octocat.el which loads this file, so we
+;; cannot require it here.  Declare them to silence the byte-compiler.
+(declare-function octocat-browse "octocat" ())
+
 
 ;;;; Custom faces
 
@@ -203,7 +213,7 @@ COMMIT is the JSON object returned by the GitHub commits API endpoint."
                          (octocat--insert-patch patch)))
                      (when (> patch-lines 10)
                        (magit-section-hide file-section))))))
-    (goto-char (point-min)))
+    (goto-char (point-min)))))
 
 
 ;;;; Major mode
