@@ -21,6 +21,7 @@
 (require 'octocat-commit)
 (require 'octocat-issue)
 (require 'octocat-workflow)
+(require 'octocat-run)
 
 (defvar octocat--pr-repo)        ; defined as buffer-local in octocat-pr.el
 (defvar octocat--pr-number)      ; defined as buffer-local in octocat-pr.el
@@ -29,6 +30,8 @@
 (defvar octocat--workflow-repo)  ; defined as buffer-local in octocat-workflow.el
 (defvar octocat--workflow-id)    ; defined as buffer-local in octocat-workflow.el
 (defvar octocat--workflow-name)  ; defined as buffer-local in octocat-workflow.el
+(defvar octocat--run-repo)       ; defined as buffer-local in octocat-run.el
+(defvar octocat--run-id)         ; defined as buffer-local in octocat-run.el
 
 ;; Evil integration is optional; declare its entry point to silence the
 ;; byte-compiler when `octocat-evil' has not been loaded yet.
@@ -354,7 +357,7 @@ arrive."
   (let* ((section (magit-current-section))
          (type    (and section (oref section type)))
          (value   (and section (oref section value)))
-         (repo    (or octocat--repo octocat--pr-repo))
+         (repo    (or octocat--repo octocat--pr-repo octocat--run-repo))
          (gh      (executable-find "gh")))
     (unless gh
       (user-error "Octocat: `gh' executable not found"))
@@ -385,6 +388,13 @@ arrive."
               (url      (format "https://github.com/%s/actions/workflows/%s"
                                 repo filename)))
          (message "Octocat: Opening workflow in browser…")
+         (browse-url url)))
+      ('workflow-run
+       (let* ((run-id (or (gethash "databaseId" value)
+                          octocat--run-id))
+              (url    (format "https://github.com/%s/actions/runs/%s"
+                              repo (number-to-string run-id))))
+         (message "Octocat: Opening run #%s in browser…" run-id)
          (browse-url url)))
       (_ nil))))
 

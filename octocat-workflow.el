@@ -13,6 +13,7 @@
 ;;; Code:
 
 (require 'octocat-core)
+(require 'octocat-run)
 
 ;; These commands are defined in octocat.el which loads this file, so we
 ;; cannot require it here.  Declare them to silence the byte-compiler.
@@ -175,6 +176,31 @@ hash-tables."
     (goto-char (point-min))))
 
 
+;;;; Visitor
+
+(defun octocat-workflow-visit ()
+  "Open the detail view for the item at point.
+Currently handles \\='workflow-run\\=' sections, opening an
+`octocat-run-mode' buffer for the selected run."
+  (interactive)
+  (let ((section (magit-current-section)))
+    (when (and section (eq (oref section type) 'workflow-run))
+      (let* ((run      (oref section value))
+             (run-id   (gethash "databaseId" run))
+             (title    (or (gethash "displayTitle" run) ""))
+             (repo     octocat--workflow-repo)
+             (buf-name (format "*octocat-run: %s#%d*" repo run-id))
+             (buf      (get-buffer-create buf-name)))
+        (pop-to-buffer buf)
+        (unless (derived-mode-p 'octocat-run-mode)
+          (octocat-run-mode))
+        (setq octocat--run-repo repo
+              octocat--run-id   run-id)
+        (octocat--render-run-loading run-id)
+        (octocat-run-refresh)
+        (ignore title)))))
+
+
 ;;;; Major mode
 
 (defvar octocat-workflow-mode-map
@@ -182,6 +208,7 @@ hash-tables."
         (g   (make-sparse-keymap)))   ; "g" prefix — lets evil's "gg" through
     (set-keymap-parent map magit-section-mode-map)
     (define-key map (kbd "q")       #'quit-window)
+    (define-key map (kbd "RET")     #'octocat-workflow-visit)
     (define-key map (kbd "o")       #'octocat-browse)
     (define-key map (kbd "C-c C-o") #'octocat-browse)
     (define-key map (kbd "g")  g)
