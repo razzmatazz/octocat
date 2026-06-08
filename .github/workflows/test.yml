@@ -8,28 +8,19 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        emacs-version: ["29", "30"]
-    container:
-      image: silex/emacs:${{ matrix.emacs-version }}-ci-eask
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: eask install-deps --dev
+      - name: Build image
+        run: make image
 
-      - name: Byte-compile
-        run: eask compile
+      - name: Compile
+        run: make compile
 
-      - name: Lint checkdoc
-        run: eask lint checkdoc
-
-      - name: Lint package
-        run: eask lint package
+      - name: Lint
+        run: make lint
 
       - name: Run ERT tests
-        run: eask test ert test/octocat-tests.el
+        run: make test
 
