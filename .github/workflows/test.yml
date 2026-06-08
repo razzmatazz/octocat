@@ -1,15 +1,35 @@
-name: Lint
+name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches: [main]
   pull_request:
 
 jobs:
-  lint:
+  test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        emacs-version: ["29", "30"]
+    container:
+      image: silex/emacs:${{ matrix.emacs-version }}-ci-eask
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run linter+tests
-        run: make test
+      - name: Install dependencies
+        run: eask install-deps --dev
+
+      - name: Byte-compile
+        run: eask compile
+
+      - name: Lint checkdoc
+        run: eask lint checkdoc
+
+      - name: Lint package
+        run: eask lint package
+
+      - name: Run ERT tests
+        run: eask test ert test/octocat-tests.el
+

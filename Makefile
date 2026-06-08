@@ -1,40 +1,28 @@
-EMACS_BASE_IMAGE ?= silex/emacs:29.4
-TEST_IMAGE       := octocat-test
-PROJECT_DIR      := $(shell pwd)
-EL_FILES         := octocat-core.el octocat-commit.el octocat-pr.el octocat.el
-PLATFORM         ?= linux/arm64
+LOCAL_IMAGE := octocat-test
+SRC         := /src
 
 DOCKER := $(shell command -v docker 2>/dev/null || command -v podman 2>/dev/null)
 ifeq ($(DOCKER),)
   $(error Neither docker nor podman found on PATH)
 endif
 
-.PHONY: test image
+DOCKER_RUN = $(DOCKER) run --rm \
+               -v "$(CURDIR)":$(SRC) \
+               -w $(SRC) \
+               $(LOCAL_IMAGE)
+
+.PHONY: image compile lint test ci
 
 image:
-	$(DOCKER) build --platform $(PLATFORM) --build-arg BASE=$(EMACS_BASE_IMAGE) -t $(TEST_IMAGE) .
+	$(DOCKER) build -t $(LOCAL_IMAGE) .
+
+compile: image
+	$(DOCKER_RUN) sh -c "eask install-deps --dev && eask compile"
+
+lint: image
+	$(DOCKER_RUN) sh -c "eask install-deps --dev && eask lint checkdoc && eask lint package"
 
 test: image
-	rm -f *.elc
-	$(DOCKER) run --rm \
-	  --platform $(PLATFORM) \
-	  -v "$(PROJECT_DIR):/src" \
-	  -w /src \
-	  $(TEST_IMAGE) \
-	  emacs --batch \
-	    --eval "(require 'package)" \
-	    --eval "(add-to-list 'package-archives '(\"melpa\" . \"https://melpa.org/packages/\") t)" \
-	    --eval "(package-initialize)" \
-	    --eval "(package-refresh-contents)" \
-	    --eval "(setq package-install-upgrade-built-in t)" \
-	    --eval "(package-install 'package-lint)" \
-	    --eval "(package-install 'magit-section)" \
-	    --eval "(setq byte-compile-error-on-warn t)" \
-	    --eval "(add-to-list 'load-path \".\")" \
-	    --eval "(dolist (f '($(foreach f,$(EL_FILES),\"$(f)\"))) (byte-compile-file f))" \
-	    --eval "(require 'checkdoc)" \
-	    --eval "(require 'package-lint)" \
-	    --eval "(setq checkdoc-spellcheck-documentation-flag nil)" \
-	    --eval "(dolist (f '($(foreach f,$(EL_FILES),\"$(f)\"))) (checkdoc-file f))" \
-	    -f package-lint-batch-and-exit \
-	    $(EL_FILES)
+	$(DOCKER_RUN) sh -c "eask install-deps --dev && eask test ert test/octocat-tests.el"
+
+ci: compile lint test
