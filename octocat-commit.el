@@ -193,7 +193,7 @@ COMMIT is the JSON object returned by the GitHub commits API endpoint."
                                                (not (string-empty-p patch)))
                                           (length (split-string patch "\n"))
                                         0)))
-                     (magit-insert-section file-section (commit-file file)
+                     (magit-insert-section (commit-file file)
                        (magit-insert-heading
                          (concat "  "
                                  icon
@@ -204,9 +204,7 @@ COMMIT is the JSON object returned by the GitHub commits API endpoint."
                                   'face 'octocat-dimmed)
                                  "\n"))
                        (when (> patch-lines 0)
-                         (octocat--insert-patch patch)))
-                     (when (> patch-lines 10)
-                       (magit-section-hide file-section))))))
+                         (octocat--insert-patch patch)))))))
     (goto-char (point-min)))))
 
 

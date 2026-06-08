@@ -28,7 +28,6 @@ test: image
 	    --eval "(package-refresh-contents)" \
 	    --eval "(setq package-install-upgrade-built-in t)" \
 	    --eval "(package-install 'package-lint)" \
-	    --eval "(package-install 'transient)" \
 	    --eval "(package-install 'magit-section)" \
 	    --eval "(setq byte-compile-error-on-warn t)" \
 	    --eval "(add-to-list 'load-path \".\")" \
