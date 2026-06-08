@@ -19,9 +19,12 @@
 (require 'octocat-core)
 (require 'octocat-pr)
 (require 'octocat-commit)
+(require 'octocat-issue)
 
-(defvar octocat--pr-repo)   ; defined as buffer-local in octocat-pr.el
-(defvar octocat--pr-number) ; defined as buffer-local in octocat-pr.el
+(defvar octocat--pr-repo)     ; defined as buffer-local in octocat-pr.el
+(defvar octocat--pr-number)   ; defined as buffer-local in octocat-pr.el
+(defvar octocat--issue-repo)  ; defined as buffer-local in octocat-issue.el
+(defvar octocat--issue-number); defined as buffer-local in octocat-issue.el
 
 ;; Evil integration is optional; declare its entry point to silence the
 ;; byte-compiler when `octocat-evil' has not been loaded yet.
@@ -310,7 +313,20 @@ arrive."
          (octocat--render-commit-loading oid)
          (octocat-commit-refresh)))
       ('issue
-       (message "Octocat: Issue detail view coming soon!"))
+       (let* ((issue  (oref section value))
+              (number (gethash "number" issue))
+              (title  (or (gethash "title" issue) ""))
+              (state  (or (gethash "state" issue) "OPEN"))
+              (repo   octocat--repo)
+              (buf-name (format "*octocat-issue: %s#%d*" repo number))
+              (buf (get-buffer-create buf-name)))
+         (pop-to-buffer buf)
+         (unless (derived-mode-p 'octocat-issue-mode)
+           (octocat-issue-mode))
+         (setq octocat--issue-repo repo
+               octocat--issue-number number)
+         (octocat--render-issue-loading number title state)
+         (octocat-issue-refresh)))
       (_ nil))))
 
 (defun octocat-browse ()
