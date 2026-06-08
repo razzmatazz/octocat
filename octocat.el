@@ -69,6 +69,14 @@ is not inside a GitHub repository."
 
 ;;;; gh integration
 
+(defun octocat--disabled-feature-p (result)
+  "Return non-nil when RESULT signals a disabled-feature error from gh.
+Matches messages like \"X has disabled issues\" / \"disabled pull requests\" /
+\"disabled Actions\" that the gh CLI emits for repos where the feature is
+turned off, so callers can treat them as empty lists rather than real errors."
+  (and (eq (car-safe result) 'error)
+       (string-match-p "disabled" (cdr result))))
+
 (defun octocat--list-issues (repo callback)
   "Fetch issues for REPO asynchronously and call CALLBACK with results.
 CALLBACK is called with a list of issue hash-tables, or a cons \\=(error . MSG)."
@@ -101,7 +109,9 @@ PRS may be a list of pull-request hash-tables or a cons (error . MSG)."
       (propertize "Pull Requests" 'face 'octocat-section-heading))
     (cond
      ((eq (car-safe prs) 'error)
-      (insert (propertize (format "  %s\n" (cdr prs)) 'face 'octocat-dimmed)))
+      (if (octocat--disabled-feature-p prs)
+          (insert "  (no pull requests)\n")
+        (insert (propertize (format "  %s\n" (cdr prs)) 'face 'octocat-dimmed))))
      ((null prs)
       (insert "  (no pull requests)\n"))
      (t
@@ -138,7 +148,9 @@ ISSUES may be a list of issue hash-tables or a cons (error . MSG)."
       (propertize "Issues" 'face 'octocat-section-heading))
     (cond
      ((eq (car-safe issues) 'error)
-      (insert (propertize (format "  %s\n" (cdr issues)) 'face 'octocat-dimmed)))
+      (if (octocat--disabled-feature-p issues)
+          (insert "  (no issues)\n")
+        (insert (propertize (format "  %s\n" (cdr issues)) 'face 'octocat-dimmed))))
      ((null issues)
       (insert "  (no issues)\n"))
      (t
@@ -172,7 +184,9 @@ WORKFLOWS may be a list of workflow hash-tables or a cons (error . MSG)."
       (propertize "Workflows" 'face 'octocat-section-heading))
     (cond
      ((eq (car-safe workflows) 'error)
-      (insert (propertize (format "  %s\n" (cdr workflows)) 'face 'octocat-dimmed)))
+      (if (octocat--disabled-feature-p workflows)
+          (insert "  (no workflows)\n")
+        (insert (propertize (format "  %s\n" (cdr workflows)) 'face 'octocat-dimmed))))
      ((null workflows)
       (insert "  (no workflows)\n"))
      (t
@@ -225,12 +239,15 @@ Renders collapsible sections; delegates to the individual render helpers."
         (concat (propertize repo 'face 'octocat-repo)
                 (propertize
                  (format "  %s  %s  %s"
-                         (if (eq (car-safe prs) 'error)     "PRs: n/a"
-                           (format "%d PR(s)" (length prs)))
-                         (if (eq (car-safe issues) 'error)  "issues: n/a"
-                           (format "%d issue(s)" (length issues)))
-                         (if (eq (car-safe workflows) 'error) "workflows: n/a"
-                           (format "%d workflow(s)" (length workflows))))
+                         (cond ((octocat--disabled-feature-p prs)    "0 PR(s)")
+                               ((eq (car-safe prs) 'error)           "PRs: n/a")
+                               (t (format "%d PR(s)" (length prs))))
+                         (cond ((octocat--disabled-feature-p issues)  "0 issue(s)")
+                               ((eq (car-safe issues) 'error)         "issues: n/a")
+                               (t (format "%d issue(s)" (length issues))))
+                         (cond ((octocat--disabled-feature-p workflows) "0 workflow(s)")
+                               ((eq (car-safe workflows) 'error)        "workflows: n/a")
+                               (t (format "%d workflow(s)" (length workflows)))))
                  'face 'octocat-dimmed)))
       (octocat--render-prs prs)
       (octocat--render-issues issues)
