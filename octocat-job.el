@@ -103,10 +103,48 @@ A job-metadata failure is fatal and CALLBACK receives \\=(error . MSG)."
 
 ;;;; Log parsing
 
+(defun octocat--job-parse-log-line (rest)
+  "Parse one raw log REST field (TIMESTAMP MESSAGE) into a tagged entry.
+Returns a plist:
+  (:ts FORMATTED-TIME :kind KIND :text CONTENT)
+where KIND is one of `normal', `group-start', `group-end', or `command',
+and CONTENT is the ANSI-stripped message text.
+For `group-start' lines CONTENT is the group name.
+For `group-end' lines CONTENT is nil."
+  (let* ((ts-raw  nil)
+         (content nil))
+    ;; Third field starts with an ISO-8601 timestamp.
+    (if (string-match "^\\([0-9T:.Z-]+\\) \\(.*\\)$" rest)
+        (let* ((ts  (match-string 1 rest))
+               (msg (match-string 2 rest)))
+          (setq ts-raw  ts
+                content (ansi-color-filter-apply msg)))
+      (setq content (ansi-color-filter-apply rest)))
+    (let* ((fmt (when ts-raw
+                  (condition-case nil
+                      (format-time-string "%H:%M:%S" (date-to-time ts-raw))
+                    (error (if (>= (length ts-raw) 19)
+                               (substring ts-raw 11 19)
+                             ts-raw)))))
+           (kind (cond
+                  ((string-match "^##\\[group\\]\\(.*\\)$" (or content ""))
+                   'group-start)
+                  ((string-match "^##\\[endgroup\\]" (or content ""))
+                   'group-end)
+                  ((string-match "^\\[command\\]" (or content ""))
+                   'command)
+                  (t 'normal)))
+           (text (pcase kind
+                   ('group-start (match-string 1 content))
+                   ('group-end   nil)
+                   (_            content))))
+      (list :ts fmt :kind kind :text text))))
+
 (defun octocat--job-parse-log (raw)
   "Parse RAW log text from `gh run view --log' into an alist.
-Returns an alist of (STEP-NAME . (LINE ...)) in source order.
-Each line has its leading timestamp formatted as HH:MM:SS local time.
+Returns an alist of (STEP-NAME . ENTRIES) in source order.
+Each entry is a plist (:ts TS :kind KIND :text TEXT) where KIND is one of
+`normal', `group-start', `group-end', or `command'.
 ANSI codes are removed.  Lines that don't match the expected
 tab-delimited format are ignored."
   (let ((sections '())
@@ -121,34 +159,78 @@ tab-delimited format are ignored."
                       line))
              (parts (split-string clean "\t" nil)))
         (when (>= (length parts) 3)
-          (let* ((step    (string-trim (nth 1 parts)))
-                 (rest    (nth 2 parts))
-                 ;; Third field starts with an ISO-8601 timestamp; format it.
-                 (msg     (if (string-match "^\\([0-9T:.Z]+\\) \\(.*\\)$" rest)
-                              (let* ((ts      (match-string 1 rest))
-                                     (content (match-string 2 rest))
-                                     (fmt     (condition-case nil
-                                                  (format-time-string
-                                                   "%H:%M:%S" (date-to-time ts))
-                                                (error
-                                                 (if (>= (length ts) 19)
-                                                     (substring ts 11 19)
-                                                   ts)))))
-                                (concat fmt " " content))
-                            rest))
-                 (content (ansi-color-filter-apply msg)))
+          (let* ((step  (string-trim (nth 1 parts)))
+                 (entry (octocat--job-parse-log-line (nth 2 parts))))
             (unless (equal step current-step)
               (when current-step
                 (push (cons current-step (nreverse current-lines)) sections))
               (setq current-step  step
                     current-lines '()))
-            (push content current-lines)))))
+            (push entry current-lines)))))
     (when current-step
       (push (cons current-step (nreverse current-lines)) sections))
     (nreverse sections)))
 
 
 ;;;; Rendering helpers
+
+(defun octocat--render-log-line (entry indent)
+  "Insert one log ENTRY plist at INDENT into the current buffer.
+ENTRY has keys :ts :kind :text.  Returns non-nil for normal/command lines
+and nil for group-start/group-end lines (the caller handles those)."
+  (let ((ts   (plist-get entry :ts))
+        (kind (plist-get entry :kind))
+        (text (plist-get entry :text)))
+    (pcase kind
+      ('normal
+       (insert indent
+               (if ts (propertize (concat ts " ") 'face 'octocat-dimmed) "")
+               (or text "")
+               "\n"))
+      ('command
+       (insert indent
+               (if ts (propertize (concat ts " ") 'face 'octocat-dimmed) "")
+               (propertize (or text "") 'face 'octocat-dimmed)
+               "\n")))))
+
+(defun octocat--render-log-lines (entries indent)
+  "Insert log ENTRIES at INDENT, collapsing ##[group] blocks as sections."
+  (let ((group-entries nil)
+        (group-name    nil))
+    (dolist (entry entries)
+      (let ((kind (plist-get entry :kind)))
+        (cond
+         ;; Start a new group — collect subsequent lines.
+         ((eq kind 'group-start)
+          ;; If we were already in a group (malformed log), flush it first.
+          (when group-name
+            (octocat--render-log-group group-name (nreverse group-entries) indent))
+          (setq group-name    (plist-get entry :text)
+                group-entries nil))
+         ;; End of group — emit the collected section.
+         ((eq kind 'group-end)
+          (when group-name
+            (octocat--render-log-group group-name (nreverse group-entries) indent))
+          (setq group-name nil group-entries nil))
+         ;; Any other line: buffer it if inside a group, otherwise emit directly.
+         (t
+          (if group-name
+              (push entry group-entries)
+            (octocat--render-log-line entry indent))))))
+    ;; Flush an unclosed group at end of step.
+    (when group-name
+      (octocat--render-log-group group-name (nreverse group-entries) indent))))
+
+(defun octocat--render-log-group (name entries indent)
+  "Insert a collapsible magit section for a log group named NAME.
+ENTRIES are the lines collected inside the group; INDENT is the outer prefix."
+  (magit-section-hide
+   (magit-insert-section (job-log-group name)
+     (magit-insert-heading
+       (concat indent
+               (propertize (concat "▸ " (or name "")) 'face 'octocat-dimmed)))
+     (dolist (entry entries)
+       (octocat--render-log-line entry (concat indent "  "))))))
 
 (defun octocat--job-step-icon (status conclusion)
   "Return a propertized checkbox icon for a step with STATUS and CONCLUSION.
@@ -298,8 +380,7 @@ LOG-SECTIONS is either an alist of (STEP-NAME . LINES) or a cons
                                 (when sdur
                                   (propertize (format "  %s" sdur)
                                               'face 'octocat-dimmed))))
-                      (dolist (line lines)
-                        (insert "  " line "\n")))))))
+                      (octocat--render-log-lines lines "  "))))))
       (when (eq (car-safe log-sections) 'error)
         (insert (propertize (format "  (log unavailable: %s)\n" (cdr log-sections))
                             'face 'octocat-dimmed))))
