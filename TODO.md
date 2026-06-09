@@ -116,3 +116,5 @@ Probably show the entire diff, file sections, with subsections where review comm
 ## ~~PR/issue body rendering~~
 
 Fixed by stripping `\r` from body and comment text in both `octocat-pr.el` and `octocat-issue.el` at the binding site, before any rendering or splitting.
+
+## Commits can be and should be cached
