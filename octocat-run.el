@@ -275,13 +275,18 @@ for the selected job."
 ;;;; Refresh
 
 (defun octocat-run-refresh (&optional _ignore-auto _noconfirm)
-  "Refresh the current run detail buffer asynchronously."
+  "Refresh the current run detail buffer asynchronously.
+Renders a disk cache immediately (stale-while-revalidate) when available,
+then always fetches fresh data in the background."
   (interactive)
   (unless (and octocat--run-repo octocat--run-id)
     (user-error "Octocat: Buffer is not associated with a workflow run"))
   (let ((buf  (current-buffer))
         (repo octocat--run-repo)
         (id   octocat--run-id))
+    (let ((cache (octocat--detail-cache-load repo "run" id)))
+      (when cache
+        (octocat--render-run cache)))
     (setq mode-line-process " [refreshing…]")
     (octocat--fetch-run
      repo id
@@ -295,6 +300,7 @@ for the selected job."
                  (insert (propertize
                           (format "  Error: %s\n" (cdr result))
                           'face 'error)))
+             (octocat--detail-cache-save repo "run" id result)
              (octocat--render-run result))))))))
 
 (provide 'octocat-run)

@@ -278,13 +278,18 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
 ;;;; Refresh
 
 (defun octocat-pr-refresh (&optional _ignore-auto _noconfirm)
-  "Refresh the current PR detail buffer asynchronously."
+  "Refresh the current PR detail buffer asynchronously.
+Renders a disk cache immediately (stale-while-revalidate) when available,
+then always fetches fresh data in the background."
   (interactive)
   (unless (and octocat--pr-repo octocat--pr-number)
     (user-error "Octocat: Buffer is not associated with a pull request"))
   (let ((buf  (current-buffer))
         (repo octocat--pr-repo)
         (num  octocat--pr-number))
+    (let ((cache (octocat--detail-cache-load repo "pr" num)))
+      (when cache
+        (octocat--render-pr cache)))
     (setq mode-line-process " [refreshing…]")
     (octocat--fetch-pr repo num
                        (lambda (result)
@@ -297,6 +302,7 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
                                    (insert (propertize
                                             (format "  Error: %s\n" (cdr result))
                                             'face 'error)))
+                               (octocat--detail-cache-save repo "pr" num result)
                                (octocat--render-pr result))))))))
 
 (provide 'octocat-pr)

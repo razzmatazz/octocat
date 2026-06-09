@@ -26,8 +26,8 @@
   :group 'octocat)
 
 (defcustom octocat-cache-directory
-  (locate-user-emacs-file "octocat/cache/")
-  "Directory for storing octocat dashboard cache files."
+  (locate-user-emacs-file "octocat/cache-v2/")
+  "Directory for storing octocat cache files."
   :type 'directory
   :group 'octocat)
 
@@ -265,10 +265,51 @@ Combines a dimmed \"CI:\" prefix with the coloured status icon from
 
 ;;;; Disk cache
 
+(defun octocat--cache-safe-repo (repo)
+  "Return a filesystem-safe version of REPO for use in cache file names.
+The owner/repo slash becomes \"--\" so the two components stay visually
+distinct; any remaining non-alphanumeric characters become \"-\"."
+  (replace-regexp-in-string
+   "[^A-Za-z0-9._-]" "-"
+   (replace-regexp-in-string "/" "--" repo)))
+
 (defun octocat--cache-file (repo)
   "Return the cache file path for REPO."
-  (let ((safe (replace-regexp-in-string "[^A-Za-z0-9._-]" "-" repo)))
-    (expand-file-name (concat safe ".json") octocat-cache-directory)))
+  (expand-file-name (concat (octocat--cache-safe-repo repo) ".json")
+                    octocat-cache-directory))
+
+(defun octocat--detail-cache-file (repo type number)
+  "Return the cache file path for a detail view.
+REPO is \"owner/repo\", TYPE is a string such as \"pr\" or \"issue\",
+and NUMBER is the integer item number."
+  (expand-file-name (format "%s-%s-%d.json"
+                            (octocat--cache-safe-repo repo) type number)
+                    octocat-cache-directory))
+
+(defun octocat--detail-cache-load (repo type number)
+  "Load cached detail data for TYPE item NUMBER in REPO.
+Returns the parsed hash-table, or nil when absent or unparseable."
+  (let ((file (octocat--detail-cache-file repo type number)))
+    (when (file-readable-p file)
+      (condition-case nil
+          (json-parse-string
+           (with-temp-buffer
+             (insert-file-contents file)
+             (buffer-string)))
+        (error nil)))))
+
+(defun octocat--detail-cache-save (repo type number data)
+  "Persist DATA (a hash-table) for TYPE item NUMBER in REPO to disk.
+Skips silently when DATA is an error cons."
+  (unless (eq (car-safe data) 'error)
+    (let* ((file (octocat--detail-cache-file repo type number))
+           (dir  (file-name-directory file)))
+      (make-directory dir t)
+      (condition-case nil
+          (with-temp-file file
+            (insert (json-serialize data))
+            (json-pretty-print-buffer))
+        (error nil)))))
 
 (defun octocat--cache-load (repo)
   "Load cached dashboard data for REPO from disk.
@@ -298,10 +339,10 @@ persisted."
     (let* ((file (octocat--cache-file repo))
            (dir  (file-name-directory file))
            (obj  (let ((h (make-hash-table :test #'equal)))
-                   (puthash "timestamp" (float-time)       h)
-                   (puthash "repo"      repo               h)
-                   (puthash "prs"       (vconcat prs)       h)
-                   (puthash "issues"    (vconcat issues)    h)
+                   (puthash "timestamp" (float-time)      h)
+                   (puthash "repo"      repo              h)
+                   (puthash "prs"       (vconcat prs)     h)
+                   (puthash "issues"    (vconcat issues)  h)
                    (puthash "workflows" (vconcat workflows) h)
                    h)))
       (make-directory dir t)

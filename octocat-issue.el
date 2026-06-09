@@ -183,13 +183,18 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
 ;;;; Refresh
 
 (defun octocat-issue-refresh (&optional _ignore-auto _noconfirm)
-  "Refresh the current issue detail buffer asynchronously."
+  "Refresh the current issue detail buffer asynchronously.
+Renders a disk cache immediately (stale-while-revalidate) when available,
+then always fetches fresh data in the background."
   (interactive)
   (unless (and octocat--issue-repo octocat--issue-number)
     (user-error "Octocat: Buffer is not associated with an issue"))
   (let ((buf  (current-buffer))
         (repo octocat--issue-repo)
         (num  octocat--issue-number))
+    (let ((cache (octocat--detail-cache-load repo "issue" num)))
+      (when cache
+        (octocat--render-issue cache)))
     (setq mode-line-process " [refreshing…]")
     (octocat--fetch-issue repo num
                           (lambda (result)
@@ -202,6 +207,7 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
                                       (insert (propertize
                                                (format "  Error: %s\n" (cdr result))
                                                'face 'error)))
+                                  (octocat--detail-cache-save repo "issue" num result)
                                   (octocat--render-issue result))))))))
 
 (provide 'octocat-issue)

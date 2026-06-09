@@ -88,6 +88,7 @@ CALLBACK is called with a list of workflow hash-tables, or a cons \\=(error . MS
                    callback))
 
 
+
 ;;;; Buffer rendering
 
 (defun octocat--render-prs (prs)
@@ -182,9 +183,7 @@ WORKFLOWS may be a list of workflow hash-tables or a cons (error . MSG)."
       (dolist (workflow workflows)
         (let* ((name  (or (gethash "name"  workflow) ""))
                (state (downcase (or (gethash "state" workflow) "")))
-               (state-face (if (equal state "active")
-                               'success
-                             'octocat-dimmed)))
+               (state-face (if (equal state "active") 'success 'octocat-dimmed)))
           (magit-insert-section (workflow workflow)
             (magit-insert-heading
               (concat

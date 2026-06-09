@@ -126,7 +126,15 @@ hash-tables."
                 "  "
                 name
                 "  "
-                (propertize state 'face (octocat--workflow-state-face state))))
+                (propertize state 'face (octocat--workflow-state-face state))
+                (when runs
+                  (let* ((latest     (car runs))
+                         (lstatus    (downcase (or (gethash "status"     latest) "")))
+                         (lconc      (let ((c (gethash "conclusion" latest)))
+                                       (when (and c (not (eq c :null)))
+                                         (downcase c))))
+                         (icon       (octocat--workflow-run-icon lstatus lconc)))
+                    (concat "  " icon)))))
       ;; ── Info ────────────────────────────────────────────────────────────
       (magit-insert-section (workflow-info)
         (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))
@@ -227,14 +235,26 @@ Currently handles \\='workflow-run\\=' sections, opening an
 
 ;;;; Refresh
 
+(defun octocat--workflow-cache-render (cached)
+  "Render workflow detail from a CACHED hash-table loaded from disk.
+CACHED must contain a \\='workflow\\=' key (hash-table) and a \\='runs\\=' key (vector)."
+  (let ((wf   (gethash "workflow" cached))
+        (runs (cl-coerce (gethash "runs" cached) 'list)))
+    (octocat--render-workflow wf runs)))
+
 (defun octocat-workflow-refresh (&optional _ignore-auto _noconfirm)
-  "Refresh the current workflow detail buffer asynchronously."
+  "Refresh the current workflow detail buffer asynchronously.
+Renders a disk cache immediately (stale-while-revalidate) when available,
+then always fetches fresh data in the background."
   (interactive)
   (unless (and octocat--workflow-repo octocat--workflow-id)
     (user-error "Octocat: Buffer is not associated with a workflow"))
   (let ((buf  (current-buffer))
         (repo octocat--workflow-repo)
         (id   octocat--workflow-id))
+    (let ((cache (octocat--detail-cache-load repo "workflow" id)))
+      (when cache
+        (octocat--workflow-cache-render cache)))
     (setq mode-line-process " [refreshing…]")
     (octocat--fetch-workflow
      repo id
@@ -247,7 +267,14 @@ Currently handles \\='workflow-run\\=' sections, opening an
                  (erase-buffer)
                  (insert (propertize (format "  Error: %s\n" (cdr result))
                                      'face 'error)))
-             (octocat--render-workflow (car result) (cdr result)))))))))
+             (let* ((wf   (car result))
+                    (runs (cdr result))
+                    (obj  (let ((h (make-hash-table :test #'equal)))
+                            (puthash "workflow" wf               h)
+                            (puthash "runs"     (vconcat runs)   h)
+                            h)))
+               (octocat--detail-cache-save repo "workflow" id obj)
+               (octocat--render-workflow wf runs)))))))))
 
 (provide 'octocat-workflow)
 ;;; octocat-workflow.el ends here

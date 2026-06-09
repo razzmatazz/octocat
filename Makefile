@@ -28,4 +28,7 @@ lint: image
 test: image
 	$(DOCKER_RUN) sh -c "eask install-deps --dev && eask test ert test/octocat-tests.el"
 
-ci: compile lint test
+# compile, lint and test each spin up their own container and are independent
+# of each other once the image exists — run them in parallel with -j3.
+ci: image
+	$(MAKE) -j3 compile lint test
