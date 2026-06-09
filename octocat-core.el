@@ -24,6 +24,14 @@
   :type 'boolean
   :group 'octocat)
 
+(defcustom octocat-cache-directory
+  (locate-user-emacs-file "octocat/cache/")
+  "Directory for storing octocat dashboard cache files."
+  :type 'directory
+  :group 'octocat)
+
+
+
 
 ;;;; Custom faces
 
@@ -245,6 +253,52 @@ Returns \"✓\" (success), \"✗\" (failure), or \"●\" (pending/unknown)."
       (propertize "✓" 'face 'octocat-ci-success))
      (t
       (propertize "●" 'face 'octocat-ci-pending)))))
+
+;;;; Disk cache
+
+(defun octocat--cache-file (repo)
+  "Return the cache file path for REPO."
+  (let ((safe (replace-regexp-in-string "[^A-Za-z0-9._-]" "-" repo)))
+    (expand-file-name (concat safe ".json") octocat-cache-directory)))
+
+(defun octocat--cache-load (repo)
+  "Load cached dashboard data for REPO from disk.
+Returns a plist with keys :timestamp :prs :issues :workflows, or nil if the
+cache file is absent or cannot be parsed."
+  (let ((file (octocat--cache-file repo)))
+    (when (file-readable-p file)
+      (condition-case nil
+          (let* ((json   (with-temp-buffer
+                           (insert-file-contents file)
+                           (buffer-string)))
+                 (data   (json-parse-string json))
+                 (ts     (gethash "timestamp" data))
+                 (prs    (cl-coerce (gethash "prs"       data) 'list))
+                 (issues (cl-coerce (gethash "issues"    data) 'list))
+                 (wflows (cl-coerce (gethash "workflows" data) 'list)))
+            (list :timestamp ts :prs prs :issues issues :workflows wflows))
+        (error nil)))))
+
+(defun octocat--cache-save (repo prs issues workflows)
+  "Write PRS, ISSUES and WORKFLOWS for REPO to the disk cache as JSON.
+Does nothing if any argument is an error cons — only successful results are
+persisted."
+  (when (and (not (eq (car-safe prs)       'error))
+             (not (eq (car-safe issues)    'error))
+             (not (eq (car-safe workflows) 'error)))
+    (let* ((file (octocat--cache-file repo))
+           (dir  (file-name-directory file))
+           (obj  (let ((h (make-hash-table :test #'equal)))
+                   (puthash "timestamp" (float-time)       h)
+                   (puthash "repo"      repo               h)
+                   (puthash "prs"       (vconcat prs)       h)
+                   (puthash "issues"    (vconcat issues)    h)
+                   (puthash "workflows" (vconcat workflows) h)
+                   h)))
+      (make-directory dir t)
+      (with-temp-file file
+        (insert (json-serialize obj))
+        (json-pretty-print-buffer)))))
 
 (provide 'octocat-core)
 ;;; octocat-core.el ends here

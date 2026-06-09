@@ -1,6 +1,6 @@
 # TODO items
 
-## Some form of caching is needed to long load of dashboard for large repos
+## ~~Some form of caching is needed to long load of dashboard for large repos~~
 
 Two separate problems:
 
@@ -10,24 +10,19 @@ Two separate problems:
 `mode-line-process` is set to `" [refreshing…]"` while background calls are
 in flight, cleared when `octocat--render` completes.
 
-**Stage 2 — Disk cache**
+**~~Stage 2 — Disk cache~~**
 One file per `(repo . filters)` key under a `defcustom octocat-cache-directory`
 defaulting to `(locate-user-emacs-file "octocat/cache/")` — portable across
 Doom, no-littering, and vanilla Emacs.  Do NOT hardcode
 `~/.config/emacs/.local/cache` (that is Doom-specific).  Store as JSON
 (pretty-printed) so cache files are easy to inspect and debug directly.
 
-Store a timestamp alongside the data in each cache file.
-
 Flow:
-- On buffer open: load cache file → render immediately (no blank screen).
-  If cache is older than TTL, kick off background `gh` calls; re-render +
-  overwrite cache file when they arrive.  If within TTL, do nothing further.
-- `gr`: always forces a refresh regardless of TTL.
+- On buffer open: load cache file → render immediately (no blank screen),
+  then always kick off background `gh` calls with `[refreshing…]` indicator;
+  re-render + overwrite cache file when they arrive.
 - No cache file yet (first open): show "Loading…" as today, write cache on
   arrival.
-
-TTL as `defcustom octocat-cache-ttl` in seconds, default 300 (5 min).
 
 Implement Stage 1 first, then Stage 2 alongside or after the filter feature
 (since the cache key must include filter state).

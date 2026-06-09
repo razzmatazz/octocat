@@ -272,39 +272,47 @@ Renders collapsible sections; delegates to the individual render helpers."
 
 (defun octocat-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current octocat buffer asynchronously.
-Fetches pull requests, issues, and workflows in parallel; renders once all
-arrive."
+Loads a disk cache (if present) and renders it immediately, then always
+fetches fresh data in the background and re-renders when it arrives."
   (interactive)
   (unless octocat--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
-  (let ((buf (current-buffer))
-        (repo octocat--repo)
-        (pr-result 'pending)
-        (issue-result 'pending)
-        (workflow-result 'pending))
-    (if (zerop (buffer-size))
-        (octocat--render-loading repo)
-      (setq mode-line-process " [refreshing…]"))
-    (cl-labels ((maybe-render ()
-                (unless (or (eq pr-result 'pending)
-                            (eq issue-result 'pending)
-                            (eq workflow-result 'pending))
-                  (when (buffer-live-p buf)
-                    (with-current-buffer buf
-                      (setq mode-line-process nil)
-                      (octocat--render pr-result issue-result workflow-result repo))))))
-      (octocat--list-prs repo
-                         (lambda (result)
-                           (setq pr-result result)
-                           (maybe-render)))
-      (octocat--list-issues repo
-                            (lambda (result)
-                              (setq issue-result result)
-                              (maybe-render)))
-      (octocat--list-workflows repo
-                               (lambda (result)
-                                 (setq workflow-result result)
-                                 (maybe-render))))))
+  (let* ((buf   (current-buffer))
+         (repo  octocat--repo)
+         (cache (octocat--cache-load repo)))
+    ;; Render cache immediately if available; otherwise show loading skeleton.
+    (if cache
+        (octocat--render (plist-get cache :prs)
+                         (plist-get cache :issues)
+                         (plist-get cache :workflows)
+                         repo)
+      (octocat--render-loading repo))
+    ;; Always fetch fresh data in the background.
+    (setq mode-line-process " [refreshing…]")
+    (let ((pr-result       'pending)
+          (issue-result    'pending)
+          (workflow-result 'pending))
+      (cl-labels ((maybe-render ()
+                   (unless (or (eq pr-result       'pending)
+                               (eq issue-result    'pending)
+                               (eq workflow-result 'pending))
+                     (when (buffer-live-p buf)
+                       (with-current-buffer buf
+                         (setq mode-line-process nil)
+                         (octocat--cache-save repo pr-result issue-result workflow-result)
+                         (octocat--render pr-result issue-result workflow-result repo))))))
+        (octocat--list-prs repo
+                           (lambda (result)
+                             (setq pr-result result)
+                             (maybe-render)))
+        (octocat--list-issues repo
+                              (lambda (result)
+                                (setq issue-result result)
+                                (maybe-render)))
+        (octocat--list-workflows repo
+                                 (lambda (result)
+                                   (setq workflow-result result)
+                                   (maybe-render)))))))
 
 
 ;;;; Visitor and browser
