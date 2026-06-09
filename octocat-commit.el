@@ -147,7 +147,7 @@ COMMIT is the JSON object returned by the GitHub commits API endpoint."
          (author-obj (and c (gethash "author" c)))
          (author    (or (and author-obj (gethash "name" author-obj)) ""))
          (date-raw  (or (and author-obj (gethash "date" author-obj)) ""))
-         (date      (substring date-raw 0 (min 10 (length date-raw))))
+         (date      (octocat--format-ts date-raw))
          (files     (let ((v (gethash "files" commit)))
                       (if (or (null v) (eq v :null)) [] v)))
          (inhibit-read-only t))
@@ -242,10 +242,12 @@ COMMIT is the JSON object returned by the GitHub commits API endpoint."
   (let ((buf  (current-buffer))
         (repo octocat--commit-repo)
         (sha  octocat--commit-sha))
+    (setq mode-line-process " [refreshing…]")
     (octocat--fetch-commit repo sha
                            (lambda (result)
                              (when (buffer-live-p buf)
                                (with-current-buffer buf
+                                 (setq mode-line-process nil)
                                  (if (eq (car-safe result) 'error)
                                      (let ((inhibit-read-only t))
                                        (erase-buffer)

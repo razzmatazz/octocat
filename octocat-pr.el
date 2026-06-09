@@ -142,12 +142,12 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
         (insert (format "  Branch   %s → %s\n"
                         (propertize head 'face 'octocat-branch)
                         (propertize base 'face 'octocat-branch)))
-        (insert (format "  Created  %s\n" (substring created 0 (min 10 (length created)))))
+        (insert (format "  Created  %s\n" (octocat--format-ts created)))
         (when (and merged (not (eq merged :null)) (not (string-empty-p merged)))
-          (insert (format "  Merged   %s\n" (substring merged 0 (min 10 (length merged))))))
+          (insert (format "  Merged   %s\n" (octocat--format-ts merged))))
         (when (and closed (not (eq closed :null)) (not (string-empty-p closed))
                    (not (equal state "MERGED")))
-          (insert (format "  Closed   %s\n" (substring closed 0 (min 10 (length closed))))))
+          (insert (format "  Closed   %s\n" (octocat--format-ts closed))))
         (insert (format "  Changes  %s %s across %d file(s)\n"
                         (propertize (format "+%d" additions) 'face 'diff-added)
                         (propertize (format "-%d" deletions) 'face 'diff-removed)
@@ -223,17 +223,7 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
         (magit-insert-heading
           (propertize (format "Comments (%d)" (length comments))
                       'face 'octocat-section-heading))
-        (if (zerop (length comments))
-            (insert (propertize "  (no comments)\n" 'face 'octocat-dimmed))
-          (cl-loop for comment across comments do
-                   (let* ((login (or (gethash "login" (gethash "author" comment)) ""))
-                          (cbody (replace-regexp-in-string "\r" "" (or (gethash "body" comment) "")))
-                          (snippet (truncate-string-to-width
-                                    (replace-regexp-in-string "\n" " " cbody)
-                                    72 nil ?\s "…")))
-                     (insert (format "  %-20s  %s\n"
-                                     (propertize (concat "@" login) 'face 'octocat-pr-author)
-                                     snippet)))))))))
+        (octocat--render-comments comments)))))
 
 
 ;;;; Major mode
@@ -278,10 +268,12 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
   (let ((buf  (current-buffer))
         (repo octocat--pr-repo)
         (num  octocat--pr-number))
+    (setq mode-line-process " [refreshing…]")
     (octocat--fetch-pr repo num
                        (lambda (result)
                          (when (buffer-live-p buf)
                            (with-current-buffer buf
+                             (setq mode-line-process nil)
                              (if (eq (car-safe result) 'error)
                                  (let ((inhibit-read-only t))
                                    (erase-buffer)

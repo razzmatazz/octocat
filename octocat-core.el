@@ -309,6 +309,45 @@ persisted."
         (insert (json-serialize obj))
         (json-pretty-print-buffer)))))
 
+;;;; Timestamp formatting
+
+(defun octocat--format-ts (ts)
+  "Format an ISO-8601 UTC timestamp TS as \"YYYY-MM-DD HH:MM\" in local time.
+Returns an empty string for nil, :null, or an empty string.
+Falls back to the raw date prefix if the string cannot be parsed."
+  (if (or (null ts) (eq ts :null) (string-empty-p ts))
+      ""
+    (condition-case nil
+        (format-time-string "%Y-%m-%d %H:%M" (date-to-time ts))
+      (error (substring ts 0 (min 10 (length ts)))))))
+
+;;;; Comment rendering
+
+(defun octocat--render-comments (comments)
+  "Insert COMMENTS as individual magit sections with full markdown bodies.
+COMMENTS is a vector of comment hash-tables as returned by the gh CLI.
+Each comment gets a collapsible section whose heading shows the author
+and date, with the full body rendered via `octocat--insert-markdown'
+below it.  An empty vector renders a dimmed \"(no comments)\" placeholder."
+  (if (zerop (length comments))
+      (insert (propertize "  (no comments)\n" 'face 'octocat-dimmed))
+    (cl-loop for comment across comments do
+             (let* ((login   (or (gethash "login" (gethash "author" comment)) ""))
+                    (body    (or (gethash "body" comment) ""))
+                    (created (or (gethash "createdAt" comment) ""))
+                    (date    (octocat--format-ts created)))
+               (magit-insert-section (comment comment)
+                 (magit-insert-heading
+                   (concat "  "
+                           (propertize (concat "@" login) 'face 'octocat-pr-author)
+                           "  "
+                           (propertize date 'face 'octocat-dimmed)
+                           "\n"))
+                 (if (string-empty-p (string-trim body))
+                     (insert (propertize "  (empty)\n" 'face 'octocat-dimmed))
+                   (octocat--insert-markdown body))
+                 (insert "\n"))))))
+
 ;;;; Markdown rendering
 
 (defun octocat--insert-markdown (text &optional indent)

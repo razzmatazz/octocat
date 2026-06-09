@@ -125,11 +125,9 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
         (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))
         (insert (format "  Author   %s\n"
                         (propertize (concat "@" author) 'face 'octocat-pr-author)))
-        (insert (format "  Created  %s\n"
-                        (substring created 0 (min 10 (length created)))))
+        (insert (format "  Created  %s\n" (octocat--format-ts created)))
         (when (and closed (not (eq closed :null)) (not (string-empty-p closed)))
-          (insert (format "  Closed   %s\n"
-                          (substring closed 0 (min 10 (length closed)))))))
+          (insert (format "  Closed   %s\n" (octocat--format-ts closed)))))
       ;; ── Body ──────────────────────────────────────────────────────────
       (magit-insert-section (issue-body)
         (magit-insert-heading (propertize "Body" 'face 'octocat-section-heading))
@@ -152,18 +150,7 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
         (magit-insert-heading
           (propertize (format "Comments (%d)" (length comments))
                       'face 'octocat-section-heading))
-        (if (zerop (length comments))
-            (insert (propertize "  (no comments)\n" 'face 'octocat-dimmed))
-          (cl-loop for comment across comments do
-                   (let* ((login  (or (gethash "login" (gethash "author" comment)) ""))
-                          (cbody  (replace-regexp-in-string "\r" "" (or (gethash "body" comment) "")))
-                          (snippet (truncate-string-to-width
-                                    (replace-regexp-in-string "\n" " " cbody)
-                                    72 nil ?\s "…")))
-                     (insert (format "  %-20s  %s\n"
-                                     (propertize (concat "@" login)
-                                                 'face 'octocat-pr-author)
-                                     snippet)))))))
+        (octocat--render-comments comments)))
     (goto-char (point-min))))
 
 
@@ -203,10 +190,12 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
   (let ((buf  (current-buffer))
         (repo octocat--issue-repo)
         (num  octocat--issue-number))
+    (setq mode-line-process " [refreshing…]")
     (octocat--fetch-issue repo num
                           (lambda (result)
                             (when (buffer-live-p buf)
                               (with-current-buffer buf
+                                (setq mode-line-process nil)
                                 (if (eq (car-safe result) 'error)
                                     (let ((inhibit-read-only t))
                                       (erase-buffer)

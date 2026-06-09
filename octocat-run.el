@@ -282,11 +282,13 @@ for the selected job."
   (let ((buf  (current-buffer))
         (repo octocat--run-repo)
         (id   octocat--run-id))
+    (setq mode-line-process " [refreshing…]")
     (octocat--fetch-run
      repo id
      (lambda (result)
        (when (buffer-live-p buf)
          (with-current-buffer buf
+           (setq mode-line-process nil)
            (if (eq (car-safe result) 'error)
                (let ((inhibit-read-only t))
                  (erase-buffer)

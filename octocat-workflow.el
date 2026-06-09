@@ -135,11 +135,9 @@ hash-tables."
         (insert (format "  Path     %s\n"
                         (propertize path 'face 'octocat-branch)))
         (unless (string-empty-p created)
-          (insert (format "  Created  %s\n"
-                          (substring created 0 (min 10 (length created))))))
+          (insert (format "  Created  %s\n" (octocat--format-ts created))))
         (unless (string-empty-p updated)
-          (insert (format "  Updated  %s\n"
-                          (substring updated 0 (min 10 (length updated)))))))
+          (insert (format "  Updated  %s\n" (octocat--format-ts updated)))))
       ;; ── Runs ────────────────────────────────────────────────────────────
       (magit-insert-section (workflow-runs)
         (magit-insert-heading
@@ -156,7 +154,7 @@ hash-tables."
                                    (downcase c))))
                    (branch     (or (gethash "headBranch" run) ""))
                    (created    (or (gethash "createdAt"  run) ""))
-                   (date       (substring created 0 (min 10 (length created))))
+                   (date       (octocat--format-ts created))
                    (icon       (octocat--workflow-run-icon status conclusion)))
               (magit-insert-section (workflow-run run)
                 (magit-insert-heading
@@ -237,11 +235,13 @@ Currently handles \\='workflow-run\\=' sections, opening an
   (let ((buf  (current-buffer))
         (repo octocat--workflow-repo)
         (id   octocat--workflow-id))
+    (setq mode-line-process " [refreshing…]")
     (octocat--fetch-workflow
      repo id
      (lambda (result)
        (when (buffer-live-p buf)
          (with-current-buffer buf
+           (setq mode-line-process nil)
            (if (eq (car-safe result) 'error)
                (let ((inhibit-read-only t))
                  (erase-buffer)

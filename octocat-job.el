@@ -349,12 +349,15 @@ LOG-SECTIONS is either an alist of (STEP-NAME . LINES) or a cons
         (repo     octocat--job-repo)
         (job-id   octocat--job-id)
         (job-name octocat--job-name))
-    (octocat--render-job-loading job-name)
+    (when (zerop (buffer-size))
+      (octocat--render-job-loading job-name))
+    (setq mode-line-process " [refreshing…]")
     (octocat--fetch-job
      repo job-id
      (lambda (result)
        (when (buffer-live-p buf)
          (with-current-buffer buf
+           (setq mode-line-process nil)
            (if (eq (car-safe result) 'error)
                (let ((inhibit-read-only t))
                  (erase-buffer)
