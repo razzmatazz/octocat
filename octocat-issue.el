@@ -98,7 +98,7 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
          (title    (or (gethash "title"  issue) ""))
          (state    (or (gethash "state"  issue) "OPEN"))
          (author   (or (gethash "login" (gethash "author" issue)) ""))
-         (body     (replace-regexp-in-string "\r" "" (or (gethash "body" issue) "")))
+         (body     (or (gethash "body" issue) ""))
          (created  (or (gethash "createdAt" issue) ""))
          (closed   (gethash "closedAt" issue))
          (labels   (let ((v (gethash "labels" issue)))
@@ -135,8 +135,7 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
         (magit-insert-heading (propertize "Body" 'face 'octocat-section-heading))
         (if (string-empty-p (string-trim body))
             (insert (propertize "  (no description)\n" 'face 'octocat-dimmed))
-          (dolist (line (split-string body "\n"))
-            (insert "  " line "\n"))))
+          (octocat--insert-markdown body)))
       ;; ── Labels ────────────────────────────────────────────────────────
       (magit-insert-section (issue-labels)
         (magit-insert-heading

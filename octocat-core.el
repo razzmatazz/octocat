@@ -15,6 +15,7 @@
 (require 'cl-lib)
 (require 'magit-section)
 (require 'json)
+(require 'markdown-mode)
 
 
 ;;;; Options
@@ -307,6 +308,25 @@ persisted."
       (with-temp-file file
         (insert (json-serialize obj))
         (json-pretty-print-buffer)))))
+
+;;;; Markdown rendering
+
+(defun octocat--insert-markdown (text &optional indent)
+  "Insert TEXT rendered via `gfm-view-mode' font-lock into the current buffer.
+Each line is prefixed with INDENT (a string, default \"  \").
+Windows-style CR characters are stripped before rendering.
+Markup delimiters are hidden and syntax is highlighted using the
+faces from `markdown-mode', which is a declared dependency."
+  (let* ((indent (or indent "  "))
+         (text (replace-regexp-in-string "\r" "" text))
+         (rendered
+          (with-temp-buffer
+            (insert text)
+            (gfm-view-mode)
+            (font-lock-ensure)
+            (buffer-string))))
+    (dolist (line (split-string rendered "\n"))
+      (insert indent line "\n"))))
 
 (provide 'octocat-core)
 ;;; octocat-core.el ends here

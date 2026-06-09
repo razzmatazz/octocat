@@ -1,5 +1,33 @@
 # TODO items
 
+## Render Markdown in a better way
+
+All/most of the text in GitHub uses markdown. Can we render this better in
+our views?
+
+**Approach:** Use `gfm-view-mode` font-lock (already installed via `markdown-mode`, no new
+dependencies). Write an `octocat--insert-markdown (text)` helper that:
+
+1. Inserts `text` into a temp buffer running `gfm-view-mode`.
+2. Calls `font-lock-ensure` to force fontification.
+3. Copies the resulting propertized string into the target buffer with
+   `insert` (text properties — bold, italic, heading faces, inline-code
+   face, hidden markup delimiters — come along for free).
+
+Apply this helper everywhere body text is currently inserted plain:
+- `octocat-pr.el` — PR body (`octocat--render-pr`)
+- `octocat-issue.el` — issue body (`octocat--render-issue`)
+- `octocat-commit.el` — commit message body (`octocat--render-commit`)
+
+Comment snippets (one-liner truncated previews) stay as plain text — no
+need to fontify a 72-char snippet.
+
+**Optional upgrade path:** if `cmark-gfm` is on PATH (`brew install cmark`),
+pipe through `cmark-gfm --unsafe -e table -e strikethrough` → HTML →
+`shr-insert-document` for full GFM rendering (proper list bullets, link
+buttons, tables). Guard with `(when (executable-find "cmark-gfm") ...)` so
+it degrades gracefully to the font-lock path.
+
 ## ~~Some form of caching is needed to long load of dashboard for large repos~~
 
 Two separate problems:

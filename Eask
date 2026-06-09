@@ -15,3 +15,4 @@
 (depends-on "emacs"         "29.1")
 (depends-on "magit-section" "3.0")
 (depends-on "transient"     "0.4")
+(depends-on "markdown-mode" "2.0")

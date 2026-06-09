@@ -172,8 +172,7 @@ COMMIT is the JSON object returned by the GitHub commits API endpoint."
                         (propertize sha 'face 'octocat-commit-sha)))
         (when body-lines
           (insert "\n")
-          (dolist (line body-lines)
-            (insert "  " line "\n"))))
+          (octocat--insert-markdown (string-join body-lines "\n"))))
       ;; ── Files ─────────────────────────────────────────────────────────
       (magit-insert-section (commit-files)
         (magit-insert-heading

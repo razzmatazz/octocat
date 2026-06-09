@@ -102,7 +102,7 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
          (title       (or (gethash "title"    pr) ""))
          (state       (or (gethash "state"    pr) "OPEN"))
          (author      (or (gethash "login" (gethash "author" pr)) ""))
-         (body        (replace-regexp-in-string "\r" "" (or (gethash "body" pr) "")))
+         (body        (or (gethash "body" pr) ""))
          (base        (or (gethash "baseRefName" pr) ""))
          (head        (or (gethash "headRefName" pr) ""))
          (created     (or (gethash "createdAt"   pr) ""))
@@ -157,8 +157,7 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
         (magit-insert-heading (propertize "Body" 'face 'octocat-section-heading))
         (if (string-empty-p (string-trim body))
             (insert (propertize "  (no description)\n" 'face 'octocat-dimmed))
-          (dolist (line (split-string body "\n"))
-            (insert "  " line "\n"))))
+          (octocat--insert-markdown body)))
       ;; ── Commits ─────────────────────────────────────────────────────────
       (magit-insert-section (pr-commits)
         (magit-insert-heading
