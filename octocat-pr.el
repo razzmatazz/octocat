@@ -35,7 +35,7 @@ CALLBACK is called with a list of PR hash-tables, or a cons \\=(error . MSG)."
   (octocat--run-gh "prs"
                    (list "pr" "list"
                          "--repo" repo
-                         "--state" "all"
+                         "--state" "open"
                          "--json" "number,title,author,state,statusCheckRollup")
                    #'octocat--parse-json-list
                    callback))

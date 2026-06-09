@@ -30,6 +30,17 @@
 
 ;;;; Data fetching
 
+(defun octocat--list-issues (repo callback)
+  "Fetch open issues for REPO asynchronously and call CALLBACK with results.
+CALLBACK is called with a list of issue hash-tables, or a cons \\=(error . MSG)."
+  (octocat--run-gh "issues"
+                   (list "issue" "list"
+                         "--repo" repo
+                         "--state" "open"
+                         "--json" "number,title,author,state")
+                   #'octocat--parse-json-list
+                   callback))
+
 (defun octocat--fetch-issue (repo number callback)
   "Fetch detail for issue NUMBER in REPO asynchronously.
 Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG)."

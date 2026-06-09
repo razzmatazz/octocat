@@ -13,9 +13,11 @@ Hide it or show text
 Each section now handles errors independently — a disabled feature shows a
 dimmed inline note and the rest of the dashboard renders normally.
 
-## Better defaults for the dashboard
+## ~~Better defaults for the dashboard~~
 
-List only open/active issues & PRs
+Both `octocat--list-prs` and `octocat--list-issues` now use `--state open`.
+Header counts updated to say "N open PR(s) / N open issue(s)".
+Both list functions now live in their respective `-pr.el` / `-issue.el` files.
 
 ## A way to view the entire diff for PR
 

@@ -77,17 +77,6 @@ turned off, so callers can treat them as empty lists rather than real errors."
   (and (eq (car-safe result) 'error)
        (string-match-p "disabled" (cdr result))))
 
-(defun octocat--list-issues (repo callback)
-  "Fetch issues for REPO asynchronously and call CALLBACK with results.
-CALLBACK is called with a list of issue hash-tables, or a cons \\=(error . MSG)."
-  (octocat--run-gh "issues"
-                   (list "issue" "list"
-                         "--repo" repo
-                         "--state" "all"
-                         "--json" "number,title,author,state")
-                   #'octocat--parse-json-list
-                   callback))
-
 (defun octocat--list-workflows (repo callback)
   "Fetch workflows for REPO asynchronously and call CALLBACK with results.
 CALLBACK is called with a list of workflow hash-tables, or a cons \\=(error . MSG)."
@@ -239,12 +228,12 @@ Renders collapsible sections; delegates to the individual render helpers."
         (concat (propertize repo 'face 'octocat-repo)
                 (propertize
                  (format "  %s  %s  %s"
-                         (cond ((octocat--disabled-feature-p prs)    "0 PR(s)")
+                         (cond ((octocat--disabled-feature-p prs)    "0 open PR(s)")
                                ((eq (car-safe prs) 'error)           "PRs: n/a")
-                               (t (format "%d PR(s)" (length prs))))
-                         (cond ((octocat--disabled-feature-p issues)  "0 issue(s)")
+                               (t (format "%d open PR(s)" (length prs))))
+                         (cond ((octocat--disabled-feature-p issues)  "0 open issue(s)")
                                ((eq (car-safe issues) 'error)         "issues: n/a")
-                               (t (format "%d issue(s)" (length issues))))
+                               (t (format "%d open issue(s)" (length issues))))
                          (cond ((octocat--disabled-feature-p workflows) "0 workflow(s)")
                                ((eq (car-safe workflows) 'error)        "workflows: n/a")
                                (t (format "%d workflow(s)" (length workflows)))))
