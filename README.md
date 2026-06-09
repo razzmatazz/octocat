@@ -147,6 +147,11 @@ make test EMACS_IMAGE=silex/emacs:29.1
 
 ### CI
 
+
+
+
+
+
 GitHub Actions runs `make test` automatically on every push and pull request.
 See [`.github/workflows/test.yml`](.github/workflows/test.yml).
 
