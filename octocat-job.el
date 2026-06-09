@@ -23,15 +23,13 @@
 ;;     Runner     GitHub Actions …
 ;;     Labels     ubuntu-latest
 ;;
-;;   Steps (3) ─────────────────────────
-;;     [✓] Set up job                   1s
-;;     [✓] Run action                   3s
-;;     [✓] Complete job                 0s
-;;
-;;   Log ────────────────────────────────
-;;   ▸ Set up job  (12 lines)
-;;   ▸ Run action  (40 lines)
-;;   ▸ Complete job  (2 lines)
+;;   ▸ [✓] Set up job          success  1s
+;;         line1
+;;         line2
+;;   ▸ [✓] Run action          success  3s
+;;         line1
+;;   ▸ [✓] Complete job        success  0s
+;;         line1
 ;;
 ;; Job metadata is fetched from the REST API:
 ;;   gh api repos/OWNER/REPO/actions/jobs/JOB-ID
@@ -39,9 +37,9 @@
 ;; Log output is fetched with:
 ;;   gh run view --log --job JOB-ID --repo OWNER/REPO
 ;;
-;; The two requests run in parallel.  A log-fetch failure (e.g. the job is
-;; still running) is non-fatal: the Info and Steps sections are shown
-;; normally while the Log section displays the error message.
+;; The two requests run in parallel.  A log-fetch failure is non-fatal:
+;; step sections are shown with their metadata but without log lines, and
+;; a note is appended at the bottom.
 
 ;;; Code:
 
@@ -108,8 +106,9 @@ A job-metadata failure is fatal and CALLBACK receives \\=(error . MSG)."
 (defun octocat--job-parse-log (raw)
   "Parse RAW log text from `gh run view --log' into an alist.
 Returns an alist of (STEP-NAME . (LINE ...)) in source order.
-Each line has its leading timestamp stripped and ANSI codes removed.
-Lines that don't match the expected tab-delimited format are ignored."
+Each line has its leading timestamp formatted as HH:MM:SS local time.
+ANSI codes are removed.  Lines that don't match the expected
+tab-delimited format are ignored."
   (let ((sections '())
         (current-step nil)
         (current-lines '()))
@@ -124,9 +123,18 @@ Lines that don't match the expected tab-delimited format are ignored."
         (when (>= (length parts) 3)
           (let* ((step    (string-trim (nth 1 parts)))
                  (rest    (nth 2 parts))
-                 ;; Third field starts with an ISO-8601 timestamp; strip it.
-                 (msg     (if (string-match "^[0-9T:.Z]+ " rest)
-                              (substring rest (match-end 0))
+                 ;; Third field starts with an ISO-8601 timestamp; format it.
+                 (msg     (if (string-match "^\\([0-9T:.Z]+\\) \\(.*\\)$" rest)
+                              (let* ((ts      (match-string 1 rest))
+                                     (content (match-string 2 rest))
+                                     (fmt     (condition-case nil
+                                                  (format-time-string
+                                                   "%H:%M:%S" (date-to-time ts))
+                                                (error
+                                                 (if (>= (length ts) 19)
+                                                     (substring ts 11 19)
+                                                   ts)))))
+                                (concat fmt " " content))
                             rest))
                  (content (ansi-color-filter-apply msg)))
             (unless (equal step current-step)
@@ -245,71 +253,56 @@ LOG-SECTIONS is either an alist of (STEP-NAME . LINES) or a cons
         (when duration
           (insert (format "  Duration   %s\n" duration)))
         (when started
-          (insert (format "  Started    %s\n"
-                          (substring started 0 (min 19 (length started))))))
+          (insert (format "  Started    %s\n" (octocat--format-ts started))))
         (when completed
-          (insert (format "  Completed  %s\n"
-                          (substring completed 0 (min 19 (length completed))))))
+          (insert (format "  Completed  %s\n" (octocat--format-ts completed))))
         (when runner
           (insert (format "  Runner     %s\n"
                           (propertize runner 'face 'octocat-dimmed))))
         (when labels
           (insert (format "  Labels     %s\n"
                           (propertize labels 'face 'octocat-branch)))))
-      ;; ── Steps ───────────────────────────────────────────────────────────
-      (magit-insert-section (job-steps)
-        (magit-insert-heading
-          (propertize (format "Steps (%d)" (length steps))
-                      'face 'octocat-section-heading))
-        (if (zerop (length steps))
-            (insert (propertize "  (no steps)\n" 'face 'octocat-dimmed))
-          (cl-loop for step across steps do
-                   (let* ((sname  (or (gethash "name" step) ""))
-                          (sstat  (downcase (or (gethash "status" step) "")))
-                          (sconc-r (gethash "conclusion" step))
-                          (sconc  (when (and sconc-r (not (eq sconc-r :null)))
+      (insert "\n")
+      ;; ── Per-step sections (icon + name + status + duration + log lines) ──
+      (if (zerop (length steps))
+          (insert (propertize "  (no steps)\n" 'face 'octocat-dimmed))
+        (cl-loop for step across steps do
+                 (let* ((sname    (or (gethash "name" step) ""))
+                        (sstat    (downcase (or (gethash "status" step) "")))
+                        (sconc-r  (gethash "conclusion" step))
+                        (sconc    (when (and sconc-r (not (eq sconc-r :null)))
                                     (downcase sconc-r)))
-                          (sstart (let ((v (gethash "started_at" step)))
+                        (sstart   (let ((v (gethash "started_at" step)))
                                     (when (and v (not (eq v :null))) v)))
-                          (scomp  (let ((v (gethash "completed_at" step)))
+                        (scomp    (let ((v (gethash "completed_at" step)))
                                     (when (and v (not (eq v :null))) v)))
-                          (sdur   (octocat--run-duration sstart scomp))
-                          (sicon  (octocat--job-step-icon sstat sconc)))
-                     (insert
-                      (concat "  "
-                              sicon
-                              " "
-                              (propertize
-                               (truncate-string-to-width
-                                (format "%-48s" sname) 48 nil ?\s "…")
-                               'face 'octocat-run-step-name)
-                              (if sdur
+                        (sdur     (octocat--run-duration sstart scomp))
+                        (sicon    (octocat--job-step-icon sstat sconc))
+                        (sstatus  (or sconc sstat))
+                        (lines    (unless (eq (car-safe log-sections) 'error)
+                                    (cdr (assoc sname log-sections)))))
+                   (magit-section-hide
+                    (magit-insert-section (job-step sname)
+                      (magit-insert-heading
+                        (concat sicon
+                                " "
+                                (propertize
+                                 (truncate-string-to-width
+                                  (format "%-40s" sname) 40 nil ?\s "…")
+                                 'face 'octocat-run-step-name)
+                                (unless (string-empty-p sstatus)
+                                  (concat "  "
+                                          (propertize sstatus
+                                                      'face (octocat--job-status-face
+                                                             sstatus))))
+                                (when sdur
                                   (propertize (format "  %s" sdur)
-                                              'face 'octocat-dimmed)
-                                "")
-                              "\n"))))))
-      ;; ── Log ─────────────────────────────────────────────────────────────
-      (magit-insert-section (job-log)
-        (magit-insert-heading (propertize "Log" 'face 'octocat-section-heading))
-        (cond
-         ((eq (car-safe log-sections) 'error)
-          (insert (propertize (format "  %s\n" (cdr log-sections))
-                              'face 'octocat-dimmed)))
-         ((null log-sections)
-          (insert (propertize "  (no log output)\n" 'face 'octocat-dimmed)))
-         (t
-          (dolist (section log-sections)
-            (let ((step-name (car section))
-                  (lines     (cdr section)))
-              (magit-insert-section (job-log-step step-name :collapsed t)
-                (magit-insert-heading
-                  (concat "  "
-                          (propertize step-name 'face 'octocat-run-step-name)
-                          (propertize (format "  (%d lines)" (length lines))
-                                      'face 'octocat-dimmed)
-                          "\n"))
-                (dolist (line lines)
-                  (insert "    " line "\n")))))))))
+                                              'face 'octocat-dimmed))))
+                      (dolist (line lines)
+                        (insert "  " line "\n")))))))
+      (when (eq (car-safe log-sections) 'error)
+        (insert (propertize (format "  (log unavailable: %s)\n" (cdr log-sections))
+                            'face 'octocat-dimmed))))
     (goto-char (point-min))))
 
 

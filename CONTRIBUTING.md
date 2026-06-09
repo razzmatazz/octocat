@@ -35,3 +35,22 @@ they can be inspected directly.  Do **not** hardcode
 `~/.config/emacs/.local/cache` — that is Doom-specific.  Use
 `(locate-user-emacs-file "octocat/cache/")` as the default, exposed via
 `defcustom octocat-cache-directory`.
+
+### Collapsing magit sections by default
+
+The `HIDE` argument to `magit-insert-section` sets the `hidden` slot on the
+section object but does **not** apply the hiding overlay to the buffer text.
+As a result, sections appear expanded on first render, and TAB must be pressed
+twice to collapse them (the first press calls `magit-section-show` because
+`hidden` is already `t`; the second finally calls `magit-section-hide`).
+
+To correctly collapse a section on creation, wrap the `magit-insert-section`
+call with `magit-section-hide`, which applies the overlay immediately after
+the section's end-marker is set:
+
+```elisp
+(magit-section-hide
+ (magit-insert-section (my-section value)
+   (magit-insert-heading ...)
+   (insert ...)))
+```
