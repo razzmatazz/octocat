@@ -21,6 +21,6 @@ Currently I need to view this commit-by-commit
 
 Probably show the entire diff, file sections, with subsections where review comments are shown?
 
-## PR/issue body rendering
+## ~~PR/issue body rendering~~
 
-Consider that body for PR is rendered with ^M for each newline, how do we fix it? See this PR for example
+Fixed by stripping `\r` from body and comment text in both `octocat-pr.el` and `octocat-issue.el` at the binding site, before any rendering or splitting.

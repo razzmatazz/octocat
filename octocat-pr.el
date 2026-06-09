@@ -102,7 +102,7 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
          (title       (or (gethash "title"    pr) ""))
          (state       (or (gethash "state"    pr) "OPEN"))
          (author      (or (gethash "login" (gethash "author" pr)) ""))
-         (body        (or (gethash "body"     pr) ""))
+         (body        (replace-regexp-in-string "\r" "" (or (gethash "body" pr) "")))
          (base        (or (gethash "baseRefName" pr) ""))
          (head        (or (gethash "headRefName" pr) ""))
          (created     (or (gethash "createdAt"   pr) ""))
@@ -230,7 +230,7 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
             (insert (propertize "  (no comments)\n" 'face 'octocat-dimmed))
           (cl-loop for comment across comments do
                    (let* ((login (or (gethash "login" (gethash "author" comment)) ""))
-                          (cbody (or (gethash "body" comment) ""))
+                          (cbody (replace-regexp-in-string "\r" "" (or (gethash "body" comment) "")))
                           (snippet (truncate-string-to-width
                                     (replace-regexp-in-string "\n" " " cbody)
                                     72 nil ?\s "…")))

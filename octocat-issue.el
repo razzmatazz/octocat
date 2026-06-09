@@ -87,7 +87,7 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
          (title    (or (gethash "title"  issue) ""))
          (state    (or (gethash "state"  issue) "OPEN"))
          (author   (or (gethash "login" (gethash "author" issue)) ""))
-         (body     (or (gethash "body"   issue) ""))
+         (body     (replace-regexp-in-string "\r" "" (or (gethash "body" issue) "")))
          (created  (or (gethash "createdAt" issue) ""))
          (closed   (gethash "closedAt" issue))
          (labels   (let ((v (gethash "labels" issue)))
@@ -146,7 +146,7 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
             (insert (propertize "  (no comments)\n" 'face 'octocat-dimmed))
           (cl-loop for comment across comments do
                    (let* ((login  (or (gethash "login" (gethash "author" comment)) ""))
-                          (cbody  (or (gethash "body" comment) ""))
+                          (cbody  (replace-regexp-in-string "\r" "" (or (gethash "body" comment) "")))
                           (snippet (truncate-string-to-width
                                     (replace-regexp-in-string "\n" " " cbody)
                                     72 nil ?\s "…")))
