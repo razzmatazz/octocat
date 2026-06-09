@@ -1,6 +1,16 @@
 # TODO items
 
-## Render Markdown in a better way
+## I want C-o to work inside PRs, issues, etc as well -- not only from dashboard
+
+I.e easy acess to whatever I am viewing now
+
+## I want job output to be shown expanded
+
+So find works immediately with C-s / or forward slash in email.
+
+I.e. don't collapse sections by default
+
+## ~~Render Markdown in a better way~~
 
 All/most of the text in GitHub uses markdown. Can we render this better in
 our views?
