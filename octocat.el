@@ -282,13 +282,16 @@ arrive."
         (pr-result 'pending)
         (issue-result 'pending)
         (workflow-result 'pending))
-    (octocat--render-loading repo)
+    (if (zerop (buffer-size))
+        (octocat--render-loading repo)
+      (setq mode-line-process " [refreshing…]"))
     (cl-labels ((maybe-render ()
                 (unless (or (eq pr-result 'pending)
                             (eq issue-result 'pending)
                             (eq workflow-result 'pending))
                   (when (buffer-live-p buf)
                     (with-current-buffer buf
+                      (setq mode-line-process nil)
                       (octocat--render pr-result issue-result workflow-result repo))))))
       (octocat--list-prs repo
                          (lambda (result)

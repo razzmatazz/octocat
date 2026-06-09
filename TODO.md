@@ -4,11 +4,11 @@
 
 Two separate problems:
 
-**Stage 1 — Stale-while-revalidate (high impact, trivial)**
-On `gr`, don't erase the buffer until fresh data arrives — keep old content
-visible, swap it in silently when the 3 `gh` calls complete.  No cache
-structure needed; just remove the `octocat--render-loading` call from the
-refresh path.
+**~~Stage 1 — Stale-while-revalidate~~**
+`octocat-refresh` now only shows the "Loading…" skeleton on first open
+(`buffer-size` is zero); subsequent `gr` calls keep existing content visible.
+`mode-line-process` is set to `" [refreshing…]"` while background calls are
+in flight, cleared when `octocat--render` completes.
 
 **Stage 2 — Disk cache**
 One file per `(repo . filters)` key under a `defcustom octocat-cache-directory`

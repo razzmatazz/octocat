@@ -1,6 +1,7 @@
 # Agent Instructions
 
 See [README.md](README.md) for full project documentation.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for code conventions.
 
 ## Rules
 

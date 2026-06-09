@@ -120,6 +120,10 @@ Each file entry is a collapsible section.  The diff hunks are rendered with
 | `TAB` | Expand / collapse section at point |
 | `S-TAB` | Cycle visibility of all sections |
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for code conventions and guidelines.
+
 ## Development
 
 ### Running the linter
