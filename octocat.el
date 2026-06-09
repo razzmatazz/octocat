@@ -113,7 +113,7 @@ PRS may be a list of pull-request hash-tables or a cons (error . MSG)."
                (state-face (cond ((equal state "merged") 'octocat-pr-state-merged)
                                  ((equal state "closed") 'octocat-pr-state-closed)
                                  (t                      'octocat-pr-state-open)))
-               (ci     (octocat--ci-status pr)))
+               (ci     (octocat--ci-label pr)))
           (magit-insert-section (pr pr)
             (magit-insert-heading
               (concat

@@ -254,6 +254,14 @@ Returns \"✓\" (success), \"✗\" (failure), or \"●\" (pending/unknown)."
      (t
       (propertize "●" 'face 'octocat-ci-pending)))))
 
+(defun octocat--ci-label (pr)
+  "Return a short labelled CI-status string for PR hash-table PR.
+Combines a dimmed \"CI:\" prefix with the coloured status icon from
+`octocat--ci-status', e.g. \"CI: ✓\" or \"CI: ✗\"."
+  (concat (propertize "CI:" 'face 'octocat-dimmed)
+          " "
+          (octocat--ci-status pr)))
+
 ;;;; Disk cache
 
 (defun octocat--cache-file (repo)

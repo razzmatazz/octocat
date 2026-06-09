@@ -27,9 +27,12 @@ Flow:
 Implement Stage 1 first, then Stage 2 alongside or after the filter feature
 (since the cache key must include filter state).
 
-## It is not clear that last item shows on PR list indicates c/i status
+## ~~It is not clear that last item shows on PR list indicates c/i status~~
 
-Hide it or show text
+Added `octocat--ci-label` to `octocat-core.el` returning a dimmed `CI:` prefix
+plus the coloured icon (e.g. `CI: ✓`).  Used in the dashboard PR list,
+the PR detail Checks section heading (rollup badge next to count), and the
+per-check icon now goes through the shared `octocat--run-icon` helper.
 
 ## ~~Cannot open dashboard when repo has PRs or issues or actions disabled~~
 

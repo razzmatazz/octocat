@@ -189,21 +189,19 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
       ;; ── Checks ──────────────────────────────────────────────────────────
       (magit-insert-section (pr-checks)
         (magit-insert-heading
-          (propertize (format "Checks (%d)" (length checks))
-                      'face 'octocat-section-heading))
+          (concat (propertize (format "Checks (%d)" (length checks))
+                              'face 'octocat-section-heading)
+                  (unless (zerop (length checks))
+                    (concat "  " (octocat--ci-label pr)))))
         (if (zerop (length checks))
             (insert (propertize "  (no checks)\n" 'face 'octocat-dimmed))
           (cl-loop for check across checks do
                    (let* ((name       (or (gethash "name"         check) ""))
                           (workflow   (or (gethash "workflowName" check) ""))
-                          (conclusion (or (gethash "conclusion"   check) ""))
-                          (icon (cond
-                                 ((member conclusion '("SUCCESS"))
-                                  (propertize "✓" 'face 'octocat-ci-success))
-                                 ((member conclusion '("FAILURE" "ERROR" "TIMED_OUT"))
-                                  (propertize "✗" 'face 'octocat-ci-failure))
-                                 (t
-                                  (propertize "●" 'face 'octocat-ci-pending)))))
+                          (status     (or (gethash "status"       check) ""))
+                          (conclusion (let ((c (gethash "conclusion" check)))
+                                        (when (and c (not (eq c :null))) c)))
+                          (icon       (octocat--run-icon status conclusion)))
                      (insert (format "  %s  %-30s  %s\n"
                                      icon
                                      (truncate-string-to-width name 30 nil ?\s "…")
