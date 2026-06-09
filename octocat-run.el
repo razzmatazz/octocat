@@ -148,11 +148,9 @@ which use the plain filled-glyph icons from `octocat--run-icon'."
                                                 'octocat-ci-failure)
                                                (t 'octocat-ci-pending)))))))
         (unless (string-empty-p created)
-          (insert (format "  Created    %s\n"
-                          (substring created 0 (min 19 (length created))))))
+          (insert (format "  Created    %s\n" (octocat--format-ts created))))
         (unless (string-empty-p updated)
-          (insert (format "  Updated    %s\n"
-                          (substring updated 0 (min 19 (length updated)))))))
+          (insert (format "  Updated    %s\n" (octocat--format-ts updated)))))
       ;; ── Jobs ────────────────────────────────────────────────────────────
       (magit-insert-section (run-jobs)
         (magit-insert-heading
