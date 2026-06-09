@@ -307,8 +307,8 @@ Skips silently when DATA is an error cons."
       (make-directory dir t)
       (condition-case nil
           (with-temp-file file
-            (insert (json-serialize data))
-            (json-pretty-print-buffer))
+            (set-buffer-multibyte nil)
+            (insert (json-serialize data)))
         (error nil)))))
 
 (defun octocat--cache-load (repo)
@@ -347,8 +347,8 @@ persisted."
                    h)))
       (make-directory dir t)
       (with-temp-file file
-        (insert (json-serialize obj))
-        (json-pretty-print-buffer)))))
+        (set-buffer-multibyte nil)
+        (insert (json-serialize obj))))))
 
 ;;;; Timestamp formatting
 
