@@ -204,11 +204,20 @@ An empty or null response is treated as an empty list."
         (json-parse-error
          (error "Failed to parse gh output: %s" (error-message-string err))))))))
 
+(defun octocat--nonempty (value)
+  "Return VALUE if it is a non-empty, non-null string, otherwise nil.
+Treats the JSON null sentinel `:null' and empty strings as absent values."
+  (and value
+       (not (eq value :null))
+       (stringp value)
+       (not (string-empty-p value))
+       value))
+
 (defun octocat--run-icon (status conclusion)
   "Return a propertized status icon for STATUS and CONCLUSION strings.
 STATUS takes priority over CONCLUSION for in-progress detection."
   (let ((st (or status ""))
-        (co (and conclusion (not (eq conclusion :null)) conclusion)))
+        (co (octocat--nonempty conclusion)))
     (cond
      ((equal st "in_progress")
       (propertize "●" 'face 'octocat-ci-pending))

@@ -1,5 +1,6 @@
 # TODO items
 
+
 ## I want C-o to work inside PRs, issues, etc as well -- not only from dashboard
 
 I.e easy acess to whatever I am viewing now

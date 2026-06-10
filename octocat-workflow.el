@@ -72,11 +72,14 @@ cons \\=(error . MSG) on failure."
 
 (defun octocat--workflow-run-icon (status conclusion)
   "Return a propertized status icon for a run with STATUS and CONCLUSION."
-  (let ((s (or conclusion status "")))
+  (let ((st (or status ""))
+        (co (octocat--nonempty conclusion)))
     (cond
-     ((equal s "success")
+     ((equal st "in_progress")
+      (propertize "●" 'face 'octocat-ci-pending))
+     ((equal co "success")
       (propertize "✓" 'face 'octocat-ci-success))
-     ((member s '("failure" "timed_out" "startup_failure"))
+     ((member co '("failure" "timed_out" "startup_failure" "cancelled"))
       (propertize "✗" 'face 'octocat-ci-failure))
      (t
       (propertize "●" 'face 'octocat-ci-pending)))))
@@ -131,8 +134,7 @@ hash-tables."
                   (let* ((latest     (car runs))
                          (lstatus    (downcase (or (gethash "status"     latest) "")))
                          (lconc      (let ((c (gethash "conclusion" latest)))
-                                       (when (and c (not (eq c :null)))
-                                         (downcase c))))
+                                       (and (octocat--nonempty c) (downcase c))))
                          (icon       (octocat--workflow-run-icon lstatus lconc)))
                     (concat "  " icon)))))
       ;; ── Info ────────────────────────────────────────────────────────────
@@ -158,8 +160,7 @@ hash-tables."
                    (title      (or (gethash "displayTitle" run) ""))
                    (status     (downcase (or (gethash "status" run) "")))
                    (conclusion (let ((c (gethash "conclusion" run)))
-                                 (when (and c (not (eq c :null)))
-                                   (downcase c))))
+                                 (and (octocat--nonempty c) (downcase c))))
                    (branch     (or (gethash "headBranch" run) ""))
                    (created    (or (gethash "createdAt"  run) ""))
                    (date       (octocat--format-ts created))

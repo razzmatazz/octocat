@@ -235,7 +235,8 @@ ENTRIES are the lines collected inside the group; INDENT is the outer prefix."
 (defun octocat--job-step-icon (status conclusion)
   "Return a propertized checkbox icon for a step with STATUS and CONCLUSION.
 Uses bracket-checkbox glyphs to distinguish steps from job-level icons."
-  (let ((s (or (and conclusion (not (eq conclusion :null)) conclusion)
+  (let ((s (or (and (equal status "in_progress") status)
+               (octocat--nonempty conclusion)
                status
                "")))
     (cond
@@ -291,8 +292,7 @@ LOG-SECTIONS is either an alist of (STEP-NAME . LINES) or a cons
   (let* ((job-name   (or (gethash "name" job) ""))
          (status     (downcase (or (gethash "status" job) "")))
          (conc-raw   (gethash "conclusion" job))
-         (conclusion (when (and conc-raw (not (eq conc-raw :null)))
-                       (downcase conc-raw)))
+         (conclusion (and (octocat--nonempty conc-raw) (downcase conc-raw)))
          (started    (let ((v (gethash "started_at" job)))
                        (when (and v (not (eq v :null)) (not (string-empty-p v))) v)))
          (completed  (let ((v (gethash "completed_at" job)))
@@ -352,8 +352,7 @@ LOG-SECTIONS is either an alist of (STEP-NAME . LINES) or a cons
                  (let* ((sname    (or (gethash "name" step) ""))
                         (sstat    (downcase (or (gethash "status" step) "")))
                         (sconc-r  (gethash "conclusion" step))
-                        (sconc    (when (and sconc-r (not (eq sconc-r :null)))
-                                    (downcase sconc-r)))
+                        (sconc    (and (octocat--nonempty sconc-r) (downcase sconc-r)))
                         (sstart   (let ((v (gethash "started_at" step)))
                                     (when (and v (not (eq v :null))) v)))
                         (scomp    (let ((v (gethash "completed_at" step)))

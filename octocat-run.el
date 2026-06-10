@@ -55,7 +55,7 @@ Steps use a bracketed checkbox style to visually distinguish them from jobs,
 which use the plain filled-glyph icons from `octocat--run-icon'.
 STATUS takes priority over CONCLUSION for in-progress detection."
   (let ((st (or status ""))
-        (co (and conclusion (not (eq conclusion :null)) conclusion)))
+        (co (octocat--nonempty conclusion)))
     (cond
      ((equal st "in_progress")
       (propertize "[●]" 'face 'octocat-ci-pending))
@@ -98,8 +98,7 @@ STATUS takes priority over CONCLUSION for in-progress detection."
          (title      (or (gethash "displayTitle"  run) ""))
          (status     (downcase (or (gethash "status"       run) "")))
          (conclusion (let ((c (gethash "conclusion" run)))
-                       (when (and c (not (eq c :null)))
-                         (downcase c))))
+                       (and (octocat--nonempty c) (downcase c))))
          (created    (or (gethash "createdAt"    run) ""))
          (updated    (or (gethash "updatedAt"    run) ""))
          (branch     (or (gethash "headBranch"   run) ""))
@@ -168,8 +167,7 @@ STATUS takes priority over CONCLUSION for in-progress detection."
                    (let* ((job-name   (or (gethash "name"       job) ""))
                           (jstatus    (downcase (or (gethash "status"     job) "")))
                           (jconc-raw  (gethash "conclusion" job))
-                          (jconc      (when (and jconc-raw (not (eq jconc-raw :null)))
-                                        (downcase jconc-raw)))
+                          (jconc      (and (octocat--nonempty jconc-raw) (downcase jconc-raw)))
                           (jstarted   (gethash "startedAt"   job))
                           (jcompleted (gethash "completedAt" job))
                           (duration   (octocat--run-duration
@@ -198,8 +196,7 @@ STATUS takes priority over CONCLUSION for in-progress detection."
                                   (let* ((sname   (or (gethash "name"       step) ""))
                                          (sstatus (downcase (or (gethash "status"     step) "")))
                                          (sconc-r (gethash "conclusion" step))
-                                         (sconc   (when (and sconc-r (not (eq sconc-r :null)))
-                                                    (downcase sconc-r)))
+                                         (sconc   (and (octocat--nonempty sconc-r) (downcase sconc-r)))
                                          (sstart  (gethash "startedAt"   step))
                                          (scomp   (gethash "completedAt" step))
                                          (sdur    (octocat--run-duration
