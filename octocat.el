@@ -105,6 +105,18 @@ run hash-tables, or a cons \\=(error . MSG) on failure."
 
 ;;;; Buffer rendering
 
+(defmacro octocat--hide-if-saved (type section)
+  "Hide SECTION at creation time if TYPE is in `octocat--section-hidden'.
+SECTION must be an expression that returns a `magit-section' object
+\(typically a `magit-insert-section' call).  When TYPE is present in
+`octocat--section-hidden', wraps the section with `magit-section-hide'
+so the overlay is applied immediately, as required by magit-section."
+  `(let ((s ,section))
+     (when (memq ,type (buffer-local-value 'octocat--section-hidden
+                                           (current-buffer)))
+       (magit-section-hide s))
+     s))
+
 (defun octocat--render-prs (prs)
   "Insert the collapsible Pull Requests section for PRS.
 PRS may be a list of pull-request hash-tables or a cons (error . MSG)."
@@ -249,23 +261,27 @@ render recent run rows beneath each workflow heading."
   "Render a skeleton front view for REPO while data is still loading.
 Shows the repo header and collapsed section expanders for Pull Requests,
 Issues, and Workflows, each with a dimmed \\='Loading…\\=' placeholder."
+  (octocat--save-section-state)
   (let ((inhibit-read-only t))
     (erase-buffer)
     (magit-insert-section (octocat-root)
       (magit-insert-heading
         (propertize repo 'face 'octocat-repo))
-      (magit-insert-section (pull-requests)
-        (magit-insert-heading
-          (propertize "Pull Requests" 'face 'octocat-section-heading))
-        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
-      (magit-insert-section (issues)
-        (magit-insert-heading
-          (propertize "Issues" 'face 'octocat-section-heading))
-        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
-      (magit-insert-section (workflows)
-        (magit-insert-heading
-          (propertize "Workflows" 'face 'octocat-section-heading))
-        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))))
+      (octocat--hide-if-saved 'pull-requests
+        (magit-insert-section (pull-requests)
+          (magit-insert-heading
+            (propertize "Pull Requests" 'face 'octocat-section-heading))
+          (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))
+      (octocat--hide-if-saved 'issues
+        (magit-insert-section (issues)
+          (magit-insert-heading
+            (propertize "Issues" 'face 'octocat-section-heading))
+          (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))
+      (octocat--hide-if-saved 'workflows
+        (magit-insert-section (workflows)
+          (magit-insert-heading
+            (propertize "Workflows" 'face 'octocat-section-heading))
+          (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))))))
 
 (defun octocat--render (prs issues workflows repo &optional runs-by-id)
   "Erase the current buffer and render PRS, ISSUES, and WORKFLOWS for REPO.
@@ -273,6 +289,7 @@ Each argument may be a list of hash-tables or a cons (error . MSG) when the
 corresponding feature is disabled or unavailable for the repo.
 RUNS-BY-ID is an optional alist of (workflow-id . runs-list).
 Renders collapsible sections; delegates to the individual render helpers."
+  (octocat--save-section-state)
   (let ((inhibit-read-only t))
     (erase-buffer)
     (magit-insert-section (octocat-root)
@@ -290,9 +307,9 @@ Renders collapsible sections; delegates to the individual render helpers."
                                ((eq (car-safe workflows) 'error)        "workflows: n/a")
                                (t (format "%d workflow(s)" (length workflows)))))
                  'face 'octocat-dimmed)))
-      (octocat--render-prs prs)
-      (octocat--render-issues issues)
-      (octocat--render-workflows workflows runs-by-id))))
+      (octocat--hide-if-saved 'pull-requests (octocat--render-prs prs))
+      (octocat--hide-if-saved 'issues        (octocat--render-issues issues))
+      (octocat--hide-if-saved 'workflows     (octocat--render-workflows workflows runs-by-id)))))
 
 
 ;;;; Major mode
@@ -321,6 +338,25 @@ Renders collapsible sections; delegates to the individual render helpers."
 
 (defvar-local octocat--repo nil
   "The \"owner/repo\" string this buffer is tracking.")
+
+(defvar-local octocat--section-hidden nil
+  "List of section type symbols that were hidden before the last render.
+Used to restore collapse state across buffer refreshes.")
+
+(defun octocat--save-section-state ()
+  "Save the hidden/collapsed state of root-level dashboard sections.
+Records which direct children of `magit-root-section' are currently
+hidden into `octocat--section-hidden'.
+`magit-root-section' is the `octocat-root' section itself; its direct
+children are the `pull-requests', `issues', and `workflows' sections."
+  (setq octocat--section-hidden
+        (when (and (boundp 'magit-root-section) magit-root-section)
+          (delq nil
+                (mapcar (lambda (s)
+                          (when (oref s hidden) (oref s type)))
+                        (oref magit-root-section children))))))
+
+
 
 (defun octocat-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current octocat buffer asynchronously.
