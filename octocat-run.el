@@ -52,19 +52,22 @@ whose value is a vector of job hash-tables), or a cons \\=(error . MSG)."
 (defun octocat--run-step-icon (status conclusion)
   "Return a propertized step-level checkbox icon for STATUS and CONCLUSION strings.
 Steps use a bracketed checkbox style to visually distinguish them from jobs,
-which use the plain filled-glyph icons from `octocat--run-icon'."
-  (let ((s (or (and conclusion (not (eq conclusion :null)) conclusion)
-               status
-               "")))
+which use the plain filled-glyph icons from `octocat--run-icon'.
+STATUS takes priority over CONCLUSION for in-progress detection."
+  (let ((st (or status ""))
+        (co (and conclusion (not (eq conclusion :null)) conclusion)))
     (cond
-     ((equal s "success")
-      (propertize "[✓]" 'face 'octocat-ci-success))
-     ((member s '("failure" "timed_out" "startup_failure" "cancelled"))
-      (propertize "[✗]" 'face 'octocat-ci-failure))
-     ((equal s "in_progress")
+     ((equal st "in_progress")
       (propertize "[●]" 'face 'octocat-ci-pending))
-     ((equal s "skipped")
+     ((equal co "success")
+      (propertize "[✓]" 'face 'octocat-ci-success))
+     ((member co '("failure" "timed_out" "startup_failure" "cancelled"))
+      (propertize "[✗]" 'face 'octocat-ci-failure))
+     ((equal co "skipped")
       (propertize "[-]" 'face 'octocat-dimmed))
+     ((equal st "completed")
+      ;; completed but unrecognised conclusion — treat as failure
+      (propertize "[✗]" 'face 'octocat-ci-failure))
      (t
       (propertize "[ ]" 'face 'octocat-dimmed)))))
 
@@ -135,22 +138,25 @@ which use the plain filled-glyph icons from `octocat--run-icon'."
           (insert (format "  SHA        %s\n"
                           (propertize (substring sha 0 (min 7 (length sha)))
                                       'face 'octocat-pr-number))))
-        (let ((display-status (or conclusion status)))
-          (unless (string-empty-p display-status)
-            (insert (format "  Status     %s\n"
-                            (propertize display-status
-                                        'face (cond
-                                               ((equal display-status "success")
-                                                'octocat-ci-success)
-                                               ((member display-status
-                                                        '("failure" "timed_out"
+        (let* ((display-status (or conclusion
+                                   (and (not (string-empty-p status)) status)))
+               (status-face    (cond
+                                ((equal display-status "success")   'octocat-ci-success)
+                                ((member display-status '("failure" "timed_out"
                                                           "startup_failure" "cancelled"))
-                                                'octocat-ci-failure)
-                                               (t 'octocat-ci-pending)))))))
+                                 'octocat-ci-failure)
+                                (t 'octocat-ci-pending))))
+          (when display-status
+            (insert (format "  Status     %s\n"
+                            (propertize display-status 'face status-face)))))
         (unless (string-empty-p created)
           (insert (format "  Created    %s\n" (octocat--format-ts created))))
-        (unless (string-empty-p updated)
-          (insert (format "  Updated    %s\n" (octocat--format-ts updated)))))
+        (let ((duration (octocat--run-duration
+                         (and (not (string-empty-p created)) created)
+                         (and (not (string-empty-p updated)) updated))))
+          (when duration
+            (insert (format "  Duration   %s\n"
+                            (propertize duration 'face 'octocat-dimmed))))))
       ;; ── Jobs ────────────────────────────────────────────────────────────
       (magit-insert-section (run-jobs)
         (magit-insert-heading

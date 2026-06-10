@@ -205,14 +205,16 @@ An empty or null response is treated as an empty list."
          (error "Failed to parse gh output: %s" (error-message-string err))))))))
 
 (defun octocat--run-icon (status conclusion)
-  "Return a propertized status icon for STATUS and CONCLUSION strings."
-  (let ((s (or (and conclusion (not (eq conclusion :null)) conclusion)
-               status
-               "")))
+  "Return a propertized status icon for STATUS and CONCLUSION strings.
+STATUS takes priority over CONCLUSION for in-progress detection."
+  (let ((st (or status ""))
+        (co (and conclusion (not (eq conclusion :null)) conclusion)))
     (cond
-     ((equal s "success")
+     ((equal st "in_progress")
+      (propertize "●" 'face 'octocat-ci-pending))
+     ((equal co "success")
       (propertize "✓" 'face 'octocat-ci-success))
-     ((member s '("failure" "timed_out" "startup_failure" "cancelled"))
+     ((member co '("failure" "timed_out" "startup_failure" "cancelled"))
       (propertize "✗" 'face 'octocat-ci-failure))
      (t
       (propertize "●" 'face 'octocat-ci-pending)))))
