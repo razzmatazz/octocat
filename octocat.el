@@ -196,30 +196,34 @@ render recent run rows beneath each workflow heading."
      ((null workflows)
       (insert "  (no workflows)\n"))
      (t
-      (dolist (workflow workflows)
-        (let* ((name       (or (gethash "name"  workflow) ""))
-               (wf-id      (gethash "id" workflow))
-               (state      (downcase (or (gethash "state" workflow) "")))
-               (state-face (if (equal state "active") 'success 'octocat-dimmed))
-               (runs       (cdr (assoc wf-id runs-by-id))))
-          (magit-insert-section (workflow workflow)
-            (magit-insert-heading
-              (concat
-               "  "
-               (truncate-string-to-width name 40 nil nil "…")
-               "  "
-               (propertize state 'face state-face)
-               "\n"))
-            (let ((branch-w (min 25 (apply #'max 1
-                                           (mapcar (lambda (r)
-                                                     (length (or (gethash "headBranch" r) "")))
-                                                   runs)))))
+      (let ((branch-w (min 25 (apply #'max 1
+                                     (mapcar (lambda (r)
+                                               (length (or (gethash "headBranch" r) "")))
+                                             (apply #'append
+                                                    (mapcar (lambda (wf)
+                                                              (cdr (assoc (gethash "id" wf)
+                                                                          runs-by-id)))
+                                                            workflows)))))))
+        (dolist (workflow workflows)
+          (let* ((name       (or (gethash "name"  workflow) ""))
+                 (wf-id      (gethash "id" workflow))
+                 (state      (downcase (or (gethash "state" workflow) "")))
+                 (state-face (if (equal state "active") 'success 'octocat-dimmed))
+                 (runs       (cdr (assoc wf-id runs-by-id))))
+            (magit-insert-section (workflow workflow)
+              (magit-insert-heading
+                (concat
+                 "  "
+                 (truncate-string-to-width name 40 nil nil "…")
+                 "  "
+                 (propertize state 'face state-face)
+                 "\n"))
               (dolist (run runs)
                 (let* ((run-id     (or (gethash "databaseId"   run) 0))
                        (title      (or (gethash "displayTitle" run) ""))
                        (status     (downcase (or (gethash "status" run) "")))
-                                            (conclusion (let ((c (gethash "conclusion" run)))
-                                                          (and (octocat--nonempty c) (downcase c))))
+                       (conclusion (let ((c (gethash "conclusion" run)))
+                                     (and (octocat--nonempty c) (downcase c))))
                        (branch     (or (gethash "headBranch" run) ""))
                        (created    (or (gethash "createdAt"  run) ""))
                        (date       (octocat--format-ts created))
