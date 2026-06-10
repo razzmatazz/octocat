@@ -2,6 +2,7 @@
 
 See [README.md](README.md) for full project documentation.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for code conventions.
+See [docs/magit-section.md](docs/magit-section.md) for magit-section usage, gotchas, and patterns.
 
 ## Rules
 
