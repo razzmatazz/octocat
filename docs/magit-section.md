@@ -152,6 +152,100 @@ time, keeping the overlay and toggle state fully consistent.
 
 ---
 
+## Preserving point across refreshes
+
+### The problem
+
+`erase-buffer` discards all buffer content and all magit-section objects.
+The section pointer held by the cursor before the erase is gone.  Without
+intervention, every refresh either leaves point at an arbitrary byte offset
+(which may now be mid-word in completely different content) or jumps it to
+the top via `(goto-char (point-min))`.
+
+### The magit-section API
+
+magit-section provides three building blocks:
+
+| Function | What it does |
+|---|---|
+| `(magit-section-ident section)` | Returns a stable `((type . value) …)` chain walking up to the root.  The `value` for each node comes from `magit-section-ident-value`. |
+| `(magit-section-get-relative-position section)` | Returns `(LINE CHAR)` — point's offset from the section's start marker, in lines and characters. |
+| `(magit-section-goto-successor section line char)` | After re-render: looks up the section by its identity in the new tree via `magit-get-section`, moves point to its `:start`, then replays `forward-line LINE` + `forward-char CHAR`.  Falls back to the nearest sibling or parent if the exact section is gone. |
+
+### The `magit-section-ident-value` override
+
+By default `magit-section-ident-value` returns the section's `:value` slot
+unchanged.  For GitHub entity hash-tables this means two hash-table objects
+representing the same PR or run are never `equal` across renders, so
+`magit-get-section` always fails to find a match.
+
+`octocat-core.el` adds a method that extracts a stable scalar key:
+
+```elisp
+(cl-defmethod magit-section-ident-value ((ht hash-table))
+  (or (gethash "databaseId" ht)
+      (gethash "number"     ht)
+      (gethash "oid"        ht)
+      (gethash "id"         ht)
+      (gethash "name"       ht)))
+```
+
+Priority order: numeric run/job ID → PR/issue number → commit SHA → workflow
+ID → name.  Whichever field is present is returned; sections whose values are
+plain symbols (e.g. `pull-requests`, `octocat-root`) fall through to the
+default method which returns the symbol itself — stable by definition.
+
+### The helper functions
+
+Two thin wrappers in `octocat-core.el`:
+
+```elisp
+(defun octocat--save-point ()
+  "Capture point relative to the current section.
+Returns (:section SECTION :line LINE :char CHAR) or nil."
+  ...)
+
+(defun octocat--restore-point (saved)
+  "Restore point using SAVED plist from `octocat--save-point'.
+Calls `magit-section-goto-successor'; silently does nothing on nil."
+  ...)
+```
+
+### The call pattern
+
+Capture once **before any render fires**; restore after **every** render
+call (both the synchronous cache render and the asynchronous live render),
+so the cursor snaps back regardless of which render the user sees:
+
+```elisp
+(defun octocat-foo-refresh (...)
+  ...
+  (let* ((buf         (current-buffer))
+         ...
+         (saved-point (octocat--save-point)))   ; capture before first render
+    ;; synchronous cache render
+    (when cache
+      (octocat--render-foo cache)
+      (octocat--restore-point saved-point))     ; restore after cache render
+    ...
+    (octocat--fetch-foo repo id
+      (lambda (result)
+        (with-current-buffer buf
+          ...
+          (octocat--render-foo result)
+          (octocat--restore-point saved-point))))))  ; restore after live render
+```
+
+**Important**: `octocat--save-point` returns `nil` when there is no live
+section tree (e.g. the very first open of a buffer).  `octocat--restore-point`
+is a no-op on `nil`, so the pattern is safe to apply unconditionally.
+
+Do **not** call `(goto-char (point-min))` inside render functions — that
+unconditionally fights the restore.  Remove any such calls when adding the
+pattern to a view.
+
+---
+
 ## Summary of rules
 
 | Situation | Do | Don't |
@@ -159,3 +253,4 @@ time, keeping the overlay and toggle state fully consistent.
 | Collapse a section on first render | `(magit-section-hide (magit-insert-section …))` | Pass `t` as the `HIDE` argument |
 | Preserve collapse state across refreshes | Save types before erase; wrap with `magit-section-hide` during construction | Call `magit-section-hide` after the full tree is built |
 | Walk top-level dashboard sections | `(oref magit-root-section children)` | `(oref (car (oref magit-root-section children)) children)` |
+| Preserve cursor position across refreshes | `octocat--save-point` before first render; `octocat--restore-point` after each render | `(goto-char (point-min))` inside render functions |

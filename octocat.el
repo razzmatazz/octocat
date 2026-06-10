@@ -365,16 +365,21 @@ fetches fresh data in the background and re-renders when it arrives."
   (interactive)
   (unless octocat--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
-  (let* ((buf   (current-buffer))
-         (repo  octocat--repo)
-         (cache (octocat--cache-load repo)))
+  (let* ((buf         (current-buffer))
+         (repo        octocat--repo)
+         (cache       (octocat--cache-load repo))
+         ;; Capture point position before any render so both the cache
+         ;; render and the live render can restore it afterwards.
+         (saved-point (octocat--save-point)))
     ;; Render cache immediately if available; otherwise show loading skeleton.
     (if cache
-        (octocat--render (plist-get cache :prs)
-                         (plist-get cache :issues)
-                         (plist-get cache :workflows)
-                         repo
-                         (plist-get cache :workflow-runs))
+        (progn
+          (octocat--render (plist-get cache :prs)
+                           (plist-get cache :issues)
+                           (plist-get cache :workflows)
+                           repo
+                           (plist-get cache :workflow-runs))
+          (octocat--restore-point saved-point))
       (octocat--render-loading repo))
     ;; Always fetch fresh data in the background.
     ;; Phase 1: fetch PRs, issues, workflows in parallel.
@@ -399,7 +404,8 @@ fetches fresh data in the background and re-renders when it arrives."
                    (octocat--cache-save repo pr-result issue-result
                                         workflow-result runs-by-id)
                    (octocat--render pr-result issue-result workflow-result
-                                    repo runs-by-id)))))
+                                    repo runs-by-id)
+                   (octocat--restore-point saved-point)))))
            (start-phase2 ()
              ;; Called once workflow-result is known.  Fire one run-list fetch
              ;; per workflow; if there are no workflows, go straight to render.

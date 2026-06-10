@@ -284,12 +284,14 @@ then always fetches fresh data in the background."
   (interactive)
   (unless (and octocat--pr-repo octocat--pr-number)
     (user-error "Octocat: Buffer is not associated with a pull request"))
-  (let ((buf  (current-buffer))
-        (repo octocat--pr-repo)
-        (num  octocat--pr-number))
+  (let* ((buf         (current-buffer))
+         (repo        octocat--pr-repo)
+         (num         octocat--pr-number)
+         (saved-point (octocat--save-point)))
     (let ((cache (octocat--detail-cache-load repo "pr" num)))
       (when cache
-        (octocat--render-pr cache)))
+        (octocat--render-pr cache)
+        (octocat--restore-point saved-point)))
     (setq mode-line-process " [refreshing…]")
     (octocat--fetch-pr repo num
                        (lambda (result)
@@ -303,7 +305,8 @@ then always fetches fresh data in the background."
                                             (format "  Error: %s\n" (cdr result))
                                             'face 'error)))
                                (octocat--detail-cache-save repo "pr" num result)
-                               (octocat--render-pr result))))))))
+                               (octocat--render-pr result)
+                               (octocat--restore-point saved-point))))))))
 
 (provide 'octocat-pr)
 ;;; octocat-pr.el ends here

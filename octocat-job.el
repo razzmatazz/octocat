@@ -380,8 +380,7 @@ LOG-SECTIONS is either an alist of (STEP-NAME . LINES) or a cons
                       (octocat--render-log-lines lines "  "))))))
       (when (eq (car-safe log-sections) 'error)
         (insert (propertize (format "  (log unavailable: %s)\n" (cdr log-sections))
-                            'face 'octocat-dimmed))))
-    (goto-char (point-min))))
+                            'face 'octocat-dimmed))))))
 
 
 ;;;; Major mode
@@ -416,10 +415,11 @@ LOG-SECTIONS is either an alist of (STEP-NAME . LINES) or a cons
   (interactive)
   (unless (and octocat--job-repo octocat--job-id)
     (user-error "Octocat: Buffer is not associated with a job"))
-  (let ((buf      (current-buffer))
-        (repo     octocat--job-repo)
-        (job-id   octocat--job-id)
-        (job-name octocat--job-name))
+  (let* ((buf         (current-buffer))
+         (repo        octocat--job-repo)
+         (job-id      octocat--job-id)
+         (job-name    octocat--job-name)
+         (saved-point (octocat--save-point)))
     (when (zerop (buffer-size))
       (octocat--render-job-loading job-name))
     (setq mode-line-process " [refreshing…]")
@@ -434,7 +434,8 @@ LOG-SECTIONS is either an alist of (STEP-NAME . LINES) or a cons
                  (erase-buffer)
                  (insert (propertize (format "  Error: %s\n" (cdr result))
                                      'face 'error)))
-             (octocat--render-job (car result) (cdr result)))))))))
+             (octocat--render-job (car result) (cdr result))
+             (octocat--restore-point saved-point))))))))
 
 (provide 'octocat-job)
 ;;; octocat-job.el ends here

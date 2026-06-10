@@ -179,9 +179,7 @@ hash-tables."
                    (propertize (format "%-30s" branch) 'face 'octocat-branch)
                    "  "
                    (propertize date 'face 'octocat-dimmed)
-                   "\n"))))))))
-    (goto-char (point-min))))
-
+                   "\n"))))))))))
 
 ;;;; Visitor
 
@@ -250,12 +248,14 @@ then always fetches fresh data in the background."
   (interactive)
   (unless (and octocat--workflow-repo octocat--workflow-id)
     (user-error "Octocat: Buffer is not associated with a workflow"))
-  (let ((buf  (current-buffer))
-        (repo octocat--workflow-repo)
-        (id   octocat--workflow-id))
+  (let* ((buf         (current-buffer))
+         (repo        octocat--workflow-repo)
+         (id          octocat--workflow-id)
+         (saved-point (octocat--save-point)))
     (let ((cache (octocat--detail-cache-load repo "workflow" id)))
       (when cache
-        (octocat--workflow-cache-render cache)))
+        (octocat--workflow-cache-render cache)
+        (octocat--restore-point saved-point)))
     (setq mode-line-process " [refreshing…]")
     (octocat--fetch-workflow
      repo id
@@ -275,7 +275,8 @@ then always fetches fresh data in the background."
                             (puthash "runs"     (vconcat runs)   h)
                             h)))
                (octocat--detail-cache-save repo "workflow" id obj)
-               (octocat--render-workflow wf runs)))))))))
+               (octocat--render-workflow wf runs)
+               (octocat--restore-point saved-point)))))))))
 
 (provide 'octocat-workflow)
 ;;; octocat-workflow.el ends here

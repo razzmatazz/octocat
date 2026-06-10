@@ -216,8 +216,8 @@ STATUS takes priority over CONCLUSION for in-progress detection."
                                       (if sdur
                                           (propertize (format "  %s" sdur) 'face 'octocat-dimmed)
                                         "")
-                                      "\n")))))))))))
-    (goto-char (point-min))))
+                                      "\n")))))))))))))
+
 
 
 ;;;; Visitor
@@ -281,12 +281,14 @@ then always fetches fresh data in the background."
   (interactive)
   (unless (and octocat--run-repo octocat--run-id)
     (user-error "Octocat: Buffer is not associated with a workflow run"))
-  (let ((buf  (current-buffer))
-        (repo octocat--run-repo)
-        (id   octocat--run-id))
-    (let ((cache (octocat--detail-cache-load repo "run" id)))
-      (when cache
-        (octocat--render-run cache)))
+  (let* ((buf         (current-buffer))
+         (repo        octocat--run-repo)
+         (id          octocat--run-id)
+         (saved-point (octocat--save-point))
+         (cache       (octocat--detail-cache-load repo "run" id)))
+    (when cache
+      (octocat--render-run cache)
+      (octocat--restore-point saved-point))
     (setq mode-line-process " [refreshing…]")
     (octocat--fetch-run
      repo id
@@ -301,7 +303,8 @@ then always fetches fresh data in the background."
                           (format "  Error: %s\n" (cdr result))
                           'face 'error)))
              (octocat--detail-cache-save repo "run" id result)
-             (octocat--render-run result))))))))
+             (octocat--render-run result)
+             (octocat--restore-point saved-point))))))))
 
 (provide 'octocat-run)
 ;;; octocat-run.el ends here

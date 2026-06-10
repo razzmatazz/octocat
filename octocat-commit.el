@@ -129,8 +129,7 @@ symbol `error'.  Uses the GitHub REST API via `gh api'."
         (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
       (magit-insert-section (commit-files)
         (magit-insert-heading (propertize "Files" 'face 'octocat-section-heading))
-        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))
-    (goto-char (point-min))))
+        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))))
 
 (defun octocat--render-commit (commit)
   "Erase the current buffer and render commit detail from hash-table COMMIT.
@@ -203,8 +202,7 @@ COMMIT is the JSON object returned by the GitHub commits API endpoint."
                                   'face 'octocat-dimmed)
                                  "\n"))
                        (when (> patch-lines 0)
-                         (octocat--insert-patch patch)))))))
-    (goto-char (point-min)))))
+                         (octocat--insert-patch patch)))))))))))
 
 
 ;;;; Major mode
@@ -239,9 +237,10 @@ COMMIT is the JSON object returned by the GitHub commits API endpoint."
   (interactive)
   (unless (and octocat--commit-repo octocat--commit-sha)
     (user-error "Octocat: Buffer is not associated with a commit"))
-  (let ((buf  (current-buffer))
-        (repo octocat--commit-repo)
-        (sha  octocat--commit-sha))
+  (let* ((buf         (current-buffer))
+         (repo        octocat--commit-repo)
+         (sha         octocat--commit-sha)
+         (saved-point (octocat--save-point)))
     (setq mode-line-process " [refreshing…]")
     (octocat--fetch-commit repo sha
                            (lambda (result)
@@ -254,7 +253,8 @@ COMMIT is the JSON object returned by the GitHub commits API endpoint."
                                        (insert (propertize
                                                 (format "  Error: %s\n" (cdr result))
                                                 'face 'error)))
-                                   (octocat--render-commit result))))))))
+                                   (octocat--render-commit result)
+                                   (octocat--restore-point saved-point))))))))
 
 (provide 'octocat-commit)
 ;;; octocat-commit.el ends here

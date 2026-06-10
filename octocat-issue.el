@@ -150,8 +150,7 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
         (magit-insert-heading
           (propertize (format "Comments (%d)" (length comments))
                       'face 'octocat-section-heading))
-        (octocat--render-comments comments)))
-    (goto-char (point-min))))
+        (octocat--render-comments comments)))))
 
 
 ;;;; Major mode
@@ -189,12 +188,14 @@ then always fetches fresh data in the background."
   (interactive)
   (unless (and octocat--issue-repo octocat--issue-number)
     (user-error "Octocat: Buffer is not associated with an issue"))
-  (let ((buf  (current-buffer))
-        (repo octocat--issue-repo)
-        (num  octocat--issue-number))
-    (let ((cache (octocat--detail-cache-load repo "issue" num)))
-      (when cache
-        (octocat--render-issue cache)))
+  (let* ((buf         (current-buffer))
+         (repo        octocat--issue-repo)
+         (num         octocat--issue-number)
+         (saved-point (octocat--save-point))
+         (cache       (octocat--detail-cache-load repo "issue" num)))
+    (when cache
+      (octocat--render-issue cache)
+      (octocat--restore-point saved-point))
     (setq mode-line-process " [refreshing…]")
     (octocat--fetch-issue repo num
                           (lambda (result)
@@ -208,7 +209,8 @@ then always fetches fresh data in the background."
                                                (format "  Error: %s\n" (cdr result))
                                                'face 'error)))
                                   (octocat--detail-cache-save repo "issue" num result)
-                                  (octocat--render-issue result))))))))
+                                  (octocat--render-issue result)
+                                  (octocat--restore-point saved-point))))))))
 
 (provide 'octocat-issue)
 ;;; octocat-issue.el ends here
