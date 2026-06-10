@@ -252,7 +252,7 @@ render recent run rows beneath each workflow heading."
                        (propertize (truncate-string-to-width branch branch-w nil ?\s "…")
                                    'face 'octocat-branch)
                        "  "
-                       (truncate-string-to-width title 45 nil ?\s "…")
+                       (truncate-string-to-width title 30 nil ?\s "…")
                        "  "
                        (propertize date 'face 'octocat-dimmed)
                        "\n")))))))))))))
