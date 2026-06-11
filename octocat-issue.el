@@ -208,10 +208,10 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
         (g   (make-sparse-keymap)))   ; "g" prefix — lets evil's "gg" through
     (set-keymap-parent map magit-section-mode-map)
     (define-key map (kbd "q")       #'quit-window)
+    (define-key map (kbd "RET")     #'octocat-visit)
     (define-key map (kbd "o")       #'octocat-browse)
     (define-key map (kbd "C-c C-o") #'octocat-browse)
     (define-key map (kbd "c")       #'octocat-issue-add-comment)
-    (define-key map (kbd "e")       #'octocat-issue-edit)
     ;; Shadow magit-section-mode-map's "g" → revert-buffer with a prefix map.
     (define-key map (kbd "g")  g)
     (define-key map (kbd "gr") #'octocat-issue-refresh)

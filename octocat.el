@@ -666,6 +666,24 @@ commits on the default branch, and the default branch name itself."
       ;; RET on a PR or issue body section opens the inline editor.
       ('pr-body    (octocat-pr-edit-body))
       ('issue-body (octocat-issue-edit-body))
+      ;; RET on a comment opens the editor if the viewer authored it.
+      ('comment
+       (let* ((comment    (oref section value))
+              (authored   (eq (gethash "viewerDidAuthor" comment) t))
+              (comment-id (octocat--comment-numeric-id comment))
+              (body       (octocat--nonempty (gethash "body" comment))))
+         (unless authored
+           (user-error "Octocat: You can't edit someone else's comment"))
+         (unless comment-id
+           (user-error "Octocat: Could not determine comment ID from URL"))
+         (cond
+          ((and octocat--pr-repo octocat--pr-number)
+           (octocat--open-edit-buffer octocat--pr-repo 'pr octocat--pr-number
+                                      'edit-comment body comment-id))
+          ((and octocat--issue-repo octocat--issue-number)
+           (octocat--open-edit-buffer octocat--issue-repo 'issue octocat--issue-number
+                                      'edit-comment body comment-id))
+          (t (user-error "Octocat: Buffer is not associated with a PR or issue")))))
       ;; RET on the Changes info field opens the full PR diff view.
       ('pr-changes
        (let* ((repo   octocat--pr-repo)

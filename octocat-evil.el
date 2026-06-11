@@ -75,7 +75,6 @@
     (kbd "o")       #'octocat-browse
     (kbd "C-c C-o") #'octocat-browse
     (kbd "c")       #'octocat-pr-add-comment
-    (kbd "e")       #'octocat-pr-edit
     (kbd "q")       #'quit-window
     (kbd "gr")      #'octocat-pr-refresh)
   (evil-define-key* 'motion octocat-pr-mode-map
@@ -105,12 +104,14 @@
   (let ((aux (evil-get-auxiliary-keymap octocat-issue-mode-map 'normal t)))
     (define-key aux (kbd "g") nil))
   (evil-define-key* 'normal octocat-issue-mode-map
+    (kbd "RET")     #'octocat-visit
     (kbd "o")       #'octocat-browse
     (kbd "C-c C-o") #'octocat-browse
     (kbd "c")       #'octocat-issue-add-comment
-    (kbd "e")       #'octocat-issue-edit
     (kbd "q")       #'quit-window
     (kbd "gr")      #'octocat-issue-refresh)
+  (evil-define-key* 'motion octocat-issue-mode-map
+    (kbd "RET")     #'octocat-visit)
 
   ;; ── octocat-workflow-mode ─────────────────────────────────────────────
   ;; Same auxiliary keymap cleanup as above.
