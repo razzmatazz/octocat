@@ -354,20 +354,26 @@ across all workflows."
                            (insert-file-contents file)
                            (buffer-string)))
                  (data   (json-parse-string json))
-                 (ts     (gethash "timestamp" data))
-                 (prs    (cl-coerce (gethash "prs"          data) 'list))
-                 (issues (cl-coerce (gethash "issues"       data) 'list))
-                 (wflows (cl-coerce (gethash "workflows"    data) 'list))
-                 (runs   (cl-coerce (gethash "recent-runs"  data) 'list)))
+                 (ts      (gethash "timestamp"      data))
+                 (prs     (cl-coerce (gethash "prs"          data) 'list))
+                 (issues  (cl-coerce (gethash "issues"       data) 'list))
+                 (wflows  (cl-coerce (gethash "workflows"    data) 'list))
+                 (runs    (cl-coerce (gethash "recent-runs"  data) 'list))
+                 (commits (cl-coerce (gethash "commits"      data) 'list))
+                 (branch  (gethash "default-branch" data)))
             (list :timestamp ts :prs prs :issues issues
-                  :workflows wflows :recent-runs runs))
+                  :workflows wflows :recent-runs runs
+                  :commits commits :default-branch branch))
         (error nil)))))
 
-(defun octocat--cache-save (repo prs issues workflows recent-runs)
-  "Write PRS, ISSUES, WORKFLOWS and RECENT-RUNS for REPO to the disk cache.
-RECENT-RUNS is a flat list of run hash-tables.  Does nothing if any of
-the first three arguments is an error cons — only successful results are
-persisted."
+(defun octocat--cache-save (repo prs issues workflows recent-runs
+                            &optional commits default-branch)
+  "Write dashboard data for REPO to the disk cache.
+RECENT-RUNS is a flat list of run hash-tables.  COMMITS is a list of
+commit hash-tables from the REST API; when nil an empty vector is stored.
+DEFAULT-BRANCH is a string such as \"main\"; when nil it is not stored.
+Does nothing if any of the first three arguments is an error cons — only
+successful results are persisted."
   (when (and (not (eq (car-safe prs)       'error))
              (not (eq (car-safe issues)    'error))
              (not (eq (car-safe workflows) 'error)))
@@ -383,6 +389,14 @@ persisted."
                                                (vconcat recent-runs)
                                              (vector))
                             h)
+                   (puthash "commits"      (if (listp commits)
+                                               (vconcat commits)
+                                             (vector))
+                            h)
+                   (when (and default-branch
+                              (not (eq (car-safe default-branch) 'error))
+                              (stringp default-branch))
+                     (puthash "default-branch" default-branch h))
                    h)))
       (make-directory dir t)
       (with-temp-file file

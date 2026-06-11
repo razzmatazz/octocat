@@ -125,6 +125,41 @@ Call CALLBACK with a list of run hash-tables (each including a
    #'octocat--parse-json-list
    callback))
 
+(defcustom octocat-commits-limit 20
+  "Number of recent commits to display on the dashboard."
+  :type 'integer
+  :group 'octocat)
+
+(defun octocat--list-commits (repo callback)
+  "Fetch the last `octocat-commits-limit' commits on the default branch of REPO.
+Calls CALLBACK with a list of commit hash-tables, or a cons \\=(error . MSG).
+Uses the GitHub REST API via `gh api'.  The default branch is determined
+automatically by the API when no SHA is specified.
+The commit limit is embedded in the URL query string so that `gh api'
+always issues a GET request."
+  (octocat--run-gh
+   "commits"
+   (list "api"
+         (format "repos/%s/commits?per_page=%d" repo octocat-commits-limit))
+   #'octocat--parse-json-list
+   callback))
+
+(defun octocat--fetch-default-branch (repo callback)
+  "Fetch the default branch name for REPO asynchronously.
+Calls CALLBACK with a non-empty string such as \\\"main\\\", or a cons
+\\=(error . MSG) on failure.  Uses the GitHub REST API via `gh api'."
+  (octocat--run-gh
+   "default-branch"
+   (list "api"
+         (format "repos/%s" repo)
+         "--jq" ".default_branch")
+   (lambda (output)
+     (let ((s (string-trim output)))
+       (if (string-empty-p s)
+           (error "Empty default_branch in repo response")
+         s)))
+   callback))
+
 
 
 ;;;; Buffer rendering
@@ -301,6 +336,51 @@ Show up to 20 most recent workflow entries across all workflows."
                  "\n"))))))))))
 
 
+(defun octocat--render-commits (commits &optional default-branch)
+  "Insert the collapsible Commits section for COMMITS.
+COMMITS is a list of commit hash-tables as returned by the GitHub REST
+API \\='repos/{owner}/{repo}/commits\\=' endpoint, or a cons (error . MSG).
+DEFAULT-BRANCH is an optional string such as \"main\" shown in the heading.
+Each row shows the short SHA, author, date, and subject.  RET on a row
+navigates to the commit detail view via `octocat-visit'."
+  (magit-insert-section (commits)
+    (magit-insert-heading
+      (concat
+       (propertize "Commits" 'face 'octocat-section-heading)
+       (when (and default-branch
+                  (stringp default-branch)
+                  (not (string-empty-p default-branch)))
+         (concat "  "
+                 (propertize default-branch 'face 'octocat-branch)))))
+    (cond
+     ((eq (car-safe commits) 'error)
+      (insert (propertize (format "  %s\n" (cdr commits)) 'face 'octocat-dimmed)))
+     ((null commits)
+      (insert "  (no commits)\n"))
+     (t
+      (dolist (commit commits)
+        (let* ((sha     (or (gethash "sha" commit) ""))
+               (short   (substring sha 0 (min 7 (length sha))))
+               (c       (gethash "commit" commit))
+               (message (or (and c (gethash "message" c)) ""))
+               (subject (car (split-string message "\n")))
+               (ca      (and c (gethash "author" c)))
+               (author  (or (and ca (gethash "name" ca)) ""))
+               (date    (octocat--format-ts
+                         (or (and ca (gethash "date" ca)) ""))))
+          (magit-insert-section (commit commit)
+            (magit-insert-heading
+              (concat
+               "  "
+               (propertize short 'face 'octocat-commit-sha)
+               "  "
+               (truncate-string-to-width (format "%-50s" subject) 50 nil ?\s "…")
+               "  "
+               (propertize (format "%-16s" author) 'face 'octocat-pr-author)
+               "  "
+               (propertize date 'face 'octocat-dimmed)
+               "\n")))))))))
+
 (defun octocat--render-loading (repo)
   "Render a skeleton front view for REPO while data is still loading.
 Shows the repo header and collapsed section expanders for Pull Requests,
@@ -321,23 +401,33 @@ Issues, and Workflows, each with a dimmed \\='Loading…\\=' placeholder."
           (magit-insert-heading
             (propertize "Issues" 'face 'octocat-section-heading))
           (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))
-      (octocat--hide-if-saved 'workflows
-        (magit-insert-section (workflows)
+      (octocat--hide-if-saved 'commits
+        (magit-insert-section (commits)
           (magit-insert-heading
-            (propertize "Workflows" 'face 'octocat-section-heading))
+            (propertize "Commits" 'face 'octocat-section-heading))
           (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))
       (octocat--hide-if-saved 'workflow-runs
         (magit-insert-section (workflow-runs)
           (magit-insert-heading
             (propertize "Workflow Runs" 'face 'octocat-section-heading))
+          (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))
+      (octocat--hide-if-saved 'workflows
+        (magit-insert-section (workflows)
+          (magit-insert-heading
+            (propertize "Workflows" 'face 'octocat-section-heading))
           (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))))))
 
-(defun octocat--render (prs issues workflows repo &optional recent-runs)
-  "Erase the buffer and render PRS, ISSUES, WORKFLOWS and RECENT-RUNS for REPO.
-Each argument may be a list of hash-tables or a cons (error . MSG) when the
-corresponding feature is disabled or unavailable for the repo.
-RECENT-RUNS is an optional flat list of run hash-tables (with workflowName)
-representing the last 20 workflow entries across all workflows.
+(defun octocat--render (prs issues workflows repo
+                        &optional recent-runs commits default-branch)
+  "Erase the buffer and render dashboard sections for REPO.
+PRS, ISSUES, WORKFLOWS may each be a list of hash-tables or a cons
+\(error . MSG) when the corresponding feature is disabled or unavailable.
+RECENT-RUNS is an optional flat list of run hash-tables (each with a
+\\='workflowName\\=' key) representing the last 20 workflow runs.
+COMMITS is an optional list of commit hash-tables from the REST API,
+representing the last `octocat-commits-limit' commits on the default branch.
+DEFAULT-BRANCH is an optional string such as \"main\" shown in the Commits
+section heading.
 Render collapsible sections; delegate to the individual render helpers."
   (octocat--save-section-state)
   (let ((inhibit-read-only t))
@@ -359,8 +449,9 @@ Render collapsible sections; delegate to the individual render helpers."
                  'face 'octocat-dimmed)))
       (octocat--hide-if-saved 'pull-requests (octocat--render-prs prs))
       (octocat--hide-if-saved 'issues        (octocat--render-issues issues))
-      (octocat--hide-if-saved 'workflows     (octocat--render-workflows workflows))
-      (octocat--hide-if-saved 'workflow-runs (octocat--render-workflow-runs recent-runs)))))
+      (octocat--hide-if-saved 'commits       (octocat--render-commits commits default-branch))
+      (octocat--hide-if-saved 'workflow-runs (octocat--render-workflow-runs recent-runs))
+      (octocat--hide-if-saved 'workflows     (octocat--render-workflows workflows)))))
 
 
 ;;;; Major mode
@@ -413,8 +504,9 @@ children are the `pull-requests', `issues', and `workflows' sections."
   "Refresh the current octocat buffer asynchronously.
 Loads a disk cache (if present) and renders it immediately, then always
 fetches fresh data in the background and re-renders when it arrives.
-Issues exactly 4 parallel API requests: PRs, issues, workflow list, and
-the 20 most recent runs across all workflows."
+Issues 6 parallel API requests: PRs, issues, workflow list, the most
+recent workflow runs across all workflows, the last `octocat-commits-limit'
+commits on the default branch, and the default branch name itself."
   (interactive)
   (unless octocat--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
@@ -431,29 +523,37 @@ the 20 most recent runs across all workflows."
                            (plist-get cache :issues)
                            (plist-get cache :workflows)
                            repo
-                           (plist-get cache :recent-runs))
+                           (plist-get cache :recent-runs)
+                           (plist-get cache :commits)
+                           (plist-get cache :default-branch))
           (octocat--restore-point saved-point))
       (octocat--render-loading repo))
     ;; Always fetch fresh data in the background.
-    ;; All 4 requests fire in parallel; render once all have returned.
+    ;; All 5 requests fire in parallel; render once all have returned.
     (setq mode-line-process " [refreshing…]")
     (let ((pr-result       'pending)
           (issue-result    'pending)
           (workflow-result 'pending)
-          (runs-result     'pending))
+          (runs-result     'pending)
+          (commits-result  'pending)
+          (branch-result   'pending))
       (cl-labels
           ((maybe-render ()
              (unless (or (eq pr-result       'pending)
                          (eq issue-result    'pending)
                          (eq workflow-result 'pending)
-                         (eq runs-result     'pending))
+                         (eq runs-result     'pending)
+                         (eq commits-result  'pending)
+                         (eq branch-result   'pending))
                (when (buffer-live-p buf)
                  (with-current-buffer buf
                    (setq mode-line-process nil)
-                   (octocat--cache-save repo pr-result issue-result
-                                        workflow-result runs-result)
-                   (octocat--render pr-result issue-result workflow-result
-                                    repo runs-result)
+                   (let ((branch (and (stringp branch-result) branch-result)))
+                     (octocat--cache-save repo pr-result issue-result
+                                          workflow-result runs-result
+                                          commits-result branch)
+                     (octocat--render pr-result issue-result workflow-result
+                                      repo runs-result commits-result branch))
                    (octocat--restore-point saved-point))))))
         (octocat--list-prs repo
                            (lambda (result)
@@ -470,7 +570,15 @@ the 20 most recent runs across all workflows."
         (octocat--list-recent-runs repo
                                    (lambda (result)
                                      (setq runs-result result)
-                                     (maybe-render)))))))
+                                     (maybe-render)))
+        (octocat--list-commits repo
+                               (lambda (result)
+                                 (setq commits-result result)
+                                 (maybe-render)))
+        (octocat--fetch-default-branch repo
+                                       (lambda (result)
+                                         (setq branch-result result)
+                                         (maybe-render)))))))
 
 
 ;;;; Visitor and browser
@@ -498,7 +606,9 @@ the 20 most recent runs across all workflows."
       ('commit
        (let* ((commit   (oref section value))
               (c        (gethash "commit" commit))
-              (oid      (or (gethash "oid" commit) ""))
+              (oid      (or (gethash "oid" commit)
+                            (gethash "sha" commit)
+                            ""))
               (msg      (or (and c (gethash "message" c)) ""))
               (_subject (car (split-string msg "\n")))
               (repo     (or octocat--pr-repo octocat--repo))
