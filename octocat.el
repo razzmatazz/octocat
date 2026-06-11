@@ -19,6 +19,7 @@
 (require 'octocat-core)
 (require 'octocat-pr)
 (require 'octocat-commit)
+(require 'octocat-pr-diff)
 (require 'octocat-issue)
 (require 'octocat-workflow)
 (require 'octocat-run)
@@ -26,6 +27,8 @@
 
 (defvar octocat--pr-repo)        ; defined as buffer-local in octocat-pr.el
 (defvar octocat--pr-number)      ; defined as buffer-local in octocat-pr.el
+(defvar octocat--pr-diff-repo)   ; defined as buffer-local in octocat-pr-diff.el
+(defvar octocat--pr-diff-number) ; defined as buffer-local in octocat-pr-diff.el
 (defvar octocat--issue-repo)     ; defined as buffer-local in octocat-issue.el
 (defvar octocat--issue-number)   ; defined as buffer-local in octocat-issue.el
 (defvar octocat--workflow-repo)  ; defined as buffer-local in octocat-workflow.el
@@ -45,8 +48,10 @@
 ;; Edit commands defined in octocat-pr.el / octocat-issue.el (already
 ;; loaded via `require' above, but declare here so octocat-visit can call
 ;; them without the byte-compiler warning about forward references).
-(declare-function octocat-pr-edit-body    "octocat-pr"    ())
-(declare-function octocat-issue-edit-body "octocat-issue" ())
+(declare-function octocat-pr-edit-body         "octocat-pr"      ())
+(declare-function octocat-issue-edit-body      "octocat-issue"   ())
+(declare-function octocat--render-pr-diff-loading "octocat-pr-diff" (number))
+(declare-function octocat-pr-diff-refresh      "octocat-pr-diff" (&optional _ignore-auto _noconfirm))
 
 
 ;;;; Repo detection
@@ -533,6 +538,19 @@ fetches fresh data in the background and re-renders when it arrives."
       ;; RET on a PR or issue body section opens the inline editor.
       ('pr-body    (octocat-pr-edit-body))
       ('issue-body (octocat-issue-edit-body))
+      ;; RET on the Changes info field opens the full PR diff view.
+      ('pr-changes
+       (let* ((repo   octocat--pr-repo)
+              (number octocat--pr-number)
+              (buf-name (format "*octocat-pr-diff: %s#%d*" repo number))
+              (buf    (get-buffer-create buf-name)))
+         (pop-to-buffer buf)
+         (unless (derived-mode-p 'octocat-pr-diff-mode)
+           (octocat-pr-diff-mode))
+         (setq octocat--pr-diff-repo   repo
+               octocat--pr-diff-number number)
+         (octocat--render-pr-diff-loading number)
+         (octocat-pr-diff-refresh)))
       (_ nil))))
 
 (defun octocat-browse ()

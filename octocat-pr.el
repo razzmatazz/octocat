@@ -196,10 +196,12 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
         (when (and closed (not (eq closed :null)) (not (string-empty-p closed))
                    (not (equal state "MERGED")))
           (insert (format "  Closed   %s\n" (octocat--format-ts closed))))
-        (insert (format "  Changes  %s %s across %d file(s)\n"
-                        (propertize (format "+%d" additions) 'face 'diff-added)
-                        (propertize (format "-%d" deletions) 'face 'diff-removed)
-                        files)))
+        (magit-insert-section (pr-changes)
+          (magit-insert-heading
+            (format "  Changes  %s %s across %d file(s)\n"
+                    (propertize (format "+%d" additions) 'face 'diff-added)
+                    (propertize (format "-%d" deletions) 'face 'diff-removed)
+                    files))))
       ;; ── Body ────────────────────────────────────────────────────────────
       (magit-insert-section (pr-body)
         (magit-insert-heading (propertize "Body" 'face 'octocat-section-heading))

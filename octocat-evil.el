@@ -23,6 +23,7 @@
 (defvar octocat-mode-map)
 (defvar octocat-pr-mode-map)
 (defvar octocat-commit-mode-map)
+(defvar octocat-pr-diff-mode-map)
 (defvar octocat-issue-mode-map)
 (defvar octocat-workflow-mode-map)
 (defvar octocat-run-mode-map)
@@ -35,6 +36,7 @@
 (declare-function octocat-pr-edit-body       "octocat-pr"        ())
 (declare-function octocat-pr-edit            "octocat-pr"        ())
 (declare-function octocat-commit-refresh     "octocat-commit"    (&optional _ignore-auto _noconfirm))
+(declare-function octocat-pr-diff-refresh   "octocat-pr-diff"   (&optional _ignore-auto _noconfirm))
 (declare-function octocat-issue-refresh      "octocat-issue"     (&optional _ignore-auto _noconfirm))
 (declare-function octocat-issue-add-comment  "octocat-issue"     ())
 (declare-function octocat-issue-edit-body    "octocat-issue"     ())
@@ -88,6 +90,15 @@
     (kbd "C-c C-o") #'octocat-browse
     (kbd "q")       #'quit-window
     (kbd "gr")      #'octocat-commit-refresh)
+
+  ;; ── octocat-pr-diff-mode ──────────────────────────────────────────────
+  (let ((aux (evil-get-auxiliary-keymap octocat-pr-diff-mode-map 'normal t)))
+    (define-key aux (kbd "g") nil))
+  (evil-define-key* 'normal octocat-pr-diff-mode-map
+    (kbd "o")       #'octocat-browse
+    (kbd "C-c C-o") #'octocat-browse
+    (kbd "q")       #'quit-window
+    (kbd "gr")      #'octocat-pr-diff-refresh)
 
   ;; ── octocat-issue-mode ────────────────────────────────────────────────
   ;; Same auxiliary keymap cleanup as above.
