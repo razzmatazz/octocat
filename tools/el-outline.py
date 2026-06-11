@@ -9,18 +9,31 @@ paren and silently swallows the next top-level form.
 
 Usage:
     python3 tools/el-outline.py [--depth N] FILE [FILE ...]
+    python3 tools/el-outline.py --trace DEFUN FILE
 
 Options:
-    --depth N   Maximum nesting depth to display (default: 4)
+    --depth N       Maximum nesting depth to display (default: 4)
+    --trace DEFUN   Depth-trace mode: print every source line of the named
+                    top-level form with a running paren-depth counter.
+                    Use this after seeing an UNCLOSED or depth-mismatch
+                    warning to find the exact line that is broken.
 
-Output columns:
+Depth-trace output columns:
+    L{n}  [{depth:+d}]  {source line}
+
+    A line whose counter never returns to 0 at the expected closing paren,
+    or drops below 1 before the body is finished, is where the bug lives.
+    The final summary line shows whether the form closed cleanly.
+
+Outline output columns:
     L{start}-{end}   Line range of the form
     {indent}{head}   Form head (first token), indented by depth
     [UNCLOSED]       Form with no closing paren found before EOF
     [SPANS NEXT]     Form whose end_line >= start of the next sibling —
                      a strong sign of a missing ')' somewhere inside it
 
-Exit code is 1 if any file has unbalanced parens at EOF.
+Exit code is 1 if any file has unbalanced parens at EOF (outline mode) or
+if the traced defun is not found / not cleanly closed (trace mode).
 """
 
 import sys
@@ -283,6 +296,100 @@ def _print_form(form, depth, max_depth, next_start=None, file=None):
 
 
 # ---------------------------------------------------------------------------
+# Depth tracer
+# ---------------------------------------------------------------------------
+
+def trace(path, defun_name, file=None):
+    """Print a line-by-line paren-depth trace for DEFUN_NAME in PATH.
+
+    Each source line is prefixed with its line number and the running depth
+    *after* processing that line.  The depth resets to 0 at the opening
+    paren of the target form so the counter is relative to that form.
+
+    Returns True if the form was found and cleanly closed (depth returns to
+    0 exactly at the last line), False otherwise.
+    """
+    out = file or sys.stdout
+
+    try:
+        text = open(path, encoding='utf-8').read()
+    except OSError as e:
+        print(f"el-outline: {e}", file=sys.stderr)
+        return False
+
+    lines = text.splitlines()
+
+    # ── find the top-level form for defun_name ────────────────────────────
+    roots, _depth = _parse(_tokenise(text))
+    target = None
+    for form in roots:
+        if form.name == defun_name:
+            target = form
+            break
+
+    if target is None:
+        print(f"el-outline: '{defun_name}' not found as a top-level form in "
+              f"{os.path.basename(path)}", file=sys.stderr)
+        return False
+
+    start = target.start_line   # 1-based
+    end   = target.end_line if target.end_line else len(lines)
+    unclosed = (target.end_line == 0)
+
+    print(f"\n{'=' * 62}", file=out)
+    print(f"  {os.path.basename(path)}  —  depth trace: {defun_name}  "
+          f"(L{start}–{'?' if unclosed else end})", file=out)
+    print(f"{'=' * 62}", file=out)
+
+    # ── re-tokenise just the lines in range, tracking depth per line ──────
+    # Build a map: line_number -> net paren delta on that line.
+    # We only care about the lines start..end, but we need the tokeniser to
+    # handle strings/comments that may span those lines, so we feed it the
+    # full text and filter by line range.
+    line_delta = {}   # line -> net delta (opens - closes)
+    for kind, _value, line in _tokenise(text):
+        if start <= line <= end:
+            if kind == 'OPEN':
+                line_delta[line] = line_delta.get(line, 0) + 1
+            elif kind == 'CLOSE':
+                line_delta[line] = line_delta.get(line, 0) - 1
+
+    # ── print each line with cumulative depth ─────────────────────────────
+    ln_w    = len(str(end))   # width for line-number column
+    depth   = 0
+    ok      = True
+
+    for ln in range(start, end + 1):
+        delta  = line_delta.get(ln, 0)
+        depth += delta
+        src    = lines[ln - 1] if ln <= len(lines) else ''
+
+        # Annotate interesting lines.
+        note = ''
+        if ln == start and depth != 1:
+            note = f'  ← expected depth +1 after opening, got {depth:+d}'
+        elif ln == end and depth != 0:
+            note = f'  ← UNCLOSED: depth {depth:+d} (expected 0)'
+            ok = False
+        elif depth < 0:
+            note = f'  ← depth went negative!'
+            ok = False
+        elif depth == 0 and ln != end:
+            note = f'  ← closes to 0 before end of form!'
+            ok = False
+
+        print(f"  L{str(ln).ljust(ln_w)}  [{depth:+d}]  {src}{note}", file=out)
+
+    if unclosed:
+        print(f"\n  ✗  form is UNCLOSED (no matching ')' before EOF)", file=out)
+        ok = False
+    elif ok:
+        print(f"\n  ✓  form closes cleanly at L{end}", file=out)
+
+    return ok
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -322,6 +429,7 @@ def outline(path, max_depth=4, file=None):
 def main():
     args = sys.argv[1:]
     max_depth = 4
+    trace_name = None
     files = []
 
     i = 0
@@ -339,6 +447,12 @@ def main():
             except ValueError:
                 sys.exit("el-outline: --depth requires an integer")
             i += 1
+        elif a in ('--trace', '-t') and i + 1 < len(args):
+            trace_name = args[i + 1]
+            i += 2
+        elif a.startswith('--trace='):
+            trace_name = a.split('=', 1)[1]
+            i += 1
         elif a in ('-h', '--help'):
             print(__doc__)
             sys.exit(0)
@@ -351,6 +465,12 @@ def main():
         files = sorted(f for f in os.listdir('.') if f.endswith('.el'))
         if not files:
             sys.exit("el-outline: no .el files found")
+
+    if trace_name:
+        if len(files) != 1:
+            sys.exit("el-outline: --trace requires exactly one FILE argument")
+        ok = trace(files[0], trace_name)
+        sys.exit(0 if ok else 1)
 
     all_ok = all(outline(path, max_depth=max_depth) for path in files)
     sys.exit(0 if all_ok else 1)

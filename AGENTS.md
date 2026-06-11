@@ -50,11 +50,32 @@ closing parens, silently swallowing subsequent `defun`s.
 Run with `--depth N` to expand more nesting levels (default 4).  No
 arguments processes all `*.el` files in the current directory.
 
+When the outline flags a problem but you need to find the **exact line**,
+use `--trace DEFUN`:
+
+```bash
+python3 tools/el-outline.py --trace octocat--render-prs octocat.el
+```
+
+This prints every source line of the named form with a running paren-depth
+counter on the left.  Look for the line where the depth drops to `0` before
+the end of the function, or where the final depth is non-zero — that is
+where the missing or extra `)` lives.
+
 ## Reloading into Emacs
 
 After editing, use the `emacs__eval-elisp` MCP tool to reload **all** `octocat*.el` files — not just the ones changed. Use `load-file` (not `require`, so files are re-evaluated even if already loaded). Load order matters: `octocat-core.el` must be loaded before the rest.
 
 **Always delete `.elc` files before reloading.** Emacs prefers compiled files over source, so stale `.elc` files will silently shadow your edits. Use `make clean` to remove them.
+
+> **Gotcha — `make ci` recreates `.elc` files.**  The compile step inside
+> `make ci` writes fresh `.elc` files into the workspace.  If you run
+> `make ci` and then reload without running `make clean` first, Emacs will
+> load the compiled versions and your latest source edits will have no
+> effect.  The symptom is a change that appears to do nothing in the live
+> buffer even though the source file is correct.  Always run `make clean`
+> immediately before every `load-file` reload, regardless of whether
+> `make ci` was run in between.
 
 **Always kill existing octocat buffers before reloading.** Mode keymaps are defined with `defvar`, which only initialises on first load. Existing buffers capture the old keymap object at mode-activation time and will not pick up new bindings even after a reload. Kill all live octocat buffers first so fresh ones are created against the new keymaps:
 

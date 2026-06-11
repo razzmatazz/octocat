@@ -73,6 +73,40 @@
   "Face for a local or remote branch name."
   :group 'octocat)
 
+(defconst octocat-branch-max-width 16
+  "Maximum display width (in characters) for a branch name column.
+Longer names are truncated with a trailing ellipsis (…).")
+
+(defconst octocat-title-width 40
+  "Display width (in characters) for title/subject columns.
+Used by PR titles, issue titles, workflow-run display titles, and commit
+subjects so all list views share a uniform column width.")
+
+(defun octocat--format-title (title)
+  "Return TITLE truncated/padded to `octocat-title-width' characters.
+Strings shorter than the width are space-padded; longer ones are
+truncated with a trailing ellipsis (…)."
+  (truncate-string-to-width title octocat-title-width nil ?\s "…"))
+
+(defun octocat--format-branch (branch width)
+  "Return BRANCH truncated to WIDTH characters and styled with `octocat-branch'.
+WIDTH should be at most `octocat-branch-max-width'.  Shorter names are
+padded with spaces so columns stay aligned.  The string is decorated
+with the `octocat-branch' face."
+  (propertize (truncate-string-to-width branch width nil ?\s "…")
+              'face 'octocat-branch))
+
+(defun octocat--branch-column-width (runs key)
+  "Return the branch column width for a list of RUNS hash-tables.
+KEY names the hash entry holding the branch string (e.g. \"headBranch\"
+or \"headRefName\").  The result is the minimum of
+`octocat-branch-max-width' and the longest branch name in RUNS,
+with a floor of 1."
+  (min octocat-branch-max-width
+       (apply #'max 1
+              (mapcar (lambda (r) (length (or (gethash key r) "")))
+                      runs))))
+
 (defface octocat-section-heading
   '((t :weight bold :extend t))
   "Face for section headings in octocat buffers."

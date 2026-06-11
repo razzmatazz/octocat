@@ -155,31 +155,32 @@ hash-tables."
                       'face 'octocat-section-heading))
         (if (null runs)
             (insert (propertize "  (no runs)\n" 'face 'octocat-dimmed))
-          (dolist (run runs)
-            (let* ((id         (or (gethash "databaseId"   run) 0))
-                   (title      (or (gethash "displayTitle" run) ""))
-                   (status     (downcase (or (gethash "status" run) "")))
-                   (conclusion (let ((c (gethash "conclusion" run)))
-                                 (and (octocat--nonempty c) (downcase c))))
-                   (branch     (or (gethash "headBranch" run) ""))
-                   (created    (or (gethash "createdAt"  run) ""))
-                   (date       (octocat--format-ts created))
-                   (icon       (octocat--workflow-run-icon status conclusion)))
-              (magit-insert-section (workflow-run run)
-                (magit-insert-heading
-                  (concat
-                   "  "
-                   icon
-                   "  "
-                   (propertize (format "%-10s" (number-to-string id))
-                               'face 'octocat-pr-number)
-                   "  "
-                   (truncate-string-to-width (format "%-50s" title) 50 nil ?\s "…")
-                   "  "
-                   (propertize (format "%-30s" branch) 'face 'octocat-branch)
-                   "  "
-                   (propertize date 'face 'octocat-dimmed)
-                   "\n"))))))))))
+          (let ((branch-w (octocat--branch-column-width runs "headBranch")))
+            (dolist (run runs)
+              (let* ((id         (or (gethash "databaseId"   run) 0))
+                     (title      (or (gethash "displayTitle" run) ""))
+                     (status     (downcase (or (gethash "status" run) "")))
+                     (conclusion (let ((c (gethash "conclusion" run)))
+                                   (and (octocat--nonempty c) (downcase c))))
+                     (branch     (or (gethash "headBranch" run) ""))
+                     (created    (or (gethash "createdAt"  run) ""))
+                     (date       (octocat--format-ts created))
+                     (icon       (octocat--workflow-run-icon status conclusion)))
+                (magit-insert-section (workflow-run run)
+                  (magit-insert-heading
+                    (concat
+                     "  "
+                     (propertize (format "%-11s" (number-to-string id))
+                                 'face 'octocat-pr-number)
+                     "  "
+                     (octocat--format-branch branch branch-w)
+                     "  "
+                     icon
+                     "  "
+                     (octocat--format-title title)
+                     "  "
+                     (propertize date 'face 'octocat-dimmed)
+                     "\n")))))))))))
 
 ;;;; Visitor
 

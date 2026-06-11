@@ -108,7 +108,7 @@ CALLBACK is called with a list of PR hash-tables, or a cons \\=(error . MSG)."
                    (list "pr" "list"
                          "--repo" repo
                          "--state" "open"
-                         "--json" "number,title,author,state,statusCheckRollup")
+                         "--json" "number,title,author,state,statusCheckRollup,headRefName")
                    #'octocat--parse-json-list
                    callback))
 

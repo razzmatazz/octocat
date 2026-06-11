@@ -204,3 +204,53 @@ Examples:
 "mouse-2, RET: open in browser"
 "RET: expand commit"
 ```
+
+---
+
+## Formatting branch names in tabular rows
+
+Branch names appear in columnar list views (dashboard Workflow Runs, PR
+list, workflow detail).  Two helpers in `octocat-core.el` centralise the
+width computation and rendering so every list stays consistent.
+
+### `octocat-branch-max-width`
+
+A `defconst` (currently `16`) that caps the branch column width across all
+views.  Change it in one place to resize every list at once.
+
+### `octocat--branch-column-width (runs key)`
+
+Computes the branch column width for a given list of hash-tables:
+
+```elisp
+(octocat--branch-column-width runs "headBranch")
+(octocat--branch-column-width prs  "headRefName")
+```
+
+Returns `(min octocat-branch-max-width (max 1 longest-name-length))`, so
+the column is as narrow as possible while fitting every branch name —
+up to the cap.  Call this once outside the `dolist` and bind the result to
+`branch-w`.
+
+### `octocat--format-branch (branch width)`
+
+Renders a single branch string for insertion:
+
+```elisp
+(octocat--format-branch branch branch-w)
+```
+
+Pads/truncates `branch` to exactly `width` characters (trailing `…` when
+truncated) and applies `octocat-branch` face.  Use this instead of
+inline `propertize` + `truncate-string-to-width` at every call site.
+
+### Pattern
+
+```elisp
+(let ((branch-w (octocat--branch-column-width items "headBranch")))
+  (dolist (item items)
+    (let ((branch (or (gethash "headBranch" item) "")))
+      ...
+      (octocat--format-branch branch branch-w)
+      ...)))
+```

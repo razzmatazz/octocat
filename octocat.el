@@ -192,29 +192,33 @@ PRS may be a list of pull-request hash-tables or a cons (error . MSG)."
      ((null prs)
       (insert "  (no pull requests)\n"))
      (t
-      (dolist (pr prs)
-        (let* ((number (format "#%-4d" (gethash "number" pr)))
-               (title  (or (gethash "title"  pr) ""))
-               (author (octocat--author-login pr))
-               (state  (downcase (or (gethash "state" pr) "open")))
-               (state-face (cond ((equal state "merged") 'octocat-pr-state-merged)
-                                 ((equal state "closed") 'octocat-pr-state-closed)
-                                 (t                      'octocat-pr-state-open)))
-               (ci     (octocat--ci-label pr)))
-          (magit-insert-section (pr pr)
-            (magit-insert-heading
-              (concat
-               "  "
-               (propertize number 'face 'octocat-pr-number)
-               "  "
-               (truncate-string-to-width (format "%-40s" title) 40 nil ?\s "…")
-               "  "
-               (propertize (format "%-16s" author) 'face 'octocat-pr-author)
-               "  "
-               (propertize (format "%-6s" state) 'face state-face)
-               "  "
-               ci
-               "\n")))))))))
+      (let ((branch-w (octocat--branch-column-width prs "headRefName")))
+        (dolist (pr prs)
+          (let* ((number (format "%-11s" (format "#%d" (gethash "number" pr))))
+                 (title  (or (gethash "title"  pr) ""))
+                 (branch (or (gethash "headRefName" pr) ""))
+                 (author (octocat--author-login pr))
+                 (state  (downcase (or (gethash "state" pr) "open")))
+                 (state-face (cond ((equal state "merged") 'octocat-pr-state-merged)
+                                   ((equal state "closed") 'octocat-pr-state-closed)
+                                   (t                      'octocat-pr-state-open)))
+                 (ci     (octocat--ci-label pr)))
+            (magit-insert-section (pr pr)
+              (magit-insert-heading
+                (concat
+                 "  "
+                 (propertize number 'face 'octocat-pr-number)
+                 "  "
+                 (octocat--format-branch branch branch-w)
+                 "  "
+                 (octocat--format-title title)
+                 "  "
+                 (propertize (format "%-16s" author) 'face 'octocat-pr-author)
+                 "  "
+                 (propertize (format "%-6s" state) 'face state-face)
+                 "  "
+                 ci
+                 "\n"))))))))))
 
 (defun octocat--render-issues (issues)
   "Insert the collapsible Issues section for ISSUES.
@@ -231,7 +235,7 @@ ISSUES may be a list of issue hash-tables or a cons (error . MSG)."
       (insert "  (no issues)\n"))
      (t
       (dolist (issue issues)
-        (let* ((number (format "#%-4d" (gethash "number" issue)))
+        (let* ((number (format "%-11s" (format "#%d" (gethash "number" issue))))
                (title  (or (gethash "title"  issue) ""))
                (author (octocat--author-login issue))
                (state  (downcase (or (gethash "state" issue) "open")))
@@ -244,7 +248,7 @@ ISSUES may be a list of issue hash-tables or a cons (error . MSG)."
                "  "
                (propertize number 'face 'octocat-pr-number)
                "  "
-               (truncate-string-to-width (format "%-40s" title) 40 nil ?\s "…")
+               (octocat--format-title title)
                "  "
                (propertize (format "%-16s" author) 'face 'octocat-pr-author)
                "  "
@@ -296,10 +300,7 @@ Show up to 20 most recent workflow entries across all workflows."
      ((null recent-runs)
       (insert "  (no workflow runs)\n"))
      (t
-      (let ((branch-w (min 25 (apply #'max 1
-                                     (mapcar (lambda (r)
-                                               (length (or (gethash "headBranch" r) "")))
-                                             recent-runs))))
+      (let ((branch-w (octocat--branch-column-width recent-runs "headBranch"))
             (wf-w (min 25 (apply #'max 1
                                  (mapcar (lambda (r)
                                            (length (or (gethash "workflowName" r) "")))
@@ -319,18 +320,17 @@ Show up to 20 most recent workflow entries across all workflows."
               (magit-insert-heading
                 (concat
                  "  "
-                 icon
-                 "  "
-                 (propertize (format "%-10s" (number-to-string run-id))
+                 (propertize (format "%-11s" (number-to-string run-id))
                              'face 'octocat-pr-number)
+                 "  "
+                 (octocat--format-branch branch branch-w)
                  "  "
                  (propertize (truncate-string-to-width wf-name wf-w nil ?\s "…")
                              'face 'octocat-dimmed)
                  "  "
-                 (propertize (truncate-string-to-width branch branch-w nil ?\s "…")
-                             'face 'octocat-branch)
+                 icon
                  "  "
-                 (truncate-string-to-width title 30 nil ?\s "…")
+                 (octocat--format-title title)
                  "  "
                  (propertize date 'face 'octocat-dimmed)
                  "\n"))))))))))
@@ -340,46 +340,47 @@ Show up to 20 most recent workflow entries across all workflows."
   "Insert the collapsible Commits section for COMMITS.
 COMMITS is a list of commit hash-tables as returned by the GitHub REST
 API \\='repos/{owner}/{repo}/commits\\=' endpoint, or a cons (error . MSG).
-DEFAULT-BRANCH is an optional string such as \"main\" shown in the heading.
-Each row shows the short SHA, author, date, and subject.  RET on a row
+DEFAULT-BRANCH is an optional string such as \"main\" shown on each commit row.
+Each row shows the short SHA, branch, subject, author, and date.  RET on a row
 navigates to the commit detail view via `octocat-visit'."
-  (magit-insert-section (commits)
-    (magit-insert-heading
-      (concat
-       (propertize "Commits" 'face 'octocat-section-heading)
-       (when (and default-branch
-                  (stringp default-branch)
-                  (not (string-empty-p default-branch)))
-         (concat "  "
-                 (propertize default-branch 'face 'octocat-branch)))))
-    (cond
-     ((eq (car-safe commits) 'error)
-      (insert (propertize (format "  %s\n" (cdr commits)) 'face 'octocat-dimmed)))
-     ((null commits)
-      (insert "  (no commits)\n"))
-     (t
-      (dolist (commit commits)
-        (let* ((sha     (or (gethash "sha" commit) ""))
-               (short   (substring sha 0 (min 7 (length sha))))
-               (c       (gethash "commit" commit))
-               (message (or (and c (gethash "message" c)) ""))
-               (subject (car (split-string message "\n")))
-               (ca      (and c (gethash "author" c))) ; git author (date)
-               (author  (octocat--commit-author commit))
-               (date    (octocat--format-ts
-                         (or (and ca (gethash "date" ca)) ""))))
-          (magit-insert-section (commit commit)
-            (magit-insert-heading
-              (concat
-               "  "
-               (propertize short 'face 'octocat-commit-sha)
-               "  "
-               (truncate-string-to-width (format "%-50s" subject) 50 nil ?\s "…")
-               "  "
-               (propertize (format "%-16s" author) 'face 'octocat-pr-author)
-               "  "
-               (propertize date 'face 'octocat-dimmed)
-               "\n")))))))))
+  (let ((branch-label (and (stringp default-branch)
+                            (not (string-empty-p (or default-branch "")))
+                            default-branch)))
+    (magit-insert-section (commits)
+      (magit-insert-heading
+        (propertize "Commits" 'face 'octocat-section-heading))
+      (cond
+       ((eq (car-safe commits) 'error)
+        (insert (propertize (format "  %s\n" (cdr commits)) 'face 'octocat-dimmed)))
+       ((null commits)
+        (insert "  (no commits)\n"))
+       (t
+        (dolist (commit commits)
+          (let* ((sha     (or (gethash "sha" commit) ""))
+                 (short   (substring sha 0 (min 7 (length sha))))
+                 (c       (gethash "commit" commit))
+                 (message (or (and c (gethash "message" c)) ""))
+                 (subject (car (split-string message "\n")))
+                 (ca      (and c (gethash "author" c))) ; git author (date)
+                 (author  (octocat--commit-author commit))
+                 (date    (octocat--format-ts
+                           (or (and ca (gethash "date" ca)) ""))))
+            (magit-insert-section (commit commit)
+              (magit-insert-heading
+                (concat
+                 "  "
+                 (propertize (format "%-11s" short) 'face 'octocat-commit-sha)
+                 (if branch-label
+                     (concat "  "
+                             (propertize branch-label 'face 'octocat-branch))
+                   "")
+                 "  "
+                 (octocat--format-title subject)
+                 "  "
+                 (propertize (format "%-16s" author) 'face 'octocat-pr-author)
+                 "  "
+                 (propertize date 'face 'octocat-dimmed)
+                 "\n"))))))))))
 
 (defun octocat--render-loading (repo)
   "Render a skeleton front view for REPO while data is still loading.
@@ -391,15 +392,15 @@ Issues, and Workflows, each with a dimmed \\='Loading…\\=' placeholder."
     (magit-insert-section (octocat-root)
       (magit-insert-heading
         (propertize repo 'face 'octocat-repo))
-      (octocat--hide-if-saved 'pull-requests
-        (magit-insert-section (pull-requests)
-          (magit-insert-heading
-            (propertize "Pull Requests" 'face 'octocat-section-heading))
-          (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))
       (octocat--hide-if-saved 'issues
         (magit-insert-section (issues)
           (magit-insert-heading
             (propertize "Issues" 'face 'octocat-section-heading))
+          (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))
+      (octocat--hide-if-saved 'pull-requests
+        (magit-insert-section (pull-requests)
+          (magit-insert-heading
+            (propertize "Pull Requests" 'face 'octocat-section-heading))
           (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))
       (octocat--hide-if-saved 'commits
         (magit-insert-section (commits)
@@ -447,8 +448,8 @@ Render collapsible sections; delegate to the individual render helpers."
                                ((eq (car-safe workflows) 'error)        "workflows: n/a")
                                (t (format "%d workflow(s)" (length workflows)))))
                  'face 'octocat-dimmed)))
-      (octocat--hide-if-saved 'pull-requests (octocat--render-prs prs))
       (octocat--hide-if-saved 'issues        (octocat--render-issues issues))
+      (octocat--hide-if-saved 'pull-requests (octocat--render-prs prs))
       (octocat--hide-if-saved 'commits       (octocat--render-commits commits default-branch))
       (octocat--hide-if-saved 'workflow-runs (octocat--render-workflow-runs recent-runs))
       (octocat--hide-if-saved 'workflows     (octocat--render-workflows workflows)))))
