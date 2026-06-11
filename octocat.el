@@ -42,6 +42,12 @@
 ;; byte-compiler when `octocat-evil' has not been loaded yet.
 (declare-function octocat-evil-setup "octocat-evil" ())
 
+;; Edit commands defined in octocat-pr.el / octocat-issue.el (already
+;; loaded via `require' above, but declare here so octocat-visit can call
+;; them without the byte-compiler warning about forward references).
+(declare-function octocat-pr-edit-body    "octocat-pr"    ())
+(declare-function octocat-issue-edit-body "octocat-issue" ())
+
 
 ;;;; Repo detection
 
@@ -524,6 +530,9 @@ fetches fresh data in the background and re-renders when it arrives."
                octocat--run-id   run-id)
          (octocat--render-run-loading run-id)
          (octocat-run-refresh)))
+      ;; RET on a PR or issue body section opens the inline editor.
+      ('pr-body    (octocat-pr-edit-body))
+      ('issue-body (octocat-issue-edit-body))
       (_ nil))))
 
 (defun octocat-browse ()

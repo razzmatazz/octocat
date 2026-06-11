@@ -55,4 +55,20 @@ After editing, use the `emacs__eval-elisp` MCP tool to reload **all** `octocat*.
 
 **Always delete `.elc` files before reloading.** Emacs prefers compiled files over source, so stale `.elc` files will silently shadow your edits. Use `make clean` to remove them.
 
+**Always kill existing octocat buffers before reloading.** Mode keymaps are defined with `defvar`, which only initialises on first load. Existing buffers capture the old keymap object at mode-activation time and will not pick up new bindings even after a reload. Kill all live octocat buffers first so fresh ones are created against the new keymaps:
+
+```elisp
+(dolist (buf (buffer-list))
+  (when (string-match-p "\\*octocat" (buffer-name buf))
+    (kill-buffer buf)))
+```
+
+**`makunbound` mode-map vars when keymaps change.** If you add or remove keybindings inside a `defvar MODE-map …` form, `defvar` will silently skip re-initialisation on subsequent reloads because the variable is already bound. Unset the affected map variables first, then reload:
+
+```elisp
+(makunbound 'octocat-pr-mode-map)
+(makunbound 'octocat-issue-mode-map)
+;; … then load-file as usual
+```
+
 
