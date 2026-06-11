@@ -198,10 +198,18 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
           (insert (format "  Closed   %s\n" (octocat--format-ts closed))))
         (magit-insert-section (pr-changes)
           (magit-insert-heading
-            (format "  Changes  %s %s across %d file(s)\n"
-                    (propertize (format "+%d" additions) 'face 'diff-added)
-                    (propertize (format "-%d" deletions) 'face 'diff-removed)
-                    files))))
+            (let ((hint '(mouse-face magit-section-highlight
+                          help-echo  "RET: open diff view")))
+              (concat
+               (apply #'propertize "  Changes  " hint)
+               (apply #'propertize (format "+%d" additions)
+                      'face 'diff-added hint)
+               (apply #'propertize " " hint)
+               (apply #'propertize (format "-%d" deletions)
+                      'face 'diff-removed hint)
+               (apply #'propertize
+                      (format "  across %d file(s)\n" files)
+                      hint))))))
       ;; ── Body ────────────────────────────────────────────────────────────
       (magit-insert-section (pr-body)
         (magit-insert-heading (propertize "Body" 'face 'octocat-section-heading))
