@@ -3,6 +3,7 @@
 See [README.md](README.md) for full project documentation.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for code conventions.
 See [docs/magit-section.md](docs/magit-section.md) for magit-section usage, gotchas, and patterns.
+See [docs/user-interface-conventions.md](docs/user-interface-conventions.md) for UI conventions: how to signal interactivity, `mouse-face`/`help-echo` patterns, and the decision table for RET-able sections vs inline buttons.
 
 ## Rules
 
