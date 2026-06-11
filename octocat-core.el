@@ -162,7 +162,14 @@ so they appear in the *Backtrace* buffer."
                     (stderr    (with-current-buffer err-buf
                                  (buffer-string))))
                (kill-buffer (process-buffer proc))
-               (when (buffer-live-p err-buf) (kill-buffer err-buf))
+               (when (buffer-live-p err-buf)
+                 ;; The stderr pipe-process attached by `make-process :stderr'
+                 ;; may still be live when the sentinel fires, causing Emacs to
+                 ;; prompt "has running process; kill it?" interactively.
+                 ;; Delete it explicitly first so `kill-buffer' is unconditional.
+                 (let ((pipe (get-buffer-process err-buf)))
+                   (when pipe (delete-process pipe)))
+                 (kill-buffer err-buf))
                (octocat--debug-log
                 (format "gh %s exit-code: %d" name exit-code) output)
                (octocat--debug-log
