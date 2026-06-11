@@ -14,6 +14,7 @@
 
 (require 'octocat-core)
 (require 'octocat-commit)
+(require 'octocat-edit)
 
 ;; Forward declarations for buffer-locals defined later in this file.
 ;; Needed so the byte-compiler doesn't warn about free variables in
@@ -25,6 +26,26 @@
 ;; cannot require it here.  Declare them to silence the byte-compiler.
 (declare-function octocat-browse "octocat" ())
 (declare-function octocat-visit  "octocat" ())
+
+;;;; Edit / comment commands
+
+(defun octocat-pr-add-comment ()
+  "Open an edit buffer to add a comment to the current PR."
+  (interactive)
+  (unless (and octocat--pr-repo octocat--pr-number)
+    (user-error "Octocat: Buffer is not associated with a pull request"))
+  (octocat--open-edit-buffer octocat--pr-repo 'pr octocat--pr-number 'comment))
+
+(defun octocat-pr-edit-body ()
+  "Open an edit buffer to replace the body of the current PR."
+  (interactive)
+  (unless (and octocat--pr-repo octocat--pr-number)
+    (user-error "Octocat: Buffer is not associated with a pull request"))
+  ;; Pre-populate with the current body from the cache so the user can
+  ;; edit in-place rather than retyping everything.
+  (let* ((cache (octocat--detail-cache-load octocat--pr-repo "pr" octocat--pr-number))
+         (body  (and cache (octocat--nonempty (gethash "body" cache)))))
+    (octocat--open-edit-buffer octocat--pr-repo 'pr octocat--pr-number 'edit-body body)))
 
 
 ;;;; Data fetching
@@ -253,6 +274,8 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
     (define-key map (kbd "RET")     #'octocat-visit)
     (define-key map (kbd "o")       #'octocat-browse)
     (define-key map (kbd "C-c C-o") #'octocat-browse)
+    (define-key map (kbd "c")       #'octocat-pr-add-comment)
+    (define-key map (kbd "e")       #'octocat-pr-edit-body)
     ;; Shadow magit-section-mode-map's "g" → revert-buffer with a prefix map.
     (define-key map (kbd "g")  g)
     (define-key map (kbd "gr") #'octocat-pr-refresh)

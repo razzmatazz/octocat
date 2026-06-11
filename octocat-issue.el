@@ -13,10 +13,31 @@
 ;;; Code:
 
 (require 'octocat-core)
+(require 'octocat-edit)
 
 ;; These commands are defined in octocat.el which loads this file, so we
 ;; cannot require it here.  Declare them to silence the byte-compiler.
 (declare-function octocat-browse "octocat" ())
+
+;;;; Edit / comment commands
+
+(defun octocat-issue-add-comment ()
+  "Open an edit buffer to add a comment to the current issue."
+  (interactive)
+  (unless (and octocat--issue-repo octocat--issue-number)
+    (user-error "Octocat: Buffer is not associated with an issue"))
+  (octocat--open-edit-buffer octocat--issue-repo 'issue octocat--issue-number 'comment))
+
+(defun octocat-issue-edit-body ()
+  "Open an edit buffer to replace the body of the current issue."
+  (interactive)
+  (unless (and octocat--issue-repo octocat--issue-number)
+    (user-error "Octocat: Buffer is not associated with an issue"))
+  ;; Pre-populate with the current body from the cache so the user can
+  ;; edit in-place rather than retyping everything.
+  (let* ((cache (octocat--detail-cache-load octocat--issue-repo "issue" octocat--issue-number))
+         (body  (and cache (octocat--nonempty (gethash "body" cache)))))
+    (octocat--open-edit-buffer octocat--issue-repo 'issue octocat--issue-number 'edit-body body)))
 
 
 ;;;; Buffer-local declarations
@@ -162,6 +183,8 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
     (define-key map (kbd "q")       #'quit-window)
     (define-key map (kbd "o")       #'octocat-browse)
     (define-key map (kbd "C-c C-o") #'octocat-browse)
+    (define-key map (kbd "c")       #'octocat-issue-add-comment)
+    (define-key map (kbd "e")       #'octocat-issue-edit-body)
     ;; Shadow magit-section-mode-map's "g" → revert-buffer with a prefix map.
     (define-key map (kbd "g")  g)
     (define-key map (kbd "gr") #'octocat-issue-refresh)
