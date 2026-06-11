@@ -41,3 +41,10 @@ they can be inspected directly.  Do **not** hardcode
 See [docs/magit-section.md](docs/magit-section.md) for the section tree
 structure, hiding/collapsing gotchas, and the correct patterns for preserving
 collapse state across refreshes.
+
+### Indicating interactivity in the UI
+
+See [docs/user-interface-conventions.md](docs/user-interface-conventions.md)
+for how to signal that a section heading or inline value is RET-able:
+`mouse-face`, `help-echo` wording, when to use `buttonize`, and the decision
+table for each situation.
