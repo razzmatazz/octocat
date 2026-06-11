@@ -47,6 +47,33 @@
          (body  (and cache (octocat--nonempty (gethash "body" cache)))))
     (octocat--open-edit-buffer octocat--pr-repo 'pr octocat--pr-number 'edit-body body)))
 
+(defun octocat-pr-edit ()
+  "Edit the thing at point in the current PR buffer.
+On the body section: replace the PR body.
+On a comment you authored: edit that comment.
+On someone else\\='s comment: signal an error."
+  (interactive)
+  (unless (and octocat--pr-repo octocat--pr-number)
+    (user-error "Octocat: Buffer is not associated with a pull request"))
+  (let* ((section (magit-current-section))
+         (type    (oref section type)))
+    (pcase type
+      ('pr-body
+       (octocat-pr-edit-body))
+      ('comment
+       (let* ((comment    (oref section value))
+              (authored   (eq (gethash "viewerDidAuthor" comment) t))
+              (comment-id (octocat--comment-numeric-id comment))
+              (body       (octocat--nonempty (gethash "body" comment))))
+         (unless authored
+           (user-error "Octocat: You can't edit someone else's comment"))
+         (unless comment-id
+           (user-error "Octocat: Could not determine comment ID from URL"))
+         (octocat--open-edit-buffer octocat--pr-repo 'pr octocat--pr-number
+                                    'edit-comment body comment-id)))
+      (_
+       (user-error "Octocat: Nothing to edit here")))))
+
 
 ;;;; Data fetching
 
@@ -275,7 +302,7 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
     (define-key map (kbd "o")       #'octocat-browse)
     (define-key map (kbd "C-c C-o") #'octocat-browse)
     (define-key map (kbd "c")       #'octocat-pr-add-comment)
-    (define-key map (kbd "e")       #'octocat-pr-edit-body)
+    (define-key map (kbd "e")       #'octocat-pr-edit)
     ;; Shadow magit-section-mode-map's "g" → revert-buffer with a prefix map.
     (define-key map (kbd "g")  g)
     (define-key map (kbd "gr") #'octocat-pr-refresh)

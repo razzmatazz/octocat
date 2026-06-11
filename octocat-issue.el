@@ -39,6 +39,33 @@
          (body  (and cache (octocat--nonempty (gethash "body" cache)))))
     (octocat--open-edit-buffer octocat--issue-repo 'issue octocat--issue-number 'edit-body body)))
 
+(defun octocat-issue-edit ()
+  "Edit the thing at point in the current issue buffer.
+On the body section: replace the issue body.
+On a comment you authored: edit that comment.
+On someone else\\='s comment: signal an error."
+  (interactive)
+  (unless (and octocat--issue-repo octocat--issue-number)
+    (user-error "Octocat: Buffer is not associated with an issue"))
+  (let* ((section (magit-current-section))
+         (type    (oref section type)))
+    (pcase type
+      ('issue-body
+       (octocat-issue-edit-body))
+      ('comment
+       (let* ((comment    (oref section value))
+              (authored   (eq (gethash "viewerDidAuthor" comment) t))
+              (comment-id (octocat--comment-numeric-id comment))
+              (body       (octocat--nonempty (gethash "body" comment))))
+         (unless authored
+           (user-error "Octocat: You can't edit someone else's comment"))
+         (unless comment-id
+           (user-error "Octocat: Could not determine comment ID from URL"))
+         (octocat--open-edit-buffer octocat--issue-repo 'issue octocat--issue-number
+                                    'edit-comment body comment-id)))
+      (_
+       (user-error "Octocat: Nothing to edit here")))))
+
 
 ;;;; Buffer-local declarations
 
@@ -184,7 +211,7 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
     (define-key map (kbd "o")       #'octocat-browse)
     (define-key map (kbd "C-c C-o") #'octocat-browse)
     (define-key map (kbd "c")       #'octocat-issue-add-comment)
-    (define-key map (kbd "e")       #'octocat-issue-edit-body)
+    (define-key map (kbd "e")       #'octocat-issue-edit)
     ;; Shadow magit-section-mode-map's "g" → revert-buffer with a prefix map.
     (define-key map (kbd "g")  g)
     (define-key map (kbd "gr") #'octocat-issue-refresh)

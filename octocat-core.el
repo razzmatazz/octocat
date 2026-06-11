@@ -204,6 +204,15 @@ An empty or null response is treated as an empty list."
         (json-parse-error
          (error "Failed to parse gh output: %s" (error-message-string err))))))))
 
+(defun octocat--comment-numeric-id (comment)
+  "Return the numeric REST comment ID string from COMMENT hash-table.
+The ID is parsed from the comment's \\\"url\\\" field, which ends in
+\\\"#issuecomment-NNNNN\\\".  Returns nil if the URL is absent or malformed."
+  (let ((url (and comment (gethash "url" comment))))
+    (when (and url (stringp url)
+               (string-match "#issuecomment-\\([0-9]+\\)\\'" url))
+      (match-string 1 url))))
+
 (defun octocat--nonempty (value)
   "Return VALUE if it is a non-empty, non-null string, otherwise nil.
 Treats the JSON null sentinel `:null' and empty strings as absent values."
@@ -484,11 +493,16 @@ faces from `markdown-mode', which is a declared dependency."
   (let* ((indent (or indent "  "))
          (text (replace-regexp-in-string "\r" "" text))
          (rendered
-          (with-temp-buffer
-            (insert text)
-            (gfm-view-mode)
-            (font-lock-ensure)
-            (buffer-string))))
+          (condition-case _err
+              (with-temp-buffer
+                (insert text)
+                (gfm-view-mode)
+                (font-lock-ensure)
+                (buffer-string))
+            ;; gfm-mode can crash on malformed input (e.g. unterminated
+            ;; code fences).  Fall back to the raw text so the caller
+            ;; always gets something sensible.
+            (error text))))
     (dolist (line (split-string rendered "\n"))
       (insert indent line "\n"))))
 

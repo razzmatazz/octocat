@@ -33,10 +33,12 @@
 (declare-function octocat-pr-refresh         "octocat-pr"        (&optional _ignore-auto _noconfirm))
 (declare-function octocat-pr-add-comment     "octocat-pr"        ())
 (declare-function octocat-pr-edit-body       "octocat-pr"        ())
+(declare-function octocat-pr-edit            "octocat-pr"        ())
 (declare-function octocat-commit-refresh     "octocat-commit"    (&optional _ignore-auto _noconfirm))
 (declare-function octocat-issue-refresh      "octocat-issue"     (&optional _ignore-auto _noconfirm))
 (declare-function octocat-issue-add-comment  "octocat-issue"     ())
 (declare-function octocat-issue-edit-body    "octocat-issue"     ())
+(declare-function octocat-issue-edit         "octocat-issue"     ())
 (declare-function octocat-workflow-refresh   "octocat-workflow"  (&optional _ignore-auto _noconfirm))
 (declare-function octocat-workflow-visit     "octocat-workflow"  ())
 (declare-function octocat-run-refresh        "octocat-run"       (&optional _ignore-auto _noconfirm))
@@ -70,6 +72,8 @@
     (kbd "RET")     #'octocat-visit
     (kbd "o")       #'octocat-browse
     (kbd "C-c C-o") #'octocat-browse
+    (kbd "c")       #'octocat-pr-add-comment
+    (kbd "e")       #'octocat-pr-edit
     (kbd "q")       #'quit-window
     (kbd "gr")      #'octocat-pr-refresh)
   (evil-define-key* 'motion octocat-pr-mode-map
@@ -93,7 +97,7 @@
     (kbd "o")       #'octocat-browse
     (kbd "C-c C-o") #'octocat-browse
     (kbd "c")       #'octocat-issue-add-comment
-    (kbd "e")       #'octocat-issue-edit-body
+    (kbd "e")       #'octocat-issue-edit
     (kbd "q")       #'quit-window
     (kbd "gr")      #'octocat-issue-refresh)
 

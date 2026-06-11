@@ -10,7 +10,8 @@
 ;; to write multi-line markdown text:
 ;;
 ;;   - Adding a comment to a PR or issue (`c' key in the detail views)
-;;   - Editing the body of a PR or issue (`e' key in the detail views)
+;;   - Editing the body of a PR or issue (`e' on the body section)
+;;   - Editing an existing comment you authored (`e' on a comment section)
 ;;
 ;; The workflow mirrors Magit's commit-message buffer:
 ;;   C-c C-c  — submit (validate, call gh, kill buffer, refresh source)
@@ -40,15 +41,19 @@
   "The integer number of the PR or issue being edited.")
 
 (defvar-local octocat-edit--action nil
-  "Symbol: `comment' or `edit-body' — the action to perform on submit.")
+  "Symbol `comment', `edit-body', or `edit-comment'.
+Determines what gh call `octocat-edit-submit' makes.")
+
+(defvar-local octocat-edit--comment-id nil
+  "Numeric REST comment ID string, set when action is `edit-comment'.")
 
 (defvar-local octocat-edit--source-buffer nil
   "The PR/issue buffer that opened this edit buffer.
 Used to refresh the source after a successful submit.")
 
-(defvar-local octocat-edit--window-configuration nil
-  "Window configuration saved just before the edit buffer window was opened.
-Restored on submit or abort so no extra split is left behind.")
+(defvar-local octocat-edit--window nil
+  "The window displaying this edit buffer.
+Used by `quit-window' to close the split cleanly on submit or abort.")
 
 
 ;;;; Keymap
@@ -89,9 +94,10 @@ Type your markdown text, then:
           (if (eq kind 'pr) "pr" "issue")
           number
           (pcase action
-            ('comment   "comment")
-            ('edit-body "body")
-            (_          (symbol-name action)))))
+            ('comment      "comment")
+            ('edit-body    "body")
+            ('edit-comment "edit-comment")
+            (_             (symbol-name action)))))
 
 (defun octocat-edit--header-line (kind number action)
   "Return a header-line string for KIND NUMBER ACTION."
@@ -99,17 +105,19 @@ Type your markdown text, then:
                         (if (eq kind 'pr) "PR" "issue")
                         number))
         (verb (pcase action
-                ('comment   "New comment on")
-                ('edit-body "Edit body of")
-                (_          (format "%s" action)))))
+                ('comment      "New comment on")
+                ('edit-body    "Edit body of")
+                ('edit-comment "Edit comment on")
+                (_             (format "%s" action)))))
     (format "  %s %s    %s  submit   %s  discard"
             verb target
             (propertize "C-c C-c" 'face 'help-key-binding)
             (propertize "C-c C-k" 'face 'help-key-binding))))
 
-(defun octocat-edit--gh-args (repo kind number action body)
+(defun octocat-edit--gh-args (repo kind number action body comment-id)
   "Return a `gh' argument list to perform ACTION on KIND NUMBER in REPO.
-BODY is the text to submit.  Returns a list of strings."
+BODY is the text to submit.  COMMENT-ID is the numeric REST comment ID
+string, required when ACTION is `edit-comment'.  Returns a list of strings."
   (let ((num (number-to-string number)))
     (pcase action
       ('comment
@@ -122,6 +130,13 @@ BODY is the text to submit.  Returns a list of strings."
              "edit" num
              "--repo" repo
              "--body" body))
+      ('edit-comment
+       (unless comment-id
+         (error "Octocat-edit: edit-comment action requires a comment-id"))
+       (list "api"
+             (format "repos/%s/issues/comments/%s" repo comment-id)
+             "--method" "PATCH"
+             "-f" (format "body=%s" body)))
       (_ (error "Octocat-edit: unknown action %s" action)))))
 
 (defun octocat-edit--refresh-source (buf)
@@ -131,18 +146,6 @@ BODY is the text to submit.  Returns a list of strings."
       (cond
        ((derived-mode-p 'octocat-pr-mode)    (octocat-pr-refresh))
        ((derived-mode-p 'octocat-issue-mode) (octocat-issue-refresh))))))
-
-(defun octocat-edit--restore-windows (wconf source)
-  "Restore window configuration WCONF and switch to SOURCE buffer.
-If WCONF is non-nil it is restored (undoing the edit-buffer split).
-Otherwise fall back to `pop-to-buffer' SOURCE."
-  (if wconf
-      (progn
-        (set-window-configuration wconf)
-        (when (buffer-live-p source)
-          (switch-to-buffer source)))
-    (when (buffer-live-p source)
-      (pop-to-buffer source))))
 
 
 ;;;; Commands
@@ -157,10 +160,11 @@ Otherwise fall back to `pop-to-buffer' SOURCE."
            (kind   octocat-edit--kind)
            (number octocat-edit--number)
            (action octocat-edit--action)
-           (source octocat-edit--source-buffer)
-           (wconf  octocat-edit--window-configuration)
-           (args   (octocat-edit--gh-args repo kind number action body))
-           (edit-buf (current-buffer)))
+           (comment-id octocat-edit--comment-id)
+           (source     octocat-edit--source-buffer)
+           (edit-win   octocat-edit--window)
+           (args       (octocat-edit--gh-args repo kind number action body comment-id))
+           (edit-buf   (current-buffer)))
       (setq mode-line-process " [submitting…]")
       (octocat--run-gh
        (format "edit-%s" (symbol-name action))
@@ -175,12 +179,14 @@ Otherwise fall back to `pop-to-buffer' SOURCE."
                (with-current-buffer edit-buf
                  (setq mode-line-process nil)
                  (message "Octocat submit error: %s" (cdr result))))
-           ;; Success: kill the edit buffer, go back to source, refresh.
+           ;; Success: close the edit window (kills buffer, restores split).
            (when (buffer-live-p edit-buf)
              (with-current-buffer edit-buf
-               (set-buffer-modified-p nil)
+               (set-buffer-modified-p nil)))
+           (if (window-live-p edit-win)
+               (quit-window t edit-win)
+             (when (buffer-live-p edit-buf)
                (kill-buffer edit-buf)))
-           (octocat-edit--restore-windows wconf source)
            (octocat-edit--refresh-source source)))))))
 
 (defun octocat-edit-abort ()
@@ -188,42 +194,42 @@ Otherwise fall back to `pop-to-buffer' SOURCE."
   (interactive)
   (when (or (not (buffer-modified-p))
             (yes-or-no-p "Discard edit? "))
-    (let ((source octocat-edit--source-buffer)
-          (wconf  octocat-edit--window-configuration))
+    (let ((win octocat-edit--window))
       (set-buffer-modified-p nil)
-      (kill-buffer (current-buffer))
-      (octocat-edit--restore-windows wconf source))))
+      (quit-window t win))))
 
 
 ;;;; Public entry point
 
-(defun octocat--open-edit-buffer (repo kind number action &optional initial-content)
+(defun octocat--open-edit-buffer (repo kind number action
+                                       &optional initial-content comment-id)
   "Open (or reuse) an edit buffer for REPO KIND NUMBER ACTION.
 
-REPO    — \"owner/repo\" string.
-KIND    — symbol `pr' or `issue'.
-NUMBER  — integer PR or issue number.
-ACTION  — symbol `comment' (add comment) or `edit-body' (replace body).
+REPO           — \"owner/repo\" string.
+KIND           — symbol `pr' or `issue'.
+NUMBER         — integer PR or issue number.
+ACTION         — symbol `comment' (add comment), `edit-body' (replace body),
+                 or `edit-comment' (edit an existing comment).
 INITIAL-CONTENT — string pre-populated into the buffer; nil for blank.
+COMMENT-ID     — numeric REST comment ID string; required for `edit-comment'.
 
-The buffer is shown via `pop-to-buffer' in a bottom window.  When the
-user finishes with \\[octocat-edit-submit], the source buffer is
-automatically refreshed.  Use \\[octocat-edit-abort] to discard."
-  (let* ((name  (octocat-edit--buffer-name repo kind number action))
+The buffer is shown in a bottom window.  When the user finishes with
+\\[octocat-edit-submit], the source buffer is automatically refreshed.
+Use \\[octocat-edit-abort] to discard."
+  (let* ((name   (octocat-edit--buffer-name repo kind number action))
          (source (current-buffer))
-         (wconf  (current-window-configuration))
-         (buf   (get-buffer-create name)))
+         (buf    (get-buffer-create name)))
     (with-current-buffer buf
       (unless (derived-mode-p 'octocat-edit-mode)
         (octocat-edit-mode))
       ;; Restore state even if buffer already existed (e.g. re-opened after
       ;; a failed submit).
-      (setq octocat-edit--repo                 repo
-            octocat-edit--kind                 kind
-            octocat-edit--number               number
-            octocat-edit--action               action
-            octocat-edit--source-buffer        source
-            octocat-edit--window-configuration wconf)
+      (setq octocat-edit--repo            repo
+            octocat-edit--kind            kind
+            octocat-edit--number          number
+            octocat-edit--action          action
+            octocat-edit--comment-id      comment-id
+            octocat-edit--source-buffer   source)
       (setq-local header-line-format
                   (octocat-edit--header-line kind number action))
       ;; Only pre-populate when the buffer is fresh (not dirty from a
@@ -235,9 +241,14 @@ automatically refreshed.  Use \\[octocat-edit-abort] to discard."
         (insert initial-content)
         (goto-char (point-max)))
       (set-buffer-modified-p nil))
-    (pop-to-buffer buf
-                   '(display-buffer-below-selected
-                     . ((window-height . 0.35))))))
+    ;; display-buffer returns the window and automatically stamps it with a
+    ;; quit-restore parameter so quit-window knows how to clean it up.
+    (let ((win (display-buffer buf
+                               '(display-buffer-below-selected
+                                 . ((window-height . 0.35))))))
+      (with-current-buffer buf
+        (setq octocat-edit--window win))
+      (select-window win))))
 
 (provide 'octocat-edit)
 ;;; octocat-edit.el ends here
