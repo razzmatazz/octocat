@@ -182,6 +182,10 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
          (body        (or (gethash "body" pr) ""))
          (base        (or (gethash "baseRefName" pr) ""))
          (head        (or (gethash "headRefName" pr) ""))
+         (local-branch (octocat--current-branch))
+         (head-face   (if (and local-branch (string= head local-branch))
+                          'octocat-branch-current
+                        'octocat-branch))
          (created     (or (gethash "createdAt"   pr) ""))
          (merged      (gethash "mergedAt"  pr))
          (closed      (gethash "closedAt"  pr))
@@ -224,7 +228,7 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
         (insert (format "  Author   %s\n"
                         (propertize author 'face 'octocat-pr-author)))
         (insert (format "  Branch   %s → %s\n"
-                        (propertize head 'face 'octocat-branch)
+                        (propertize head 'face head-face)
                         (propertize base 'face 'octocat-branch)))
         (insert (format "  Created  %s\n" (octocat--format-ts-full created)))
         (when (and merged (not (eq merged :null)) (not (string-empty-p merged)))

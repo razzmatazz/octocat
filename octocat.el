@@ -214,9 +214,11 @@ so the overlay is applied immediately, as required by magit-section."
        (magit-section-hide s))
      s))
 
-(defun octocat--render-prs (prs)
+(defun octocat--render-prs (prs &optional current-branch)
   "Insert the collapsible Pull Requests section for PRS.
-PRS may be a list of pull-request hash-tables or a cons (error . MSG)."
+PRS may be a list of pull-request hash-tables or a cons (error . MSG).
+CURRENT-BRANCH, when non-nil, is the local HEAD branch name; the
+matching PR row's branch column is highlighted with `octocat-branch-current'."
   (magit-insert-section (pull-requests)
     (magit-insert-heading
       (propertize "Pull Requests" 'face 'octocat-section-heading))
@@ -230,22 +232,26 @@ PRS may be a list of pull-request hash-tables or a cons (error . MSG)."
      (t
       (let ((branch-w (octocat--branch-column-width prs "headRefName")))
         (dolist (pr prs)
-          (let* ((number (format "%-11s" (format "#%d" (gethash "number" pr))))
-                 (title  (or (gethash "title"  pr) ""))
-                 (branch (or (gethash "headRefName" pr) ""))
-                 (author (octocat--author-login pr))
-                 (state  (downcase (or (gethash "state" pr) "open")))
+          (let* ((number  (format "%-11s" (format "#%d" (gethash "number" pr))))
+                 (title   (or (gethash "title"  pr) ""))
+                 (branch  (or (gethash "headRefName" pr) ""))
+                 (activep (and current-branch (string= branch current-branch)))
+                 (b-face  (if activep 'octocat-branch-current 'octocat-branch))
+                 (author  (octocat--author-login pr))
+                 (state   (downcase (or (gethash "state" pr) "open")))
                  (state-face (cond ((equal state "merged") 'octocat-pr-state-merged)
                                    ((equal state "closed") 'octocat-pr-state-closed)
                                    (t                      'octocat-pr-state-open)))
-                 (ci     (octocat--ci-label pr)))
+                 (ci      (octocat--ci-label pr)))
             (magit-insert-section (pr pr)
               (magit-insert-heading
                 (concat
                  "  "
                  (propertize number 'face 'octocat-pr-number)
                  "  "
-                 (octocat--format-branch branch branch-w)
+                 (let* ((name (truncate-string-to-width branch branch-w nil nil "…"))
+                        (pad  (make-string (- branch-w (string-width name)) ?\s)))
+                   (concat (propertize name 'face b-face) pad))
                  "  "
                  (octocat--format-title title)
                  "  "
@@ -338,10 +344,12 @@ is displayed in the separate Workflow Runs section."
                (propertize state 'face state-face)
                "\n")))))))))
 
-(defun octocat--render-workflow-runs (recent-runs)
+(defun octocat--render-workflow-runs (recent-runs &optional current-branch)
   "Insert the collapsible Workflow Run history section for RECENT-RUNS.
 RECENT-RUNS is a flat list of run hash-tables (each with a
 \\='workflowName\\=' key) or a cons (error . MSG).
+CURRENT-BRANCH, when non-nil, is the local HEAD branch name; the
+matching run row's branch column is highlighted with `octocat-branch-current'.
 Show up to 20 most recent workflow entries across all workflows."
   (magit-insert-section (workflow-runs)
     (magit-insert-heading
@@ -366,6 +374,8 @@ Show up to 20 most recent workflow entries across all workflows."
                  (conclusion (let ((c (gethash "conclusion" run)))
                                (and (octocat--nonempty c) (downcase c))))
                  (branch     (or (gethash "headBranch"   run) ""))
+                 (activep    (and current-branch (string= branch current-branch)))
+                 (b-face     (if activep 'octocat-branch-current 'octocat-branch))
                  (wf-name    (or (gethash "workflowName" run) ""))
                  (created    (or (gethash "createdAt"    run) ""))
                  (date       (octocat--relative-ts created))
@@ -377,7 +387,9 @@ Show up to 20 most recent workflow entries across all workflows."
                  (propertize (format "%-11s" (number-to-string run-id))
                              'face 'octocat-pr-number)
                  "  "
-                 (octocat--format-branch branch branch-w)
+                 (let* ((name (truncate-string-to-width branch branch-w nil nil "…"))
+                        (pad  (make-string (- branch-w (string-width name)) ?\s)))
+                   (concat (propertize name 'face b-face) pad))
                  "  "
                  (propertize (truncate-string-to-width wf-name wf-w nil ?\s "…")
                              'face 'octocat-dimmed)
@@ -399,16 +411,22 @@ Show up to 20 most recent workflow entries across all workflows."
                         "\n"))))))))))
 
 
-(defun octocat--render-commits (commits &optional default-branch)
+(defun octocat--render-commits (commits &optional default-branch current-branch)
   "Insert the collapsible Commits section for COMMITS.
 COMMITS is a list of commit hash-tables as returned by the GitHub REST
 API \\='repos/{owner}/{repo}/commits\\=' endpoint, or a cons (error . MSG).
 DEFAULT-BRANCH is an optional string such as \"main\" shown on each commit row.
+CURRENT-BRANCH, when non-nil, is the local HEAD branch name; when it
+matches DEFAULT-BRANCH the label is highlighted with `octocat-branch-current'.
 Each row shows the short SHA, branch, subject, author, and date.  RET on a row
 navigates to the commit detail view via `octocat-visit'."
-  (let ((branch-label (and (stringp default-branch)
-                            (not (string-empty-p (or default-branch "")))
-                            default-branch)))
+  (let* ((branch-label (and (stringp default-branch)
+                             (not (string-empty-p (or default-branch "")))
+                             default-branch))
+         (label-face   (if (and branch-label current-branch
+                                (string= branch-label current-branch))
+                           'octocat-branch-current
+                         'octocat-branch)))
     (magit-insert-section (commits)
       (magit-insert-heading
         (propertize "Commits" 'face 'octocat-section-heading))
@@ -435,7 +453,7 @@ navigates to the commit detail view via `octocat-visit'."
                  (propertize (format "%-11s" short) 'face 'octocat-commit-sha)
                  (if branch-label
                      (concat "  "
-                             (propertize branch-label 'face 'octocat-branch))
+                             (propertize branch-label 'face label-face))
                    "")
                  "  "
                  (octocat--format-title subject)
@@ -495,7 +513,7 @@ Issues, and Workflows, each with a dimmed \\='Loading…\\=' placeholder."
           (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))))))
 
 (defun octocat--render (prs issues workflows repo
-                        &optional recent-runs commits default-branch)
+                        &optional recent-runs commits default-branch current-branch)
   "Erase the buffer and render dashboard sections for REPO.
 PRS, ISSUES, WORKFLOWS may each be a list of hash-tables or a cons
 \(error . MSG) when the corresponding feature is disabled or unavailable.
@@ -505,6 +523,9 @@ COMMITS is an optional list of commit hash-tables from the REST API,
 representing the last `octocat-commits-limit' commits on the default branch.
 DEFAULT-BRANCH is an optional string such as \"main\" shown in the Commits
 section heading.
+CURRENT-BRANCH is an optional string naming the local HEAD branch; when
+non-nil the matching branch column in the PR and Workflow Runs lists is
+highlighted with `octocat-branch-current'.
 Render collapsible sections; delegate to the individual render helpers."
   (octocat--save-section-state)
   (let ((inhibit-read-only t))
@@ -526,11 +547,11 @@ Render collapsible sections; delegate to the individual render helpers."
                  'face 'octocat-dimmed)))
       (octocat--hide-if-saved 'issues        (octocat--render-issues issues))
       (insert "\n")
-      (octocat--hide-if-saved 'pull-requests (octocat--render-prs prs))
+      (octocat--hide-if-saved 'pull-requests (octocat--render-prs prs current-branch))
       (insert "\n")
-      (octocat--hide-if-saved 'commits       (octocat--render-commits commits default-branch))
+      (octocat--hide-if-saved 'commits       (octocat--render-commits commits default-branch current-branch))
       (insert "\n")
-      (octocat--hide-if-saved 'workflow-runs (octocat--render-workflow-runs recent-runs))
+      (octocat--hide-if-saved 'workflow-runs (octocat--render-workflow-runs recent-runs current-branch))
       (insert "\n")
       (octocat--hide-if-saved 'workflows     (octocat--render-workflows workflows)))))
 
@@ -562,6 +583,11 @@ Render collapsible sections; delegate to the individual render helpers."
 
 (defvar-local octocat--repo nil
   "The \"owner/repo\" string this buffer is tracking.")
+
+(defvar-local octocat--current-branch nil
+  "The local git branch that was checked out when this buffer last refreshed.
+Used to highlight matching PR and workflow-run rows.  Nil when HEAD is
+detached or the directory is not a git repository.")
 
 (defvar-local octocat--section-hidden nil
   "List of section type symbols that were hidden before the last render.
@@ -610,6 +636,10 @@ default branch name itself."
          (issues-count  octocat--issues-count)
          (commits-count octocat--commits-count)
          (runs-count    octocat--runs-count)
+         ;; Capture the local HEAD branch once; used to highlight matching
+         ;; rows in the PR and Workflow Runs lists.
+         (_ (setq octocat--current-branch (octocat--current-branch)))
+         (current-branch octocat--current-branch)
          ;; Capture point position before any render so both the cache
          ;; render and the live render can restore it afterwards.
          (saved-point   (octocat--save-point)))
@@ -632,7 +662,8 @@ default branch name itself."
                          repo
                          (plist-get cache :recent-runs)
                          (plist-get cache :commits)
-                         (plist-get cache :default-branch))
+                         (plist-get cache :default-branch)
+                         current-branch)
         (octocat--restore-point saved-point))
        ((zerop (buffer-size))
         (octocat--render-loading repo))))
@@ -669,7 +700,8 @@ default branch name itself."
                                             workflow-result runs-result
                                             commits-result branch))
                      (octocat--render pr-result issue-result workflow-result
-                                      repo runs-result commits-result branch))
+                                      repo runs-result commits-result branch
+                                      current-branch))
                    (octocat--restore-point saved-point))))))
         (octocat--list-prs repo prs-count
                            (lambda (result)

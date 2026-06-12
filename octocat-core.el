@@ -73,6 +73,17 @@
   "Face for a local or remote branch name."
   :group 'octocat)
 
+(defface octocat-branch-current
+  '((((class color) (background dark))
+     :foreground "#8ec07c" :weight bold :underline t)
+    (((class color) (background light))
+     :foreground "#427b58" :weight bold :underline t)
+    (t :inherit (bold octocat-branch) :underline t))
+  "Face for the currently checked-out branch in PR and run lists.
+Applied to branch names that match the local HEAD branch, following the
+Magit convention of marking the current branch with bold + underline."
+  :group 'octocat)
+
 (defconst octocat-branch-max-width 16
   "Maximum display width (in characters) for a branch name column.
 Longer names are truncated with a trailing ellipsis (…).")
@@ -170,6 +181,17 @@ with a floor of 1."
 
 
 ;;;; Internal helpers
+
+(defun octocat--current-branch ()
+  "Return the name of the currently checked-out local git branch, or nil.
+Returns nil when HEAD is detached, the working directory is not a git
+repository, or git is not on PATH.  Calls git synchronously — this is
+intentional because the result is needed at render time and `git
+symbolic-ref' completes in milliseconds."
+  (let ((branch (string-trim
+                 (shell-command-to-string
+                  "git symbolic-ref --short HEAD 2>/dev/null"))))
+    (and (not (string-empty-p branch)) branch)))
 
 (defun octocat--author-login (obj)
   "Return \"@LOGIN\" for the GitHub author of OBJ, or \"\" when unavailable.

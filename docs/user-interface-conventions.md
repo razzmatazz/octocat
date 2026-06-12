@@ -304,3 +304,93 @@ need the relative portion in isolation.
 `octocat--relative-ts` is implemented entirely in Emacs Lisp using
 `float-time` and `current-time`.  It does not call into magit, `ts.el`,
 or any other external package — see the dependency rule in `AGENTS.md`.
+
+---
+
+## Indicating the active (currently checked-out) branch
+
+### Background: Magit's convention
+
+Magit marks the currently checked-out branch in its branch lists with a
+combination of bold weight and an underline, using the `magit-branch-current`
+face (which inherits `magit-branch-local` and adds `:underline t`).  It also
+prepends a `*` glyph in some views.  The core signal is: **bold + underline
+on the branch name itself**, no extra column or prefix character required.
+
+`magit-branch-current` lives in the full `magit` package, not in
+`magit-section`.  octocat.el must not depend on it directly.
+
+### The `octocat-branch-current` face
+
+`octocat-core.el` defines `octocat-branch-current` as the equivalent for
+octocat views:
+
+```elisp
+(defface octocat-branch-current
+  '((((class color) (background dark))
+     :foreground "#8ec07c" :weight bold :underline t)
+    (((class color) (background light))
+     :foreground "#427b58" :weight bold :underline t)
+    (t :inherit (bold octocat-branch) :underline t))
+  "Face for the currently checked-out branch …")
+```
+
+It deliberately reuses the same green as `octocat-branch` so the active
+branch reads as a *highlighted variant* of the normal branch colour, not
+a categorically different thing.  The bold weight and underline match
+Magit's own current-branch treatment.
+
+### Where it is applied
+
+| View | Location | What changes |
+|---|---|---|
+| Dashboard PR list | `headRefName` column | `octocat-branch-current` face instead of `octocat-branch` |
+| Dashboard Workflow Runs list | `headBranch` column | same |
+| PR detail Info section, Branch line | head branch name | `octocat-branch-current` face |
+
+No prefix glyph (`*`, `▶`, etc.) is added.  The bold + underline on the
+branch name is sufficient and keeps column alignment intact.
+
+### Helper: `octocat--current-branch ()`
+
+`octocat-core.el` exposes a synchronous helper that returns the name of the
+currently checked-out local branch, or `nil` on detached HEAD or any error:
+
+```elisp
+(octocat--current-branch)   ; => "feat/my-feature"  or  nil
+```
+
+Implemented with a single `git symbolic-ref --short HEAD` call — fast
+enough to call inline at render time.
+
+### Pattern for list rows
+
+```elisp
+(let* ((branch  (or (gethash "headRefName" pr) ""))
+       (activep (and current-branch (string= branch current-branch)))
+       (b-face  (if activep 'octocat-branch-current 'octocat-branch)))
+  (propertize (truncate-string-to-width branch width nil ?\s "…")
+              'face b-face))
+```
+
+`current-branch` is passed in from the caller (captured once per render,
+not re-read per row).  Comparing with `string=` is correct; branch names
+are plain ASCII strings.
+
+### Pattern for detail-view info lines
+
+In an info section the branch name is rendered inline without padding, so
+the same face swap applies directly:
+
+```elisp
+(insert (format "  Branch   %s → %s\n"
+                (propertize head
+                            'face (if (string= head current-branch)
+                                      'octocat-branch-current
+                                    'octocat-branch))
+                (propertize base 'face 'octocat-branch)))
+```
+
+`current-branch` is obtained by calling `(octocat--current-branch)` once at
+the top of the render function and binding it to a local variable.  Do not
+re-call the helper per line.

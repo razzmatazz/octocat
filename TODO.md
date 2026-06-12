@@ -4,7 +4,14 @@
 
 # ability to view PR reviews, i.e. view comments on code lines, etc.
 
-# can we show active PR more promintently on the dashboard? bold or whatever is the proper way
+## ~~Can we show active PR more prominently on the dashboard?~~
+
+`octocat-branch-current` face (bold + underline, same green as `octocat-branch`) applied
+to the matching `headRefName` / `headBranch` column in the dashboard PR list, Workflow Runs
+list, and the Branch line in PR detail view.  Follows Magit's own `magit-branch-current`
+convention (bold + underline on the branch name itself; no prefix glyph so column
+alignment stays intact).  See docs/user-interface-conventions.md for the full rationale
+and code patterns.
 
 # ability to select current branch for filtering commits+runs+prs (single pr shown) form the dashboard
 
