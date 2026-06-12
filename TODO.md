@@ -1,5 +1,8 @@
 # TODO items
 
+# can we show active PR more promintently on the dashboard? bold or whatever is the proper way
+
+# ability to select current branch for filtering commits+runs+prs (single pr shown) form the dashboard
 
 ## I want C-o to work inside PRs, issues, etc as well -- not only from dashboard
 
