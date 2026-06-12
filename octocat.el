@@ -912,6 +912,10 @@ default branch name itself."
                               repo (number-to-string run-id))))
          (message "Octocat: Opening run #%s in browser…" run-id)
          (browse-url url)))
+      ('octocat-root
+       (let ((url (format "https://github.com/%s" repo)))
+         (message "Octocat: Opening %s in browser…" repo)
+         (browse-url url)))
       (_ nil))))
 
 
