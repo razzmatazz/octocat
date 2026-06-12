@@ -278,7 +278,7 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
                                       (or (gethash "committedDate" commit) "")))
                             (short   (substring oid 0 (min 7 (length oid))))
                             (headp   (string= oid head-oid)))
-                       (magit-insert-section (commit commit)
+                       (magit-insert-section (octocat-commit commit)
                          (magit-insert-heading
                            (concat
                             "  "

@@ -446,7 +446,7 @@ navigates to the commit detail view via `octocat-visit'."
                  (author  (octocat--commit-author commit))
                  (date    (octocat--relative-ts
                            (or (and ca (gethash "date" ca)) ""))))
-            (magit-insert-section (commit commit)
+            (magit-insert-section (octocat-commit commit)
               (magit-insert-heading
                 (concat
                  "  "
@@ -751,7 +751,7 @@ default branch name itself."
                octocat--pr-number number)
          (octocat--render-pr-loading number title state)
          (octocat-pr-refresh)))
-      ('commit
+      ('octocat-commit
        (let* ((commit   (oref section value))
               (c        (gethash "commit" commit))
               (oid      (or (gethash "oid" commit)
@@ -885,7 +885,7 @@ default branch name itself."
                         "pr" "view" "--web"
                         (number-to-string number)
                         "--repo" repo)))
-      ('commit
+      ('octocat-commit
        (let* ((oid   (or (gethash "oid" value) ""))
               (url   (format "https://github.com/%s/commit/%s" repo oid)))
          (message "Octocat: Opening commit %s in browser…"
