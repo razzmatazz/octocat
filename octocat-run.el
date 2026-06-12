@@ -161,6 +161,10 @@ ARTIFACTS is an optional vector of artifact hash-tables from the Actions API."
          (created    (or (gethash "createdAt"    run) ""))
          (updated    (or (gethash "updatedAt"    run) ""))
          (branch     (or (gethash "headBranch"   run) ""))
+         (local-branch (octocat--current-branch))
+         (branch-face  (if (and local-branch (string= branch local-branch))
+                           'octocat-branch-current
+                         'octocat-branch))
          (sha        (or (gethash "headSha"      run) ""))
          (event      (or (gethash "event"        run) ""))
          (wf-name    (or (gethash "workflowName" run) ""))
@@ -191,7 +195,7 @@ ARTIFACTS is an optional vector of artifact hash-tables from the Actions API."
           (insert (format "  Event      %s\n" event)))
         (unless (string-empty-p branch)
           (insert (format "  Branch     %s\n"
-                          (propertize branch 'face 'octocat-branch))))
+                          (propertize branch 'face branch-face))))
         (unless (string-empty-p sha)
           (insert (format "  SHA        %s\n"
                           (propertize (substring sha 0 (min 7 (length sha)))
