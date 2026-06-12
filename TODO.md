@@ -1,8 +1,14 @@
 # TODO items
 
+# ability to view checks
+
+# ability to view PR reviews, i.e. view comments on code lines, etc.
+
 # can we show active PR more promintently on the dashboard? bold or whatever is the proper way
 
 # ability to select current branch for filtering commits+runs+prs (single pr shown) form the dashboard
+
+# ability to review PRs, submit comments, etc.
 
 ## I want C-o to work inside PRs, issues, etc as well -- not only from dashboard
 
