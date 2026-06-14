@@ -51,17 +51,43 @@ closing parens, silently swallowing subsequent `defun`s.
 Run with `--depth N` to expand more nesting levels (default 4).  No
 arguments processes all `*.el` files in the current directory.
 
-When the outline flags a problem but you need to find the **exact line**,
-use `--trace DEFUN`:
+When the outline flags a problem, four targeted sub-commands help find the
+exact broken line:
+
+**`--trace DEFUN`** — prints every source line of the named top-level form
+with a running depth counter.  Now skips `declare-function` stubs and finds
+the actual `defun`/`defvar` definition:
 
 ```bash
 python3 tools/el-outline.py --trace octocat--render-prs octocat.el
 ```
 
-This prints every source line of the named form with a running paren-depth
-counter on the left.  Look for the line where the depth drops to `0` before
-the end of the function, or where the final depth is non-zero — that is
-where the missing or extra `)` lives.
+**`--trace-line N`** — like `--trace` but selects whichever top-level form
+*contains* line N.  Use this when the form has no distinct name, or when
+`--trace` still resolves to the wrong occurrence:
+
+```bash
+python3 tools/el-outline.py --trace-line 274 octocat-commit.el
+```
+
+**`--depth-at N`** — shows the absolute paren depth at each line in a
+±10-line window around N, then lists every form that is still open at that
+line (innermost last).  Answers the question *"what is unclosed going into
+line N?"*:
+
+```bash
+python3 tools/el-outline.py --depth-at 149 octocat-commit.el
+```
+
+**`--close-map --lines A-B`** — for every `)` in the given line range,
+prints which `(` it closes, at what depth, and the head token of the opening
+form.  Highlights closings that reach depth 0 (top-level) unexpectedly.  Use
+this to find the `)` that is doing "double duty" — closing two forms at once
+because a `)` is missing above it:
+
+```bash
+python3 tools/el-outline.py --close-map --lines 145-155 octocat-commit.el
+```
 
 ## Reloading into Emacs
 
@@ -87,6 +113,7 @@ The canonical reload sequence is:
 (load-file "octocat-pr-diff.el")
 (load-file "octocat-pr.el")
 (load-file "octocat-issue.el")
+(load-file "octocat-checks.el")
 (load-file "octocat-evil.el")   ; ← before octocat.el
 (load-file "octocat.el")
 ```
@@ -117,5 +144,62 @@ The canonical reload sequence is:
 (makunbound 'octocat-issue-mode-map)
 ;; … then load-file as usual
 ```
+
+> **Gotcha — `makunbound` on a void symbol raises an error.** If the
+> variable is already void (e.g. it was cleared by a previous `makunbound`
+> call or by `unload-feature`), calling `makunbound` again signals
+> `Symbol's value as variable is void`.  Always guard it:
+>
+> ```elisp
+> (when (boundp 'octocat-pr-mode-map)
+>   (makunbound 'octocat-pr-mode-map))
+> ```
+>
+> Or use `ignore-errors`.
+
+**Prefer `unload-feature` over `makunbound` for full reloads.** The `makunbound` + `load-file` pattern has a subtle failure mode: `load-file` re-evaluates the file and calls `(provide 'octocat-FOO)`, but if the feature was never removed from `features`, any transitive `(require 'octocat-FOO)` inside other files will be a no-op — which means `defvar` forms in that file never re-run after a `makunbound`.  The safest approach for a full reload is to `unload-feature` every octocat package in **reverse dependency order** first, so all `defvar` and `defun` forms run fresh:
+
+```elisp
+;; 1. Kill buffers and .elc files as usual.
+;; 2. Unload in reverse load order (most-dependent first):
+(ignore-errors (unload-feature 'octocat t))
+(ignore-errors (unload-feature 'octocat-evil t))
+(ignore-errors (unload-feature 'octocat-checks t))
+(ignore-errors (unload-feature 'octocat-issue t))
+(ignore-errors (unload-feature 'octocat-pr t))
+(ignore-errors (unload-feature 'octocat-pr-diff t))
+(ignore-errors (unload-feature 'octocat-workflow t))
+(ignore-errors (unload-feature 'octocat-run t))
+(ignore-errors (unload-feature 'octocat-job t))
+(ignore-errors (unload-feature 'octocat-commit t))
+(ignore-errors (unload-feature 'octocat-edit t))
+(ignore-errors (unload-feature 'octocat-core t))
+;; 3. Then load-file in normal order as usual.
+```
+
+Use `ignore-errors` on each `unload-feature` call so that features which
+are not currently loaded don't abort the sequence.
+
+## Byte-compiler warnings about functions "not known to be defined"
+
+`make ci` compiles all files in parallel.  The compiler warns "the function
+`foo' is not known to be defined" when it sees a call to `foo` in file A
+before it has compiled file B (which defines `foo`).  This warning is
+non-deterministic — it may appear in some runs and not others depending on
+scheduling.
+
+**Fix: add `declare-function` in the calling file.**  When file A calls a
+function defined in file B (which A cannot `require` due to circular-load
+constraints), suppress the warning by adding a `declare-function` near the
+top of A, alongside the other declarations:
+
+```elisp
+(declare-function octocat-commit-mode    "octocat-commit" ())
+(declare-function octocat-commit-refresh "octocat-commit" (&optional _ignore-auto _noconfirm))
+```
+
+The `declare-function` form tells the byte-compiler the function exists
+without actually loading the file.  At runtime all files are already loaded
+by `octocat.el`, so there is no actual missing-definition risk.
 
 

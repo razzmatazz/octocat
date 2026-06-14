@@ -315,14 +315,26 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
                           (completed  (let ((c (gethash "completedAt" check)))
                                         (when (and c (not (eq c :null))) c)))
                           (duration   (octocat--run-duration started completed))
-                          (icon       (octocat--run-icon status conclusion)))
-                     (insert (format "  %s  %-30s  %-16s  %s  %s\n"
-                                     icon
-                                     (truncate-string-to-width name 30 nil ?\s "…")
-                                     (propertize workflow 'face 'octocat-dimmed)
-                                     (propertize (or duration "") 'face 'octocat-dimmed)
-                                     (propertize (octocat--format-ts (or started ""))
-                                                 'face 'octocat-dimmed)))))))
+                          (icon       (octocat--run-icon status conclusion))
+                          (hint       '(mouse-face magit-section-highlight
+                                        help-echo  "RET: view checks for this commit")))
+                     (magit-insert-section (check-run check)
+                       (magit-insert-heading
+                         (concat "  "
+                                 icon
+                                 "  "
+                                 (apply #'propertize
+                                        (truncate-string-to-width name 30 nil ?\s "…")
+                                        hint)
+                                 "  "
+                                 (propertize (format "%-16s" workflow)
+                                             'face 'octocat-dimmed)
+                                 "  "
+                                 (propertize (or duration "") 'face 'octocat-dimmed)
+                                 "  "
+                                 (propertize (octocat--format-ts (or started ""))
+                                             'face 'octocat-dimmed)
+                                 "\n")))))))
       ;; ── Reviews ─────────────────────────────────────────────────────────
       (insert "\n")
       (magit-insert-section (pr-reviews)

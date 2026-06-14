@@ -24,6 +24,7 @@
 (require 'octocat-workflow)
 (require 'octocat-run)
 (require 'octocat-job)
+(require 'octocat-checks)
 
 (defvar octocat--pr-repo)        ; defined as buffer-local in octocat-pr.el
 (defvar octocat--pr-number)      ; defined as buffer-local in octocat-pr.el
@@ -40,6 +41,9 @@
 (defvar octocat--job-run-id)     ; defined as buffer-local in octocat-job.el
 (defvar octocat--job-id)         ; defined as buffer-local in octocat-job.el
 (defvar octocat--job-name)       ; defined as buffer-local in octocat-job.el
+(defvar octocat--checks-repo)    ; defined as buffer-local in octocat-checks.el
+(defvar octocat--checks-sha)     ; defined as buffer-local in octocat-checks.el
+(defvar octocat--checks-ref)     ; defined as buffer-local in octocat-checks.el
 
 ;; Evil integration is optional; declare its entry point to silence the
 ;; byte-compiler when `octocat-evil' has not been loaded yet.
@@ -54,6 +58,12 @@
 (declare-function octocat-issue-edit-title     "octocat-issue"   ())
 (declare-function octocat--render-pr-diff-loading "octocat-pr-diff" (number))
 (declare-function octocat-pr-diff-refresh      "octocat-pr-diff" (&optional _ignore-auto _noconfirm))
+(declare-function octocat--render-checks-loading "octocat-checks" (sha))
+(declare-function octocat-checks-refresh         "octocat-checks" (&optional _ignore-auto _noconfirm))
+(declare-function octocat-checks-mode            "octocat-checks" ())
+(declare-function octocat-commit-mode             "octocat-commit" ())
+(declare-function octocat-commit-refresh          "octocat-commit" (&optional _ignore-auto _noconfirm))
+(declare-function octocat--render-commit-loading  "octocat-commit" (sha))
 
 
 ;;;; Repo detection
@@ -850,6 +860,46 @@ default branch name itself."
                octocat--pr-diff-number number)
          (octocat--render-pr-diff-loading number)
          (octocat-pr-diff-refresh)))
+      ;; RET on an individual check-run row opens the checks detail buffer.
+      ;; Works from both commit buffers (sha is known directly) and PR
+      ;; buffers (sha is retrieved from the PR's head commit in the cache).
+      ('check-run
+       (let* (;; Commit buffer: sha and repo are directly available.
+              (commit-sha  (and (boundp 'octocat--commit-sha)  octocat--commit-sha))
+              (commit-repo (and (boundp 'octocat--commit-repo) octocat--commit-repo))
+              ;; PR buffer: look up the head SHA from the PR cache.
+              (pr-repo     octocat--pr-repo)
+              (pr-cache    (and pr-repo octocat--pr-number
+                                (octocat--detail-cache-load
+                                 pr-repo "pr" octocat--pr-number)))
+              (pr-commits  (and pr-cache
+                                (let ((v (gethash "commits" pr-cache)))
+                                  (when (and v (not (eq v :null))
+                                             (> (length v) 0))
+                                    v))))
+              (pr-head-sha (and pr-commits
+                                (gethash "oid"
+                                         (aref pr-commits
+                                               (1- (length pr-commits))))))
+              (pr-head-ref (and pr-cache
+                                (octocat--nonempty
+                                 (gethash "headRefName" pr-cache))))
+              ;; Resolve to whichever context is active.
+              (repo (or commit-repo pr-repo))
+              (sha  (or commit-sha pr-head-sha ""))
+              (ref  (unless commit-sha pr-head-ref))
+              (short (if (string-empty-p sha) ""
+                       (substring sha 0 (min 7 (length sha)))))
+              (buf-name (format "*octocat-checks: %s@%s*" repo short))
+              (buf      (get-buffer-create buf-name)))
+         (pop-to-buffer buf)
+         (unless (derived-mode-p 'octocat-checks-mode)
+           (octocat-checks-mode))
+         (setq octocat--checks-repo repo
+               octocat--checks-sha  sha
+               octocat--checks-ref  ref)
+         (octocat--render-checks-loading sha)
+         (octocat-checks-refresh)))
       ;; RET on a "load more" row fetches the next page of that list.
       ('load-more
        (pcase (oref section value)

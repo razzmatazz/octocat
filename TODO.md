@@ -4,6 +4,8 @@
 
 e.g. now way to open links like [xxx][url] (with C-c C-o or xdg-browse-url M-x command) unless i RET into the body -- but I don't want to edit
 
+# ability to load items on demand, i.e. when section opens, not when dashboard does
+
 # ability to view checks
 
 # ability to view PR reviews, i.e. view comments on code lines, etc.

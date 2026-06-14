@@ -23,7 +23,10 @@
 (require 'octocat-commit)
 
 ;; Forward declarations for commands defined in octocat.el.
-(declare-function octocat-browse "octocat" ())
+(declare-function octocat-browse              "octocat"        ())
+(declare-function octocat--commit-file-icon   "octocat-commit" (status))
+(declare-function octocat--commit-file-face   "octocat-commit" (status))
+(declare-function octocat--insert-patch       "octocat-commit" (patch))
 
 
 ;;;; Buffer-local declarations
