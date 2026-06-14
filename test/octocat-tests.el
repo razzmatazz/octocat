@@ -11,7 +11,7 @@
 (require 'octocat)
 
 
-;;; octocat--current-repo
+;;; octocat-repo--current-repo
 
 (defmacro octocat-tests--with-remote (url &rest body)
   "Evaluate BODY with `shell-command-to-string' mocked to return URL."
@@ -22,27 +22,27 @@
 (ert-deftest octocat-test-repo-ssh ()
   "Parse SSH remote URL."
   (octocat-tests--with-remote "git@github.com:owner/repo.git"
-    (should (equal (octocat--current-repo) "owner/repo"))))
+    (should (equal (octocat-repo--current-repo) "owner/repo"))))
 
 (ert-deftest octocat-test-repo-ssh-no-suffix ()
   "Parse SSH remote URL without .git suffix."
   (octocat-tests--with-remote "git@github.com:owner/repo"
-    (should (equal (octocat--current-repo) "owner/repo"))))
+    (should (equal (octocat-repo--current-repo) "owner/repo"))))
 
 (ert-deftest octocat-test-repo-https ()
   "Parse HTTPS remote URL."
   (octocat-tests--with-remote "https://github.com/owner/repo.git"
-    (should (equal (octocat--current-repo) "owner/repo"))))
+    (should (equal (octocat-repo--current-repo) "owner/repo"))))
 
 (ert-deftest octocat-test-repo-https-no-suffix ()
   "Parse HTTPS remote URL without .git suffix."
   (octocat-tests--with-remote "https://github.com/owner/repo"
-    (should (equal (octocat--current-repo) "owner/repo"))))
+    (should (equal (octocat-repo--current-repo) "owner/repo"))))
 
 (ert-deftest octocat-test-repo-no-remote ()
   "Signal user-error when no origin remote is found."
   (octocat-tests--with-remote ""
-    (should-error (octocat--current-repo) :type 'user-error)))
+    (should-error (octocat-repo--current-repo) :type 'user-error)))
 
 (provide 'octocat-tests)
 ;;; octocat-tests.el ends here

@@ -41,10 +41,21 @@ Clone the repository and add it to your Emacs load path:
 
 ## Usage
 
-### Opening the dashboard
+### GitHub account dashboard (`M-x octocat`)
 
-Run `M-x octocat` inside any Git repository that has a GitHub `origin` remote.
-This opens a front-page buffer listing Pull Requests, Issues, and Workflows.
+Run `M-x octocat` to open the GitHub account dashboard in a global
+`*octocat*` buffer.  The dashboard shows two collapsible sections:
+
+- **Recent Repositories** — your most-recently-pushed repos; press `RET`
+  on a row to open its per-repository buffer, or `o` / `C-c C-o` to open
+  it on GitHub.
+- **Feed** — recent activity events across your account.
+
+### Per-repository view (`M-x octocat-repo`)
+
+Run `M-x octocat-repo` inside any Git repository that has a GitHub `origin`
+remote.  This opens a per-repo buffer listing Pull Requests, Issues,
+Workflow Runs, and Commits.
 
 ### PR detail view (`octocat-pr-mode`)
 

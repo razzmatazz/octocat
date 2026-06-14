@@ -114,6 +114,7 @@ The canonical reload sequence is:
 (load-file "octocat-pr.el")
 (load-file "octocat-issue.el")
 (load-file "octocat-checks.el")
+(load-file "octocat-repo.el")
 (load-file "octocat-evil.el")   ; ← before octocat.el
 (load-file "octocat.el")
 ```
@@ -163,6 +164,7 @@ The canonical reload sequence is:
 ;; 1. Kill buffers and .elc files as usual.
 ;; 2. Unload in reverse load order (most-dependent first):
 (ignore-errors (unload-feature 'octocat t))
+(ignore-errors (unload-feature 'octocat-repo t))
 (ignore-errors (unload-feature 'octocat-evil t))
 (ignore-errors (unload-feature 'octocat-checks t))
 (ignore-errors (unload-feature 'octocat-issue t))

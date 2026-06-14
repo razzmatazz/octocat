@@ -11,8 +11,8 @@
 ;; directly.
 ;;
 ;; Defines `octocat-evil-setup', which installs normal-state bindings
-;; for `octocat-mode-map', `octocat-pr-mode-map', and
-;; `octocat-commit-mode-map'.
+;; for `octocat-mode-map' (dashboard), `octocat-repo-mode-map' (repo
+;; view), `octocat-pr-mode-map', `octocat-commit-mode-map', and others.
 
 ;;; Code:
 
@@ -21,6 +21,7 @@
 (declare-function evil-normalize-keymaps    "evil-core" (&optional hook))
 
 (defvar octocat-mode-map)
+(defvar octocat-repo-mode-map)
 (defvar octocat-pr-mode-map)
 (defvar octocat-commit-mode-map)
 (defvar octocat-pr-diff-mode-map)
@@ -41,7 +42,7 @@
 (declare-function octocat-issue-add-comment  "octocat-issue"     ())
 (declare-function octocat-issue-edit-body    "octocat-issue"     ())
 (declare-function octocat-issue-edit         "octocat-issue"     ())
-(declare-function octocat-load-more          "octocat"           ())
+(declare-function octocat-repo-load-more     "octocat-repo"      ())
 (declare-function octocat-workflow-load-more "octocat-workflow"  ())
 (declare-function octocat-workflow-refresh   "octocat-workflow"  (&optional _ignore-auto _noconfirm))
 (declare-function octocat-workflow-visit     "octocat-workflow"  ())
@@ -55,7 +56,7 @@
 ;;;###autoload
 (defun octocat-evil-setup ()
   "Install Evil normal-state keybindings for all octocat modes."
-  ;; ── octocat-mode ──────────────────────────────────────────────────────
+  ;; ── octocat-mode (dashboard) ──────────────────────────────────────────
   ;; Bind RET in both normal and motion states: evil-ret lives in
   ;; evil-motion-state-map, which normal state inherits.  Auxiliary-keymap
   ;; bindings added via evil-define-key* sit below the built-in state maps
@@ -63,11 +64,20 @@
   ;; to ensure RET actually dispatches to octocat-visit.
   (evil-define-key* 'normal octocat-mode-map
     (kbd "RET")     #'octocat-visit
-    (kbd "+")       #'octocat-load-more
     (kbd "o")       #'octocat-browse
     (kbd "C-c C-o") #'octocat-browse
     (kbd "q")       #'quit-window)
   (evil-define-key* 'motion octocat-mode-map
+    (kbd "RET")     #'octocat-visit)
+
+  ;; ── octocat-repo-mode ─────────────────────────────────────────────────
+  (evil-define-key* 'normal octocat-repo-mode-map
+    (kbd "RET")     #'octocat-visit
+    (kbd "+")       #'octocat-repo-load-more
+    (kbd "o")       #'octocat-browse
+    (kbd "C-c C-o") #'octocat-browse
+    (kbd "q")       #'quit-window)
+  (evil-define-key* 'motion octocat-repo-mode-map
     (kbd "RET")     #'octocat-visit)
 
   ;; ── octocat-pr-mode ───────────────────────────────────────────────────
