@@ -277,6 +277,9 @@
       ;; calls octocat-visit; dispatch to octocat-repo-load-more here.
       ('load-more
        (octocat-repo-load-more))
+      ;; RET on the feed "[+] Load more…" row fetches more feed events.
+      ('load-more-feed
+       (octocat-feed-load-more))
       (_ nil))))
 
 (defun octocat-browse ()
@@ -337,6 +340,16 @@
 
 ;;;; Dashboard major mode
 
+(defcustom octocat-feed-limit 15
+  "Number of feed events to fetch initially on the dashboard.
+Each `octocat-feed-load-more' call fetches this many additional events."
+  :type 'integer
+  :group 'octocat)
+
+(defvar-local octocat--feed-limit nil
+  "Per-buffer feed event fetch limit.
+Starts at `octocat-feed-limit' and grows with `octocat-feed-load-more'.")
+
 (defvar octocat-mode-map
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map magit-section-mode-map)
@@ -344,6 +357,7 @@
   "Keymap for `octocat-mode' (GitHub account dashboard).")
 (define-key octocat-mode-map (kbd "q")       #'quit-window)
 (define-key octocat-mode-map (kbd "RET")     #'octocat-visit)
+(define-key octocat-mode-map (kbd "+")       #'octocat-feed-load-more)
 (define-key octocat-mode-map (kbd "o")       #'octocat-browse)
 (define-key octocat-mode-map (kbd "C-c C-o") #'octocat-browse)
 (define-derived-mode octocat-mode magit-section-mode "Octocat"
@@ -424,12 +438,13 @@ Calls CALLBACK with the login string, or an (error . MSG) cons."
    (lambda (output) (string-trim output))
    callback))
 
-(defun octocat--fetch-received-events (login callback)
+(defun octocat--fetch-received-events (login limit callback)
   "Fetch the received events feed for the user with LOGIN via gh.
+LIMIT is the maximum number of events to request (per_page).
 Calls CALLBACK with a list of hash-tables, or an (error . MSG) cons."
   (octocat--run-gh
    "dashboard-feed"
-   (list "api" (format "users/%s/received_events?per_page=15" login))
+   (list "api" (format "users/%s/received_events?per_page=%d" login limit))
    #'octocat--parse-json-list
    callback))
 
@@ -439,12 +454,24 @@ Calls CALLBACK with a list of hash-tables, or an (error . MSG) cons."
 (defun octocat--dashboard-event-icon (type)
   "Return a short propertized label string for dashboard feed event TYPE."
   (pcase type
-    ("PushEvent"         (propertize "push        " 'face 'octocat-dimmed))
-    ("PullRequestEvent"  (propertize "pr          " 'face 'octocat-pr-state-open))
-    ("IssueCommentEvent" (propertize "comment     " 'face 'octocat-dimmed))
-    ("WatchEvent"        (propertize "star        " 'face 'octocat-dimmed))
-    (_                   (propertize (format "%-12s" (or type "event"))
-                                     'face 'octocat-dimmed))))
+    ("PushEvent"                    (propertize "push        " 'face 'octocat-dimmed))
+    ("PullRequestEvent"             (propertize "pr          " 'face 'octocat-pr-state-open))
+    ("IssueCommentEvent"            (propertize "comment     " 'face 'octocat-dimmed))
+    ("IssuesEvent"                  (propertize "issue       " 'face 'octocat-dimmed))
+    ("WatchEvent"                   (propertize "star        " 'face 'octocat-dimmed))
+    ("ForkEvent"                    (propertize "fork        " 'face 'octocat-dimmed))
+    ("CreateEvent"                  (propertize "create      " 'face 'octocat-dimmed))
+    ("DeleteEvent"                  (propertize "delete      " 'face 'octocat-dimmed))
+    ("ReleaseEvent"                 (propertize "release     " 'face 'octocat-dimmed))
+    ("MemberEvent"                  (propertize "member      " 'face 'octocat-dimmed))
+    ("GollumEvent"                  (propertize "wiki        " 'face 'octocat-dimmed))
+    ("PullRequestReviewEvent"       (propertize "review      " 'face 'octocat-dimmed))
+    ("PullRequestReviewCommentEvent" (propertize "review cmt  " 'face 'octocat-dimmed))
+    ("CommitCommentEvent"           (propertize "cmt comment " 'face 'octocat-dimmed))
+    ("PublicEvent"                  (propertize "public      " 'face 'octocat-dimmed))
+    ("SponsorshipEvent"             (propertize "sponsor     " 'face 'octocat-dimmed))
+    (_                              (propertize (format "%-12s" (or type "event"))
+                                               'face 'octocat-dimmed))))
 
 (defun octocat--dashboard-event-detail (event)
   "Return a short human-readable detail string for feed EVENT hash-table.
@@ -463,8 +490,17 @@ The detail text is derived from the event type and payload fields."
                         (octocat--nonempty (gethash "ref" payload))))
               (branch (if ref
                           (replace-regexp-in-string "^refs/heads/" "" ref)
-                        "?")))
-         (format "pushed %d %s to %s" n (if (= n 1) "commit" "commits") branch)))
+                        "?"))
+              (first-commit (and (vectorp commits) (> (length commits) 0)
+                                 (aref commits 0)))
+              (msg (and (hash-table-p first-commit)
+                        (octocat--nonempty (gethash "message" first-commit))))
+              (subject (and msg (car (split-string msg "\n")))))
+         (if subject
+             (format "pushed %d %s to %s: %s"
+                     n (if (= n 1) "commit" "commits") branch
+                     (truncate-string-to-width subject 30 nil nil "…"))
+           (format "pushed %d %s to %s" n (if (= n 1) "commit" "commits") branch))))
       ("PullRequestEvent"
        (let* ((pr     (and (hash-table-p payload) (gethash "pull_request" payload)))
               (title  (and (hash-table-p pr) (octocat--nonempty (gethash "title" pr))))
@@ -475,17 +511,48 @@ The detail text is derived from the event type and payload fields."
                  (if title (format ": %s" (truncate-string-to-width title 30 nil nil "…")) ""))))
       ("IssuesEvent"
        (let* ((issue  (and (hash-table-p payload) (gethash "issue" payload)))
-              (number (and (hash-table-p issue) (gethash "number" issue))))
-         (format "%s issue%s"
+              (number (and (hash-table-p issue) (gethash "number" issue)))
+              (title  (and (hash-table-p issue)
+                           (octocat--nonempty (gethash "title" issue)))))
+         (format "%s issue%s%s"
                  (or action "opened")
-                 (if number (format " #%d" number) ""))))
+                 (if number (format " #%d" number) "")
+                 (if title (format ": %s" (truncate-string-to-width title 35 nil nil "…")) ""))))
       ("IssueCommentEvent"
        (let* ((issue  (and (hash-table-p payload) (gethash "issue" payload)))
-              (number (and (hash-table-p issue) (gethash "number" issue))))
-         (format "commented on issue%s"
-                 (if number (format " #%d" number) ""))))
+              (number (and (hash-table-p issue) (gethash "number" issue)))
+              (title  (and (hash-table-p issue)
+                           (octocat--nonempty (gethash "title" issue)))))
+         (format "commented on issue%s%s"
+                 (if number (format " #%d" number) "")
+                 (if title (format ": %s" (truncate-string-to-width title 30 nil nil "…")) ""))))
       ("WatchEvent"   "starred")
       ("ForkEvent"    "forked")
+      ("PullRequestReviewEvent"
+       (let* ((pr     (and (hash-table-p payload) (gethash "pull_request" payload)))
+              (number (and (hash-table-p pr) (gethash "number" pr)))
+              (state  (and (hash-table-p payload)
+                           (octocat--nonempty (gethash "state" payload)))))
+         (format "reviewed PR%s%s"
+                 (if number (format " #%d" number) "")
+                 (if state (format " (%s)" state) ""))))
+      ("PullRequestReviewCommentEvent"
+       (let* ((pr     (and (hash-table-p payload) (gethash "pull_request" payload)))
+              (number (and (hash-table-p pr) (gethash "number" pr))))
+         (format "commented on PR%s review"
+                 (if number (format " #%d" number) ""))))
+      ("CommitCommentEvent"
+       (let* ((comment (and (hash-table-p payload) (gethash "comment" payload)))
+              (sha     (and (hash-table-p comment)
+                            (octocat--nonempty (gethash "commit_id" comment)))))
+         (format "commented on commit%s"
+                 (if sha (format " %.7s" sha) ""))))
+      ("GollumEvent"
+       (let* ((pages (and (hash-table-p payload) (gethash "pages" payload)))
+              (page  (and (vectorp pages) (> (length pages) 0) (aref pages 0)))
+              (title (and (hash-table-p page)
+                          (octocat--nonempty (gethash "title" page)))))
+         (format "edited wiki%s" (if title (format ": %s" title) ""))))
       ("CreateEvent"
        (let ((ref-type (and (hash-table-p payload)
                             (octocat--nonempty (gethash "ref_type" payload)))))
@@ -535,42 +602,52 @@ REPOS is a list of hash-tables from the GitHub user/repos endpoint."
 (defun octocat--render-dashboard-feed (feed)
   "Insert the Feed section using FEED list.
 FEED is a list of hash-tables from the GitHub received_events endpoint."
-  (magit-insert-section (feed)
-    (magit-insert-heading
-      (propertize "Feed" 'face 'octocat-section-heading))
-    (if (null feed)
-        (insert (propertize "  (no recent activity)\n" 'face 'octocat-dimmed))
-      (dolist (ev feed)
-        (let* ((type   (or (gethash "type"       ev) ""))
-               (actor  (let ((a (gethash "actor" ev)))
-                         (if (and a (hash-table-p a))
-                             (or (gethash "login" a) "")
-                           "")))
-               (repo   (let ((r (gethash "repo" ev)))
-                         (if (and r (hash-table-p r))
-                             (or (gethash "name" r) "")
-                           "")))
-               (detail (octocat--dashboard-event-detail ev))
-               (date   (octocat--relative-ts
-                        (or (gethash "created_at" ev) "")))
-               (hint   '(mouse-face magit-section-highlight
-                         help-echo  "RET: open repo")))
-          (magit-insert-section (feed-event ev)
-            (magit-insert-heading
-              (apply #'propertize
-                     (concat
-                      "  "
-                      (octocat--dashboard-event-icon type)
-                      "  "
-                      (propertize (format "%-16s" actor) 'face 'octocat-pr-author)
-                      "  "
-                      (propertize (format "%-35s" repo)  'face 'octocat-branch)
-                      "  "
-                      (octocat--format-title detail)
-                      "  "
-                      (propertize date 'face 'octocat-dimmed)
-                      "\n")
-                     hint))))))))
+  (let ((limit (or octocat--feed-limit octocat-feed-limit)))
+    (magit-insert-section (feed)
+      (magit-insert-heading
+        (propertize "Feed" 'face 'octocat-section-heading))
+      (if (null feed)
+          (insert (propertize "  (no recent activity)\n" 'face 'octocat-dimmed))
+        (dolist (ev feed)
+          (let* ((type   (or (gethash "type"       ev) ""))
+                 (actor  (let ((a (gethash "actor" ev)))
+                           (if (and a (hash-table-p a))
+                               (or (gethash "login" a) "")
+                             "")))
+                 (repo   (let ((r (gethash "repo" ev)))
+                           (if (and r (hash-table-p r))
+                               (or (gethash "name" r) "")
+                             "")))
+                 (detail (octocat--dashboard-event-detail ev))
+                 (date   (octocat--relative-ts
+                          (or (gethash "created_at" ev) "")))
+                 (hint   '(mouse-face magit-section-highlight
+                           help-echo  "RET: open repo")))
+            (magit-insert-section (feed-event ev)
+              (magit-insert-heading
+                (apply #'propertize
+                       (concat
+                        "  "
+                        (octocat--dashboard-event-icon type)
+                        "  "
+                        (propertize (format "%-16s" actor) 'face 'octocat-pr-author)
+                        "  "
+                        (propertize (format "%-35s" repo)  'face 'octocat-branch)
+                        "  "
+                        (octocat--format-title detail)
+                        "  "
+                        (propertize date 'face 'octocat-dimmed)
+                        "\n")
+                       hint)))))
+        (when (>= (length feed) limit)
+          (let ((hint '(mouse-face magit-section-highlight
+                        help-echo  "RET / +: load more feed events")))
+            (magit-insert-section (load-more-feed)
+              (magit-insert-heading
+                (concat (apply #'propertize
+                               (format "  [+] Load %d more…" octocat-feed-limit)
+                               'face 'octocat-dimmed hint)
+                        "\n")))))))))
 
 (defun octocat--render-dashboard (repos feed)
   "Render the dashboard buffer content from REPOS and FEED data.
@@ -655,17 +732,35 @@ Follows the standard stale-while-revalidate pattern:
            (puthash "repos" repos results)
            (maybe-done)))
         ;; Kick off feed fetch: need viewer login first.
-        (octocat--fetch-viewer-login
-         (lambda (login)
-           (if (eq (car-safe login) 'error)
-               (progn
-                 (puthash "feed" login results)
-                 (maybe-done))
-             (octocat--fetch-received-events
-              login
-              (lambda (feed)
-                (puthash "feed" feed results)
-                (maybe-done))))))))))
+        (let ((feed-limit (or octocat--feed-limit octocat-feed-limit)))
+          (octocat--fetch-viewer-login
+           (lambda (login)
+             (if (eq (car-safe login) 'error)
+                 (progn
+                   (puthash "feed" login results)
+                   (maybe-done))
+               (octocat--fetch-received-events
+                login
+                feed-limit
+                (lambda (feed)
+                  (puthash "feed" feed results)
+                  (maybe-done)))))))))))
+
+
+
+;;;; Feed load-more command
+
+(defun octocat-feed-load-more ()
+  "Fetch additional feed events in the dashboard buffer.
+Increments the per-session feed fetch limit by `octocat-feed-limit' and
+re-runs `octocat-refresh'."
+  (interactive)
+  (unless (derived-mode-p 'octocat-mode)
+    (user-error "Octocat: Not in the dashboard buffer"))
+  (unless octocat--feed-limit
+    (setq octocat--feed-limit octocat-feed-limit))
+  (cl-incf octocat--feed-limit octocat-feed-limit)
+  (octocat-refresh))
 
 
 ;;;; Entry point
