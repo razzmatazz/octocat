@@ -272,7 +272,6 @@ Increment the per-session fetch limit and re-run
     (define-key map (kbd "q")       #'quit-window)
     (define-key map (kbd "RET")     #'octocat-workflow-visit)
     (define-key map (kbd "+")       #'octocat-workflow-load-more)
-    (define-key map (kbd "o")       #'octocat-browse)
     (define-key map (kbd "C-c C-o") #'octocat-browse)
     (define-key map (kbd "g")  g)
     (define-key map (kbd "gr") #'octocat-workflow-refresh)

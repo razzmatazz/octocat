@@ -22,9 +22,9 @@
 ;; Provides a Magit-style dedicated edit buffer used whenever the user needs
 ;; to write multi-line markdown text:
 ;;
-;;   - Adding a comment to a PR or issue (`c' key in the detail views)
-;;   - Editing the body of a PR or issue (RET on the body section)
-;;   - Editing an existing comment you authored (RET on a comment section)
+;;   - Adding a comment to a PR or issue (`C-c C-a' in the detail views)
+;;   - Editing the body of a PR or issue (`C-c C-e' or RET on the body section)
+;;   - Editing an existing comment you authored (`C-c C-e' or RET on a comment section)
 ;;
 ;; The workflow mirrors Magit's commit-message buffer:
 ;;   C-c C-c  — submit (validate, call gh, kill buffer, refresh source)

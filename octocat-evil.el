@@ -79,7 +79,6 @@
   (evil-define-key* 'normal octocat-mode-map
     (kbd "RET")     #'octocat-visit
     (kbd "+")       #'octocat-feed-load-more
-    (kbd "o")       #'octocat-browse
     (kbd "C-c C-o") #'octocat-browse
     (kbd "q")       #'quit-window)
   (evil-define-key* 'motion octocat-mode-map
@@ -89,7 +88,6 @@
   (evil-define-key* 'normal octocat-repo-mode-map
     (kbd "RET")     #'octocat-visit
     (kbd "+")       #'octocat-repo-load-more
-    (kbd "o")       #'octocat-browse
     (kbd "C-c C-o") #'octocat-browse
     (kbd "q")       #'quit-window)
   (evil-define-key* 'motion octocat-repo-mode-map
@@ -108,9 +106,9 @@
         (aux-m (evil-get-auxiliary-keymap octocat-pr-mode-map 'motion t t)))
     (define-key aux   (kbd "g")     nil)
     (define-key aux   (kbd "RET")   #'octocat-visit)
-    (define-key aux   (kbd "o")     #'octocat-browse)
     (define-key aux   (kbd "C-c C-o") #'octocat-browse)
-    (define-key aux   (kbd "c")     #'octocat-pr-add-comment)
+    (define-key aux   (kbd "C-c C-a") #'octocat-pr-add-comment)
+    (define-key aux   (kbd "C-c C-e") #'octocat-pr-edit)
     (define-key aux   (kbd "q")     #'quit-window)
     (define-key aux   (kbd "gr")    #'octocat-pr-refresh)
     (define-key aux-m (kbd "RET")   #'octocat-visit))
@@ -123,7 +121,6 @@
         (aux-m (evil-get-auxiliary-keymap octocat-commit-mode-map 'motion t t)))
     (define-key aux   (kbd "g")     nil)
     (define-key aux   (kbd "RET")   #'octocat-visit)
-    (define-key aux   (kbd "o")     #'octocat-browse)
     (define-key aux   (kbd "C-c C-o") #'octocat-browse)
     (define-key aux   (kbd "q")     #'quit-window)
     (define-key aux   (kbd "gr")    #'octocat-commit-refresh)
@@ -132,7 +129,6 @@
   ;; ── octocat-pr-diff-mode ──────────────────────────────────────────────
   (let ((aux (evil-get-auxiliary-keymap octocat-pr-diff-mode-map 'normal t t)))
     (define-key aux (kbd "g")       nil)
-    (define-key aux (kbd "o")       #'octocat-browse)
     (define-key aux (kbd "C-c C-o") #'octocat-browse)
     (define-key aux (kbd "q")       #'quit-window)
     (define-key aux (kbd "gr")      #'octocat-pr-diff-refresh))
@@ -142,9 +138,9 @@
         (aux-m (evil-get-auxiliary-keymap octocat-issue-mode-map 'motion t t)))
     (define-key aux   (kbd "g")     nil)
     (define-key aux   (kbd "RET")   #'octocat-visit)
-    (define-key aux   (kbd "o")     #'octocat-browse)
     (define-key aux   (kbd "C-c C-o") #'octocat-browse)
-    (define-key aux   (kbd "c")     #'octocat-issue-add-comment)
+    (define-key aux   (kbd "C-c C-a") #'octocat-issue-add-comment)
+    (define-key aux   (kbd "C-c C-e") #'octocat-issue-edit)
     (define-key aux   (kbd "q")     #'quit-window)
     (define-key aux   (kbd "gr")    #'octocat-issue-refresh)
     (define-key aux-m (kbd "RET")   #'octocat-visit))
@@ -155,7 +151,6 @@
     (define-key aux   (kbd "g")     nil)
     (define-key aux   (kbd "RET")   #'octocat-workflow-visit)
     (define-key aux   (kbd "+")     #'octocat-workflow-load-more)
-    (define-key aux   (kbd "o")     #'octocat-browse)
     (define-key aux   (kbd "C-c C-o") #'octocat-browse)
     (define-key aux   (kbd "q")     #'quit-window)
     (define-key aux   (kbd "gr")    #'octocat-workflow-refresh)
@@ -166,7 +161,6 @@
         (aux-m (evil-get-auxiliary-keymap octocat-run-mode-map 'motion t t)))
     (define-key aux   (kbd "g")     nil)
     (define-key aux   (kbd "RET")   #'octocat-run-visit-or-download)
-    (define-key aux   (kbd "o")     #'octocat-browse)
     (define-key aux   (kbd "C-c C-o") #'octocat-browse)
     (define-key aux   (kbd "q")     #'quit-window)
     (define-key aux   (kbd "gr")    #'octocat-run-refresh)
@@ -177,7 +171,6 @@
         (aux-m (evil-get-auxiliary-keymap octocat-job-mode-map 'motion t t)))
     (define-key aux   (kbd "g")     nil)
     (define-key aux   (kbd "RET")   #'octocat-job-download-artifact)
-    (define-key aux   (kbd "o")     #'octocat-browse)
     (define-key aux   (kbd "C-c C-o") #'octocat-browse)
     (define-key aux   (kbd "q")     #'quit-window)
     (define-key aux   (kbd "gr")    #'octocat-job-refresh)

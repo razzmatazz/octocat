@@ -254,7 +254,6 @@ is still in flight, or nil when there are no comments."
         (g   (make-sparse-keymap)))   ; "g" prefix — lets evil's "gg" through
     (set-keymap-parent map magit-section-mode-map)
     (define-key map (kbd "q")       #'quit-window)
-    (define-key map (kbd "o")       #'octocat-browse)
     (define-key map (kbd "C-c C-o") #'octocat-browse)
     ;; Shadow magit-section-mode-map's "g" → revert-buffer with a prefix map.
     (define-key map (kbd "g")  g)

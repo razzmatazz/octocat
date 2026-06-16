@@ -379,9 +379,9 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
     (set-keymap-parent map magit-section-mode-map)
     (define-key map (kbd "q")       #'quit-window)
     (define-key map (kbd "RET")     #'octocat-visit)
-    (define-key map (kbd "o")       #'octocat-browse)
     (define-key map (kbd "C-c C-o") #'octocat-browse)
-    (define-key map (kbd "c")       #'octocat-pr-add-comment)
+    (define-key map (kbd "C-c C-a") #'octocat-pr-add-comment)
+    (define-key map (kbd "C-c C-e") #'octocat-pr-edit)
     ;; Shadow magit-section-mode-map's "g" → revert-buffer with a prefix map.
     (define-key map (kbd "g")  g)
     (define-key map (kbd "gr") #'octocat-pr-refresh)

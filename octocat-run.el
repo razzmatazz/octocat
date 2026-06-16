@@ -345,7 +345,6 @@ calls `octocat-job-download-artifact'."
     (set-keymap-parent map magit-section-mode-map)
     (define-key map (kbd "q")       #'quit-window)
     (define-key map (kbd "RET")     #'octocat-run-visit-or-download)
-    (define-key map (kbd "o")       #'octocat-browse)
     (define-key map (kbd "C-c C-o") #'octocat-browse)
     (define-key map (kbd "g")  g)
     (define-key map (kbd "gr") #'octocat-run-refresh)

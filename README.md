@@ -47,7 +47,7 @@ Run `M-x octocat` to open the GitHub account dashboard in a global
 `*octocat*` buffer.  The dashboard shows two collapsible sections:
 
 - **Recent Repositories** — your most-recently-pushed repos; press `RET`
-  on a row to open its per-repository buffer, or `o` / `C-c C-o` to open
+  on a row to open its per-repository buffer, or `C-c C-o` to open
   it on GitHub.
 - **Feed** — recent activity events across your account.
 
@@ -89,15 +89,6 @@ From the **Commits** section, press `RET` on a commit line to open the commit
 detail view (see below).  Press `o` (or `C-c C-o`) on a commit line to open
 it directly in your browser.
 
-#### PR detail keybindings
-
-| Key | Action |
-|-----|--------|
-| `RET` | Open item at point (commit → commit view) |
-| `o` / `C-c C-o` | Open item at point in browser |
-| `g` | Refresh PR data |
-| `q` | Close buffer |
-
 ---
 
 ### Commit detail view (`octocat-commit-mode`)
@@ -126,20 +117,18 @@ Each file entry is a collapsible section.  The diff hunks are rendered with
 `diff-added` / `diff-removed` faces, and hunk headers (`@@…@@`) use the
 `magit-diff-hunk-heading` face.
 
-#### Commit view keybindings
-
-| Key | Action |
-|-----|--------|
-| `o` / `C-c C-o` | Open commit in browser |
-| `g` | Refresh commit data |
-| `q` | Close buffer |
-
 ---
 
-### Global keybindings (all octocat buffers)
+### Keybindings
 
 | Key | Action |
 |-----|--------|
+| `RET` | Context-dependent: open detail view, navigate to commit, or inline-edit title / body / comment at point |
+| `C-c C-o` | Open item at point in browser |
+| `C-c C-a` | Add a comment (PR and issue detail views) |
+| `C-c C-e` | Edit body or comment at point (PR and issue detail views) |
+| `g` / `gr` | Refresh current buffer |
+| `q` | Close buffer |
 | `TAB` | Expand / collapse section at point |
 | `S-TAB` | Cycle visibility of all sections |
 

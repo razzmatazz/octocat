@@ -462,7 +462,7 @@ Starts at `octocat-feed-limit' and grows with `octocat-feed-load-more'.")
 (define-key octocat-mode-map (kbd "q")       #'quit-window)
 (define-key octocat-mode-map (kbd "RET")     #'octocat-visit)
 (define-key octocat-mode-map (kbd "+")       #'octocat-feed-load-more)
-(define-key octocat-mode-map (kbd "o")       #'octocat-browse)
+
 (define-key octocat-mode-map (kbd "C-c C-o") #'octocat-browse)
 (define-derived-mode octocat-mode magit-section-mode "Octocat"
   "Major mode for the GitHub account dashboard.
