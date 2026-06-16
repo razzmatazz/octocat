@@ -78,10 +78,10 @@ following collapsible sections (toggle with `TAB`):
 | Point position | Action |
 |----------------|--------|
 | **Title** row in Info | Prompts in the minibuffer to rename the PR title |
-| **Body** section | Opens a markdown edit buffer (`C-c C-c` submit, `C-c C-k` discard) |
-| **Comment** you authored | Opens a markdown edit buffer to edit the comment |
 | **Changes** row in Info | Opens the full diff view |
 | Commit row | Opens the commit detail view |
+
+Use `C-c C-e` to edit the body or a comment you authored.
 
 #### Commit navigation
 
