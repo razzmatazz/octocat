@@ -4,7 +4,7 @@
 
 ;; Author: octocat.el contributors
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "29.1") (magit-section "3.0") (transient "0.4") (markdown-mode "2.0"))
+;; Package-Requires: ((emacs "29.1") (magit-section "3.0") (markdown-mode "2.0"))
 ;; Keywords: tools, vc, github
 ;; URL: https://github.com/octocat.el/octocat.el
 
