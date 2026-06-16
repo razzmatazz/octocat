@@ -276,7 +276,6 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
 \\{octocat-issue-mode-map}"
   :group 'octocat
   (setq-local buffer-read-only t)
-  (setq-local truncate-lines t)
   (setq-local revert-buffer-function #'octocat-issue-refresh)
   (font-lock-mode -1))
 

@@ -393,7 +393,6 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
 \\{octocat-pr-mode-map}"
   :group 'octocat
   (setq-local buffer-read-only t)
-  (setq-local truncate-lines t)
   (setq-local revert-buffer-function #'octocat-pr-refresh)
   (font-lock-mode -1))
 
