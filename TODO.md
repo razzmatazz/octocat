@@ -1,7 +1,5 @@
 # visual line mode should be enabled for pr and issue views by default
 
-# 'o' / octocat-browse should open url for issues, prs, commits, etc where point is at header line
-
 # i'd like to view raw comments/body where currently it is rendered markdown
 
 e.g. now way to open links like [xxx][url] (with C-c C-o or xdg-browse-url M-x command) unless i RET into the body -- but I don't want to edit
