@@ -1,6 +1,4 @@
-# TODO items
-
-# convert to gpl2
+# visual line mode should be enabled for pr and issue views by default
 
 # i'd like to view raw comments/body where currently it is rendered markdown
 
