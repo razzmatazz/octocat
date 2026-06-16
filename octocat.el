@@ -92,7 +92,8 @@
 (declare-function octocat--render-commit-loading  "octocat-commit" (sha))
 
 ;; Repo-mode entry point (defined in octocat-repo.el, already required).
-(declare-function octocat-repo-refresh "octocat-repo" (&optional _ignore-auto _noconfirm))
+(declare-function octocat-repo-refresh      "octocat-repo" (&optional _ignore-auto _noconfirm))
+(declare-function octocat-repo--local-dir-for "octocat-repo" (repo))
 
 
 ;;;; Shared navigation commands
@@ -104,13 +105,15 @@
     (pcase (and section (oref section type))
       ('repo
        ;; Dashboard: open the per-repo buffer for the selected repo.
+       ;; Attach to the current working tree when its origin matches.
        (let* ((full-name (oref section value))
               (buf-name  (format "*octocat-repo: %s*" full-name))
               (buf       (get-buffer-create buf-name)))
          (switch-to-buffer buf)
          (unless (derived-mode-p 'octocat-repo-mode)
            (octocat-repo-mode))
-         (setq octocat-repo--repo full-name)
+         (setq octocat-repo--repo      full-name
+               octocat-repo--local-dir (octocat-repo--local-dir-for full-name))
          (octocat-repo-refresh)))
       ('pr
        (let* ((pr     (oref section value))
@@ -283,7 +286,8 @@
              (switch-to-buffer buf)
              (unless (derived-mode-p 'octocat-repo-mode)
                (octocat-repo-mode))
-             (setq octocat-repo--repo full-name)
+             (setq octocat-repo--repo      full-name
+                   octocat-repo--local-dir (octocat-repo--local-dir-for full-name))
              (octocat-repo-refresh)))))
       ;; RET on a "load more" row fetches the next page of that list.
       ;; This case is handled by octocat-repo-mode's RET binding which

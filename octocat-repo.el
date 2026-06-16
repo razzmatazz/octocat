@@ -93,6 +93,12 @@ by this amount on each `octocat-repo-load-more'."
 (defvar-local octocat-repo--repo nil
   "The \"owner/repo\" string this buffer is tracking.")
 
+(defvar-local octocat-repo--local-dir nil
+  "Absolute path to the local clone directory, or nil when detached.
+Set at buffer-open time from `default-directory' when the buffer is
+opened from inside a git working tree.  Nil means the buffer was opened
+in detached mode — tracking a remote repository without a local clone.")
+
 (defvar-local octocat-repo--current-branch nil
   "The local git branch checked out when this buffer last refreshed.
 Used to highlight matching PR and workflow-run rows.  Nil when HEAD is
@@ -131,6 +137,21 @@ is not inside a GitHub repository."
            "https://github\\.com/\\([^/]+/[^/]+?\\)\\(\\.git\\)?$" url)
           (match-string 1 url))
      (user-error "Octocat: `%s' does not look like a GitHub remote" url))))
+
+
+(defun octocat-repo--local-dir-for (repo)
+  "Return the local clone directory for REPO, or nil.
+REPO is an \"owner/repo\" string.  Returns the absolute path to the root
+of the current working tree when its \\='origin\\=' remote resolves to REPO,
+and nil in every other case — including when `default-directory' is not
+inside any git repository, when there is no \\='origin\\=' remote, or when
+the remote points to a different repository."
+  (condition-case nil
+      (let ((root (locate-dominating-file default-directory ".git")))
+        (and root
+             (string= repo (octocat-repo--current-repo))
+             (expand-file-name root)))
+    (error nil)))
 
 
 ;;;; gh integration
@@ -492,6 +513,11 @@ Issues, and Workflows, each with a dimmed \\='Loading…\\=' placeholder."
     (magit-insert-section (octocat-root)
       (magit-insert-heading
         (propertize repo 'face 'octocat-repo))
+      (when octocat-repo--local-dir
+        (insert (concat (propertize "Local checkout: " 'face 'octocat-dimmed)
+                        (propertize octocat-repo--local-dir 'face 'octocat-branch)
+                        "\n")))
+      (insert "\n")
       (octocat-repo--hide-if-saved 'issues
         (magit-insert-section (issues)
           (magit-insert-heading
@@ -554,6 +580,11 @@ Render collapsible sections; delegate to the individual render helpers."
                                ((eq (car-safe workflows) 'error)             "workflows: n/a")
                                (t (format "%d workflow(s)" (length workflows)))))
                  'face 'octocat-dimmed)))
+      (when octocat-repo--local-dir
+        (insert (concat (propertize "Local checkout: " 'face 'octocat-dimmed)
+                        (propertize octocat-repo--local-dir 'face 'octocat-branch)
+                        "\n")))
+      (insert "\n")
       (octocat-repo--hide-if-saved 'issues        (octocat-repo--render-issues issues))
       (insert "\n")
       (octocat-repo--hide-if-saved 'pull-requests (octocat-repo--render-prs prs current-branch))
@@ -763,15 +794,24 @@ inside a pageable section."
 
 ;;;###autoload
 (defun octocat-repo ()
-  "Open (or switch to) the octocat-repo buffer for the current GitHub repository."
+  "Open (or switch to) the octocat-repo buffer for the current GitHub repository.
+When invoked from inside a git working tree the buffer is opened in
+\\='attached\\=' mode: `octocat-repo--local-dir' is set to the root of that
+working tree, and the repo is derived from its \\='origin\\=' remote.
+When invoked without a detectable working tree (or when the user supplies
+a REPO argument in a future extension), the buffer runs in \\='detached\\='
+mode with no local directory bound."
   (interactive)
-  (let* ((repo (octocat-repo--current-repo))
+  (let* ((repo     (octocat-repo--current-repo))
+         (local-dir (locate-dominating-file default-directory ".git"))
          (buf-name (format "*octocat-repo: %s*" repo))
-         (buf (get-buffer-create buf-name)))
+         (buf      (get-buffer-create buf-name)))
     (switch-to-buffer buf)
     (unless (derived-mode-p 'octocat-repo-mode)
       (octocat-repo-mode))
-    (setq octocat-repo--repo repo)
+    (setq octocat-repo--repo      repo
+          octocat-repo--local-dir (and local-dir
+                                       (expand-file-name local-dir)))
     (octocat-repo-refresh)))
 
 (provide 'octocat-repo)
