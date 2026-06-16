@@ -48,3 +48,26 @@ See [docs/user-interface-conventions.md](docs/user-interface-conventions.md)
 for how to signal that a section heading or inline value is RET-able:
 `mouse-face`, `help-echo` wording, when to use `buttonize`, and the decision
 table for each situation.
+
+### Evil keybindings
+
+Evil bindings for all octocat modes live in `octocat-evil.el` and are
+installed by `octocat-evil-setup`.
+
+**Always use `evil-get-auxiliary-keymap` with `t t` (CREATE + IGNORE-PARENT)
+for modes that derive from `magit-section-mode`**, then call `define-key` on
+the returned keymap for every binding:
+
+```elisp
+(let ((aux   (evil-get-auxiliary-keymap octocat-issue-mode-map 'normal t t))
+      (aux-m (evil-get-auxiliary-keymap octocat-issue-mode-map 'motion t t)))
+  (define-key aux (kbd "RET") #'octocat-visit)
+  ...)
+```
+
+Without the fourth `t`, `evil-get-auxiliary-keymap` walks up the keymap
+inheritance chain and returns the *parent* (`magit-section-mode-map`) aux
+keymap.  Writing into it mutates a shared object and bleeds octocat bindings
+into every Magit buffer.  See AGENTS.md — *"evil-define-key\* aux-keymap slot
+divergence"* and its sub-section *"Gotcha — evil-get-auxiliary-keymap returns
+the parent's aux keymap without IGNORE-PARENT"* — for the full explanation.

@@ -29,7 +29,7 @@
 
 ;;; Code:
 
-(declare-function evil-get-auxiliary-keymap "evil-core" (keymap state &optional create))
+(declare-function evil-get-auxiliary-keymap "evil-core" (keymap state &optional create ignore-parent))
 (declare-function evil-define-key*          "evil-core" (state keymap &rest bindings))
 (declare-function evil-normalize-keymaps    "evil-core" (&optional hook))
 
@@ -99,8 +99,13 @@
   ;; Use define-key directly so all bindings (including RET) land in the
   ;; same aux keymap slot.  See AGENTS.md "evil-define-key* aux-keymap slot
   ;; divergence" for why evil-define-key* is not used here.
-  (let ((aux   (evil-get-auxiliary-keymap octocat-pr-mode-map 'normal t))
-        (aux-m (evil-get-auxiliary-keymap octocat-pr-mode-map 'motion t)))
+  ;; The fourth argument t (IGNORE-PARENT) is critical: without it,
+  ;; evil-get-auxiliary-keymap returns the *parent* (magit-section-mode-map)
+  ;; aux keymap because child mode maps inherit the parent's normal-state slot.
+  ;; All define-key calls would then mutate the shared parent keymap, bleeding
+  ;; octocat bindings into every magit buffer.
+  (let ((aux   (evil-get-auxiliary-keymap octocat-pr-mode-map 'normal t t))
+        (aux-m (evil-get-auxiliary-keymap octocat-pr-mode-map 'motion t t)))
     (define-key aux   (kbd "g")     nil)
     (define-key aux   (kbd "RET")   #'octocat-visit)
     (define-key aux   (kbd "o")     #'octocat-browse)
@@ -114,8 +119,8 @@
   ;; Use define-key directly on the aux keymap retrieved by
   ;; evil-get-auxiliary-keymap for every binding, not evil-define-key*.
   ;; See AGENTS.md "evil-define-key* aux-keymap slot divergence" for why.
-  (let ((aux   (evil-get-auxiliary-keymap octocat-commit-mode-map 'normal t))
-        (aux-m (evil-get-auxiliary-keymap octocat-commit-mode-map 'motion t)))
+  (let ((aux   (evil-get-auxiliary-keymap octocat-commit-mode-map 'normal t t))
+        (aux-m (evil-get-auxiliary-keymap octocat-commit-mode-map 'motion t t)))
     (define-key aux   (kbd "g")     nil)
     (define-key aux   (kbd "RET")   #'octocat-visit)
     (define-key aux   (kbd "o")     #'octocat-browse)
@@ -125,7 +130,7 @@
     (define-key aux-m (kbd "RET")   #'octocat-visit))
 
   ;; ── octocat-pr-diff-mode ──────────────────────────────────────────────
-  (let ((aux (evil-get-auxiliary-keymap octocat-pr-diff-mode-map 'normal t)))
+  (let ((aux (evil-get-auxiliary-keymap octocat-pr-diff-mode-map 'normal t t)))
     (define-key aux (kbd "g")       nil)
     (define-key aux (kbd "o")       #'octocat-browse)
     (define-key aux (kbd "C-c C-o") #'octocat-browse)
@@ -133,8 +138,8 @@
     (define-key aux (kbd "gr")      #'octocat-pr-diff-refresh))
 
   ;; ── octocat-issue-mode ────────────────────────────────────────────────
-  (let ((aux   (evil-get-auxiliary-keymap octocat-issue-mode-map 'normal t))
-        (aux-m (evil-get-auxiliary-keymap octocat-issue-mode-map 'motion t)))
+  (let ((aux   (evil-get-auxiliary-keymap octocat-issue-mode-map 'normal t t))
+        (aux-m (evil-get-auxiliary-keymap octocat-issue-mode-map 'motion t t)))
     (define-key aux   (kbd "g")     nil)
     (define-key aux   (kbd "RET")   #'octocat-visit)
     (define-key aux   (kbd "o")     #'octocat-browse)
@@ -145,8 +150,8 @@
     (define-key aux-m (kbd "RET")   #'octocat-visit))
 
   ;; ── octocat-workflow-mode ─────────────────────────────────────────────
-  (let ((aux   (evil-get-auxiliary-keymap octocat-workflow-mode-map 'normal t))
-        (aux-m (evil-get-auxiliary-keymap octocat-workflow-mode-map 'motion t)))
+  (let ((aux   (evil-get-auxiliary-keymap octocat-workflow-mode-map 'normal t t))
+        (aux-m (evil-get-auxiliary-keymap octocat-workflow-mode-map 'motion t t)))
     (define-key aux   (kbd "g")     nil)
     (define-key aux   (kbd "RET")   #'octocat-workflow-visit)
     (define-key aux   (kbd "+")     #'octocat-workflow-load-more)
@@ -157,8 +162,8 @@
     (define-key aux-m (kbd "RET")   #'octocat-workflow-visit))
 
   ;; ── octocat-run-mode ──────────────────────────────────────────────────
-  (let ((aux   (evil-get-auxiliary-keymap octocat-run-mode-map 'normal t))
-        (aux-m (evil-get-auxiliary-keymap octocat-run-mode-map 'motion t)))
+  (let ((aux   (evil-get-auxiliary-keymap octocat-run-mode-map 'normal t t))
+        (aux-m (evil-get-auxiliary-keymap octocat-run-mode-map 'motion t t)))
     (define-key aux   (kbd "g")     nil)
     (define-key aux   (kbd "RET")   #'octocat-run-visit-or-download)
     (define-key aux   (kbd "o")     #'octocat-browse)
@@ -168,8 +173,8 @@
     (define-key aux-m (kbd "RET")   #'octocat-run-visit-or-download))
 
   ;; ── octocat-job-mode ──────────────────────────────────────────────────
-  (let ((aux   (evil-get-auxiliary-keymap octocat-job-mode-map 'normal t))
-        (aux-m (evil-get-auxiliary-keymap octocat-job-mode-map 'motion t)))
+  (let ((aux   (evil-get-auxiliary-keymap octocat-job-mode-map 'normal t t))
+        (aux-m (evil-get-auxiliary-keymap octocat-job-mode-map 'motion t t)))
     (define-key aux   (kbd "g")     nil)
     (define-key aux   (kbd "RET")   #'octocat-job-download-artifact)
     (define-key aux   (kbd "o")     #'octocat-browse)

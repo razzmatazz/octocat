@@ -240,6 +240,45 @@ divergence:
 pre-existing `normal-state` slot conflict and `evil-define-key*` is safe for
 them.
 
+### Gotcha — `evil-get-auxiliary-keymap` returns the *parent*'s aux keymap without `IGNORE-PARENT`
+
+`evil-get-auxiliary-keymap MAP STATE &optional CREATE IGNORE-PARENT` scans
+MAP's keymap alist for a slot whose prompt matches the state name.  Because
+child mode maps inherit their parent's alist entries (via `set-keymap-parent`),
+the *parent*'s `normal-state` slot appears **before** any child-owned slot.
+Calling `(evil-get-auxiliary-keymap child-map 'normal t)` therefore returns
+the `magit-section-mode-map` aux keymap, not a fresh child-specific one.
+
+Every subsequent `define-key` call then mutates this shared parent keymap.
+The bindings accumulate across all child modes — the last mode's `c`, `+`,
+`RET`, and `gr` all end up in `magit-section-mode-map`'s normal-state aux —
+and bleed into **every** buffer whose keymap chain passes through
+`magit-section-mode`, including plain `magit-status` buffers.
+
+The symptom is user-facing errors like `Octocat: Buffer is not associated
+with an issue` when pressing `c` in a regular Magit buffer.
+
+**The fix — always pass `t t` (CREATE + IGNORE-PARENT) for child modes.**
+The fourth argument forces `evil-get-auxiliary-keymap` to create a new keymap
+owned by the child map, bypassing the inherited parent slot:
+
+```elisp
+;; CORRECT — IGNORE-PARENT t ensures a child-owned aux keymap
+(let ((aux   (evil-get-auxiliary-keymap octocat-pr-mode-map 'normal t t))
+      (aux-m (evil-get-auxiliary-keymap octocat-pr-mode-map 'motion t t)))
+  (define-key aux   (kbd "RET") #'octocat-visit)
+  ...)
+
+;; BROKEN — returns magit-section-mode-map's shared aux keymap
+(let ((aux (evil-get-auxiliary-keymap octocat-pr-mode-map 'normal t)))
+  (define-key aux (kbd "RET") #'octocat-visit))  ; ← mutates parent!
+```
+
+This applies to **all** octocat child modes (pr, commit, pr-diff, issue,
+workflow, run, job) for both `'normal` and `'motion` states.  The `octocat-mode`
+and `octocat-repo-mode` maps do not derive from `magit-section-mode`, so they
+are unaffected and continue to use `evil-define-key*` directly.
+
 ## Byte-compiler warnings about functions "not known to be defined"
 
 `make ci` compiles all files in parallel.  The compiler warns "the function

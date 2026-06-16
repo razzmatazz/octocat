@@ -394,3 +394,70 @@ the same face swap applies directly:
 `current-branch` is obtained by calling `(octocat--current-branch)` once at
 the top of the render function and binding it to a local variable.  Do not
 re-call the helper per line.
+
+---
+
+## Opening items in the browser (`o` / `C-c C-o`)
+
+`octocat-browse` is the single entry point for opening any item in the
+browser.  It is bound to `o` and `C-c C-o` in every octocat mode.
+
+### Dispatch order
+
+The function dispatches in two phases:
+
+1. **Section type** — inspects the magit section at point.  If the section
+   type has a known GitHub URL, open it immediately.
+2. **Major-mode fallback** — if the section type has no URL of its own
+   (e.g. point is on a title/header line, a metadata label, or the root
+   heading of a detail buffer), fall back to the current major mode and
+   open the URL for the *item the buffer represents as a whole*.
+
+This means `o` always does something useful regardless of where point is
+within a detail view.
+
+### Section-type dispatch table
+
+| Section type | URL / command |
+|---|---|
+| `repo` | `https://github.com/OWNER/REPO` |
+| `pr` | `gh pr view --web NUMBER --repo REPO` |
+| `issue` | `gh issue view --web NUMBER --repo REPO` |
+| `octocat-commit` | `https://github.com/REPO/commit/SHA` (uses `"oid"` key, falls back to `"sha"` for REST-API commits) |
+| `workflow` | `https://github.com/REPO/actions/workflows/FILENAME` (derived from `"path"`) |
+| `workflow-run` | `https://github.com/REPO/actions/runs/ID` |
+| `check-run` | `html_url` from the GitHub Checks REST API response |
+| `comment` | `url` from the GitHub comment object |
+| `octocat-root` | `https://github.com/REPO` |
+
+### Major-mode fallback table
+
+| Major mode | URL opened |
+|---|---|
+| `octocat-pr-mode` | `gh pr view --web NUMBER --repo REPO` |
+| `octocat-issue-mode` | `gh issue view --web NUMBER --repo REPO` |
+| `octocat-commit-mode` | `https://github.com/REPO/commit/SHA` |
+| `octocat-workflow-mode` | `https://github.com/REPO/actions/workflows/ID` |
+| `octocat-run-mode` | `https://github.com/REPO/actions/runs/ID` |
+| `octocat-job-mode` | `https://github.com/REPO/actions/runs/RUN_ID/job/JOB_ID` |
+| `octocat-checks-mode` | `https://github.com/REPO/commit/SHA/checks` |
+
+Each fallback reads the buffer-local variables set when the detail buffer
+was opened (e.g. `octocat--pr-repo`, `octocat--pr-number`).  If those
+variables are somehow unset the fallback silently does nothing.
+
+### Using `gh` vs. `browse-url`
+
+PRs and issues are opened via `gh pr view --web` / `gh issue view --web`
+rather than a hard-coded URL.  This ensures the correct GitHub host is used
+when `gh` is configured for GitHub Enterprise or an alternative host.  All
+other items are opened with `browse-url` using a constructed URL.
+
+### Implementation note
+
+The `pcase` arms for section types return the result of their action (a
+process object, `t` from `browse-url`, etc.) which is truthy.  The outer
+`(or (pcase …) (cond …))` short-circuits to the `cond` fallback only when
+the `pcase` falls through with `nil` — i.e. the section type was not
+matched.  Both `(pcase … (_ nil))` and an explicit fall-through produce
+`nil`; the fallback `cond` then checks `derived-mode-p` in order.

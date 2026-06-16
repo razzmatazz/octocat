@@ -57,6 +57,8 @@
 (defvar octocat--workflow-name)  ; defined as buffer-local in octocat-workflow.el
 (defvar octocat--run-repo)       ; defined as buffer-local in octocat-run.el
 (defvar octocat--run-id)         ; defined as buffer-local in octocat-run.el
+(defvar octocat--commit-repo)    ; defined as buffer-local in octocat-commit.el
+(defvar octocat--commit-sha)     ; defined as buffer-local in octocat-commit.el
 (defvar octocat--job-repo)       ; defined as buffer-local in octocat-job.el
 (defvar octocat--job-run-id)     ; defined as buffer-local in octocat-job.el
 (defvar octocat--job-id)         ; defined as buffer-local in octocat-job.el
@@ -300,7 +302,32 @@
       (_ nil))))
 
 (defun octocat-browse ()
-  "Open the item at point in the browser via gh."
+  "Open the item at point in the browser, or the current detail view.
+
+Dispatches first by the type of the magit section at point; falls back to
+the current major mode when point is not on a section that has a
+corresponding GitHub URL (e.g. the header line of a PR detail buffer).
+
+Section types handled:
+  `repo'          → https://github.com/OWNER/REPO
+  `pr'            → gh pr view --web (respects gh's host config)
+  `issue'         → gh issue view --web
+  `octocat-commit'→ https://github.com/REPO/commit/SHA
+  `workflow'      → https://github.com/REPO/actions/workflows/FILE
+  `workflow-run'  → https://github.com/REPO/actions/runs/ID
+  `check-run'     → html_url from the GitHub Checks API response
+  `comment'       → url field from the GitHub comment object
+  `octocat-root'  → https://github.com/REPO
+
+Major-mode fallback (used when the section type does not have its own
+handler, e.g. point is on a title/header line):
+  `octocat-pr-mode'       → gh pr view --web
+  `octocat-issue-mode'    → gh issue view --web
+  `octocat-commit-mode'   → https://github.com/REPO/commit/SHA
+  `octocat-workflow-mode' → https://github.com/REPO/actions/workflows/ID
+  `octocat-run-mode'      → https://github.com/REPO/actions/runs/ID
+  `octocat-job-mode'      → https://github.com/REPO/actions/runs/RUN/job/JOB
+  `octocat-checks-mode'   → https://github.com/REPO/commit/SHA/checks"
   (interactive)
   (let* ((section (magit-current-section))
          (type    (and section (oref section type)))
@@ -309,50 +336,110 @@
          (gh      (executable-find "gh")))
     (unless gh
       (user-error "Octocat: `gh' executable not found"))
-    (pcase type
-      ('repo
-       (let ((url (format "https://github.com/%s" value)))
-         (message "Octocat: Opening %s in browser…" value)
-         (browse-url url)))
-      ('pr
-       (let ((number (gethash "number" value)))
-         (message "Octocat: Opening PR #%d in browser…" number)
+    (or
+     (pcase type
+       ('repo
+        (let ((url (format "https://github.com/%s" value)))
+          (message "Octocat: Opening %s in browser…" value)
+          (browse-url url)))
+       ('pr
+        (let ((number (gethash "number" value)))
+          (message "Octocat: Opening PR #%d in browser…" number)
+          (start-process "octocat-browse" nil gh
+                         "pr" "view" "--web"
+                         (number-to-string number)
+                         "--repo" repo)))
+       ('octocat-commit
+        (let* ((oid (or (gethash "oid" value) (gethash "sha" value) ""))
+               (url (format "https://github.com/%s/commit/%s" repo oid)))
+          (message "Octocat: Opening commit %s in browser…"
+                   (substring oid 0 (min 7 (length oid))))
+          (browse-url url)))
+       ('issue
+        (let ((number (gethash "number" value)))
+          (message "Octocat: Opening issue #%d in browser…" number)
+          (start-process "octocat-browse" nil gh
+                         "issue" "view" "--web"
+                         (number-to-string number)
+                         "--repo" repo)))
+       ('workflow
+        (let* ((path     (or (gethash "path" value) ""))
+               (filename (file-name-nondirectory path))
+               (url      (format "https://github.com/%s/actions/workflows/%s"
+                                 repo filename)))
+          (message "Octocat: Opening workflow in browser…")
+          (browse-url url)))
+       ('workflow-run
+        (let* ((run-id (or (gethash "databaseId" value) octocat--run-id))
+               (url    (format "https://github.com/%s/actions/runs/%s"
+                               repo (number-to-string run-id))))
+          (message "Octocat: Opening run #%s in browser…" run-id)
+          (browse-url url)))
+       ('check-run
+        (let ((url (gethash "html_url" value)))
+          (when url
+            (message "Octocat: Opening check run in browser…")
+            (browse-url url))))
+       ('comment
+        (let ((url (gethash "url" value)))
+          (when url
+            (message "Octocat: Opening comment in browser…")
+            (browse-url url))))
+       ('octocat-root
+        (let ((url (format "https://github.com/%s" repo)))
+          (message "Octocat: Opening %s in browser…" repo)
+          (browse-url url))))
+     ;; Major-mode fallback — fires when point is on a section type that has
+     ;; no URL of its own (e.g. a title/header line), or when no section is
+     ;; active at all.  Each branch uses the buffer-local vars set when the
+     ;; detail buffer was opened.
+     (cond
+      ((derived-mode-p 'octocat-pr-mode)
+       (when (and octocat--pr-repo octocat--pr-number)
+         (message "Octocat: Opening PR #%d in browser…" octocat--pr-number)
          (start-process "octocat-browse" nil gh
                         "pr" "view" "--web"
-                        (number-to-string number)
-                        "--repo" repo)))
-      ('octocat-commit
-       (let* ((oid   (or (gethash "oid" value) ""))
-              (url   (format "https://github.com/%s/commit/%s" repo oid)))
-         (message "Octocat: Opening commit %s in browser…"
-                  (substring oid 0 (min 7 (length oid))))
-         (browse-url url)))
-      ('issue
-       (let ((number (gethash "number" value)))
-         (message "Octocat: Opening issue #%d in browser…" number)
+                        (number-to-string octocat--pr-number)
+                        "--repo" octocat--pr-repo)))
+      ((derived-mode-p 'octocat-issue-mode)
+       (when (and octocat--issue-repo octocat--issue-number)
+         (message "Octocat: Opening issue #%d in browser…" octocat--issue-number)
          (start-process "octocat-browse" nil gh
                         "issue" "view" "--web"
-                        (number-to-string number)
-                        "--repo" repo)))
-      ('workflow
-       (let* ((path     (or (gethash "path" value) ""))
-              (filename (file-name-nondirectory path))
-              (url      (format "https://github.com/%s/actions/workflows/%s"
-                                repo filename)))
-         (message "Octocat: Opening workflow in browser…")
-         (browse-url url)))
-      ('workflow-run
-       (let* ((run-id (or (gethash "databaseId" value)
-                          octocat--run-id))
-              (url    (format "https://github.com/%s/actions/runs/%s"
-                              repo (number-to-string run-id))))
-         (message "Octocat: Opening run #%s in browser…" run-id)
-         (browse-url url)))
-      ('octocat-root
-       (let ((url (format "https://github.com/%s" repo)))
-         (message "Octocat: Opening %s in browser…" repo)
-         (browse-url url)))
-      (_ nil))))
+                        (number-to-string octocat--issue-number)
+                        "--repo" octocat--issue-repo)))
+      ((derived-mode-p 'octocat-commit-mode)
+       (when (and octocat--commit-repo octocat--commit-sha)
+         (let* ((sha octocat--commit-sha)
+                (url (format "https://github.com/%s/commit/%s"
+                             octocat--commit-repo sha)))
+           (message "Octocat: Opening commit %s in browser…"
+                    (substring sha 0 (min 7 (length sha))))
+           (browse-url url))))
+      ((derived-mode-p 'octocat-workflow-mode)
+       (when (and octocat--workflow-repo octocat--workflow-id)
+         (let ((url (format "https://github.com/%s/actions/workflows/%s"
+                            octocat--workflow-repo octocat--workflow-id)))
+           (message "Octocat: Opening workflow in browser…")
+           (browse-url url))))
+      ((derived-mode-p 'octocat-run-mode)
+       (when (and octocat--run-repo octocat--run-id)
+         (let ((url (format "https://github.com/%s/actions/runs/%s"
+                            octocat--run-repo octocat--run-id)))
+           (message "Octocat: Opening run #%s in browser…" octocat--run-id)
+           (browse-url url))))
+      ((derived-mode-p 'octocat-job-mode)
+       (when (and octocat--job-repo octocat--job-run-id octocat--job-id)
+         (let ((url (format "https://github.com/%s/actions/runs/%s/job/%s"
+                            octocat--job-repo octocat--job-run-id octocat--job-id)))
+           (message "Octocat: Opening job in browser…")
+           (browse-url url))))
+      ((derived-mode-p 'octocat-checks-mode)
+       (when (and octocat--checks-repo octocat--checks-sha)
+         (let ((url (format "https://github.com/%s/commit/%s/checks"
+                            octocat--checks-repo octocat--checks-sha)))
+           (message "Octocat: Opening checks in browser…")
+           (browse-url url))))))))
 
 
 ;;;; Dashboard major mode
