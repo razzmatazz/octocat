@@ -96,91 +96,87 @@
     (kbd "RET")     #'octocat-visit)
 
   ;; ── octocat-pr-mode ───────────────────────────────────────────────────
-  ;; Clear any stale "g" binding from evil's auxiliary keymap so "gr" can
-  ;; be registered as a two-key sequence without conflict.
-  (let ((aux (evil-get-auxiliary-keymap octocat-pr-mode-map 'normal t)))
-    (define-key aux (kbd "g") nil))
-  (evil-define-key* 'normal octocat-pr-mode-map
-    (kbd "RET")     #'octocat-visit
-    (kbd "o")       #'octocat-browse
-    (kbd "C-c C-o") #'octocat-browse
-    (kbd "c")       #'octocat-pr-add-comment
-    (kbd "q")       #'quit-window
-    (kbd "gr")      #'octocat-pr-refresh)
-  (evil-define-key* 'motion octocat-pr-mode-map
-    (kbd "RET")     #'octocat-visit)
+  ;; Use define-key directly so all bindings (including RET) land in the
+  ;; same aux keymap slot.  See AGENTS.md "evil-define-key* aux-keymap slot
+  ;; divergence" for why evil-define-key* is not used here.
+  (let ((aux   (evil-get-auxiliary-keymap octocat-pr-mode-map 'normal t))
+        (aux-m (evil-get-auxiliary-keymap octocat-pr-mode-map 'motion t)))
+    (define-key aux   (kbd "g")     nil)
+    (define-key aux   (kbd "RET")   #'octocat-visit)
+    (define-key aux   (kbd "o")     #'octocat-browse)
+    (define-key aux   (kbd "C-c C-o") #'octocat-browse)
+    (define-key aux   (kbd "c")     #'octocat-pr-add-comment)
+    (define-key aux   (kbd "q")     #'quit-window)
+    (define-key aux   (kbd "gr")    #'octocat-pr-refresh)
+    (define-key aux-m (kbd "RET")   #'octocat-visit))
 
   ;; ── octocat-commit-mode ───────────────────────────────────────────────
-  ;; Same auxiliary keymap cleanup as above.
-  (let ((aux (evil-get-auxiliary-keymap octocat-commit-mode-map 'normal t)))
-    (define-key aux (kbd "g") nil))
-  (evil-define-key* 'normal octocat-commit-mode-map
-    (kbd "o")       #'octocat-browse
-    (kbd "C-c C-o") #'octocat-browse
-    (kbd "q")       #'quit-window
-    (kbd "gr")      #'octocat-commit-refresh)
+  ;; Use define-key directly on the aux keymap retrieved by
+  ;; evil-get-auxiliary-keymap for every binding, not evil-define-key*.
+  ;; See AGENTS.md "evil-define-key* aux-keymap slot divergence" for why.
+  (let ((aux   (evil-get-auxiliary-keymap octocat-commit-mode-map 'normal t))
+        (aux-m (evil-get-auxiliary-keymap octocat-commit-mode-map 'motion t)))
+    (define-key aux   (kbd "g")     nil)
+    (define-key aux   (kbd "RET")   #'octocat-visit)
+    (define-key aux   (kbd "o")     #'octocat-browse)
+    (define-key aux   (kbd "C-c C-o") #'octocat-browse)
+    (define-key aux   (kbd "q")     #'quit-window)
+    (define-key aux   (kbd "gr")    #'octocat-commit-refresh)
+    (define-key aux-m (kbd "RET")   #'octocat-visit))
 
   ;; ── octocat-pr-diff-mode ──────────────────────────────────────────────
   (let ((aux (evil-get-auxiliary-keymap octocat-pr-diff-mode-map 'normal t)))
-    (define-key aux (kbd "g") nil))
-  (evil-define-key* 'normal octocat-pr-diff-mode-map
-    (kbd "o")       #'octocat-browse
-    (kbd "C-c C-o") #'octocat-browse
-    (kbd "q")       #'quit-window
-    (kbd "gr")      #'octocat-pr-diff-refresh)
+    (define-key aux (kbd "g")       nil)
+    (define-key aux (kbd "o")       #'octocat-browse)
+    (define-key aux (kbd "C-c C-o") #'octocat-browse)
+    (define-key aux (kbd "q")       #'quit-window)
+    (define-key aux (kbd "gr")      #'octocat-pr-diff-refresh))
 
   ;; ── octocat-issue-mode ────────────────────────────────────────────────
-  ;; Same auxiliary keymap cleanup as above.
-  (let ((aux (evil-get-auxiliary-keymap octocat-issue-mode-map 'normal t)))
-    (define-key aux (kbd "g") nil))
-  (evil-define-key* 'normal octocat-issue-mode-map
-    (kbd "RET")     #'octocat-visit
-    (kbd "o")       #'octocat-browse
-    (kbd "C-c C-o") #'octocat-browse
-    (kbd "c")       #'octocat-issue-add-comment
-    (kbd "q")       #'quit-window
-    (kbd "gr")      #'octocat-issue-refresh)
-  (evil-define-key* 'motion octocat-issue-mode-map
-    (kbd "RET")     #'octocat-visit)
+  (let ((aux   (evil-get-auxiliary-keymap octocat-issue-mode-map 'normal t))
+        (aux-m (evil-get-auxiliary-keymap octocat-issue-mode-map 'motion t)))
+    (define-key aux   (kbd "g")     nil)
+    (define-key aux   (kbd "RET")   #'octocat-visit)
+    (define-key aux   (kbd "o")     #'octocat-browse)
+    (define-key aux   (kbd "C-c C-o") #'octocat-browse)
+    (define-key aux   (kbd "c")     #'octocat-issue-add-comment)
+    (define-key aux   (kbd "q")     #'quit-window)
+    (define-key aux   (kbd "gr")    #'octocat-issue-refresh)
+    (define-key aux-m (kbd "RET")   #'octocat-visit))
 
   ;; ── octocat-workflow-mode ─────────────────────────────────────────────
-  ;; Same auxiliary keymap cleanup as above.
-  (let ((aux (evil-get-auxiliary-keymap octocat-workflow-mode-map 'normal t)))
-    (define-key aux (kbd "g") nil))
-  (evil-define-key* 'normal octocat-workflow-mode-map
-    (kbd "RET")     #'octocat-workflow-visit
-    (kbd "+")       #'octocat-workflow-load-more
-    (kbd "o")       #'octocat-browse
-    (kbd "C-c C-o") #'octocat-browse
-    (kbd "q")       #'quit-window
-    (kbd "gr")      #'octocat-workflow-refresh)
-  (evil-define-key* 'motion octocat-workflow-mode-map
-    (kbd "RET")     #'octocat-workflow-visit)
+  (let ((aux   (evil-get-auxiliary-keymap octocat-workflow-mode-map 'normal t))
+        (aux-m (evil-get-auxiliary-keymap octocat-workflow-mode-map 'motion t)))
+    (define-key aux   (kbd "g")     nil)
+    (define-key aux   (kbd "RET")   #'octocat-workflow-visit)
+    (define-key aux   (kbd "+")     #'octocat-workflow-load-more)
+    (define-key aux   (kbd "o")     #'octocat-browse)
+    (define-key aux   (kbd "C-c C-o") #'octocat-browse)
+    (define-key aux   (kbd "q")     #'quit-window)
+    (define-key aux   (kbd "gr")    #'octocat-workflow-refresh)
+    (define-key aux-m (kbd "RET")   #'octocat-workflow-visit))
 
   ;; ── octocat-run-mode ──────────────────────────────────────────────────
-  ;; Same auxiliary keymap cleanup as above.
-  (let ((aux (evil-get-auxiliary-keymap octocat-run-mode-map 'normal t)))
-    (define-key aux (kbd "g") nil))
-  (evil-define-key* 'normal octocat-run-mode-map
-    (kbd "RET")     #'octocat-run-visit-or-download
-    (kbd "o")       #'octocat-browse
-    (kbd "C-c C-o") #'octocat-browse
-    (kbd "q")       #'quit-window
-    (kbd "gr")      #'octocat-run-refresh)
-  (evil-define-key* 'motion octocat-run-mode-map
-    (kbd "RET")     #'octocat-run-visit-or-download)
+  (let ((aux   (evil-get-auxiliary-keymap octocat-run-mode-map 'normal t))
+        (aux-m (evil-get-auxiliary-keymap octocat-run-mode-map 'motion t)))
+    (define-key aux   (kbd "g")     nil)
+    (define-key aux   (kbd "RET")   #'octocat-run-visit-or-download)
+    (define-key aux   (kbd "o")     #'octocat-browse)
+    (define-key aux   (kbd "C-c C-o") #'octocat-browse)
+    (define-key aux   (kbd "q")     #'quit-window)
+    (define-key aux   (kbd "gr")    #'octocat-run-refresh)
+    (define-key aux-m (kbd "RET")   #'octocat-run-visit-or-download))
 
   ;; ── octocat-job-mode ──────────────────────────────────────────────────
-  (let ((aux (evil-get-auxiliary-keymap octocat-job-mode-map 'normal t)))
-    (define-key aux (kbd "g") nil))
-  (evil-define-key* 'normal octocat-job-mode-map
-    (kbd "RET")     #'octocat-job-download-artifact
-    (kbd "o")       #'octocat-browse
-    (kbd "C-c C-o") #'octocat-browse
-    (kbd "q")       #'quit-window
-    (kbd "gr")      #'octocat-job-refresh)
-  (evil-define-key* 'motion octocat-job-mode-map
-    (kbd "RET")     #'octocat-job-download-artifact)
+  (let ((aux   (evil-get-auxiliary-keymap octocat-job-mode-map 'normal t))
+        (aux-m (evil-get-auxiliary-keymap octocat-job-mode-map 'motion t)))
+    (define-key aux   (kbd "g")     nil)
+    (define-key aux   (kbd "RET")   #'octocat-job-download-artifact)
+    (define-key aux   (kbd "o")     #'octocat-browse)
+    (define-key aux   (kbd "C-c C-o") #'octocat-browse)
+    (define-key aux   (kbd "q")     #'quit-window)
+    (define-key aux   (kbd "gr")    #'octocat-job-refresh)
+    (define-key aux-m (kbd "RET")   #'octocat-job-download-artifact))
 
   ;; Refresh all octocat keymaps so the new bindings take effect in any
   ;; already-open buffers.

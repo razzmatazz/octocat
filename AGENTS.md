@@ -182,6 +182,64 @@ The canonical reload sequence is:
 Use `ignore-errors` on each `unload-feature` call so that features which
 are not currently loaded don't abort the sequence.
 
+## evil-define-key* aux-keymap slot divergence
+
+`magit-section-mode`'s own evil integration calls `evil-define-key*` (and
+registers `evil-collection` bindings) for its mode map **before**
+`octocat-evil-setup` runs.  This means each octocat mode map that derives
+from `magit-section-mode` already contains several `normal-state` entries
+— distinct keymap objects — in its keymap vector by the time
+`octocat-evil-setup` is called.
+
+`evil-get-auxiliary-keymap MAP STATE t` returns the *first* such entry
+(creating a new one if none exists).  `evil-define-key*`, however, creates
+its bindings in a *different* aux keymap slot — one added at the tail of the
+mode-map chain.  When there are already pre-existing `normal-state` slots,
+these two objects diverge: the slot found by `evil-get-auxiliary-keymap`
+wins in lookup order and **silently shadows** anything written by
+`evil-define-key*` into its own slot.
+
+The symptom is a binding (typically `RET`) that appears correctly set when
+inspected via `evil-get-auxiliary-keymap` + `lookup-key`, but resolves to
+the wrong command (e.g. `evil-ret`) at runtime via `key-binding`.
+
+**The fix — use `define-key` directly on the keymap returned by
+`evil-get-auxiliary-keymap`.**  Retrieve the aux keymaps once per mode, then
+call `define-key` on them for every binding, including the `g`-prefix
+cleanup.  Do **not** follow the `let`-block-for-g + separate
+`evil-define-key*`-for-everything-else split; that pattern recreates the
+divergence:
+
+```elisp
+;; CORRECT — all bindings in the same let block via define-key
+(let ((aux   (evil-get-auxiliary-keymap octocat-pr-mode-map 'normal t))
+      (aux-m (evil-get-auxiliary-keymap octocat-pr-mode-map 'motion t)))
+  (define-key aux   (kbd "g")       nil)           ; clear stale g prefix
+  (define-key aux   (kbd "RET")     #'octocat-visit)
+  (define-key aux   (kbd "o")       #'octocat-browse)
+  (define-key aux   (kbd "C-c C-o") #'octocat-browse)
+  (define-key aux   (kbd "q")       #'quit-window)
+  (define-key aux   (kbd "gr")      #'octocat-pr-refresh)
+  (define-key aux-m (kbd "RET")     #'octocat-visit))
+
+;; BROKEN — evil-define-key* writes RET into a different slot
+(let ((aux (evil-get-auxiliary-keymap octocat-pr-mode-map 'normal t)))
+  (define-key aux (kbd "g") nil))
+(evil-define-key* 'normal octocat-pr-mode-map
+  (kbd "RET")  #'octocat-visit   ; ← silently shadowed at runtime
+  (kbd "o")    #'octocat-browse)
+```
+
+**Modes affected:** any mode that derives from `magit-section-mode` and uses
+`gr` (or another `g`-prefixed two-key binding) — which requires the
+`define-key aux (kbd "g") nil` cleanup.  Currently: `octocat-pr-mode`,
+`octocat-commit-mode`, `octocat-issue-mode`, `octocat-pr-diff-mode`,
+`octocat-workflow-mode`, `octocat-run-mode`, `octocat-job-mode`.
+
+`octocat-mode` and `octocat-repo-mode` do **not** use `gr`, so they have no
+pre-existing `normal-state` slot conflict and `evil-define-key*` is safe for
+them.
+
 ## Byte-compiler warnings about functions "not known to be defined"
 
 `make ci` compiles all files in parallel.  The compiler warns "the function
