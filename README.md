@@ -127,6 +127,7 @@ Each file entry is a collapsible section.  The diff hunks are rendered with
 | `C-c C-o` | Open item at point in browser |
 | `C-c C-a` | Add a comment (PR and issue detail views) |
 | `C-c C-e` | Edit body or comment at point (PR and issue detail views) |
+| `C-c C-v` | Toggle between rendered and raw markdown (PR, commit, and issue detail views) |
 | `g` / `gr` | Refresh current buffer |
 | `q` | Close buffer |
 | `TAB` | Expand / collapse section at point |

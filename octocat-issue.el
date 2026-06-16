@@ -264,6 +264,7 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
     (define-key map (kbd "C-c C-o") #'octocat-browse)
     (define-key map (kbd "C-c C-a") #'octocat-issue-add-comment)
     (define-key map (kbd "C-c C-e") #'octocat-issue-edit)
+    (define-key map (kbd "C-c C-v") #'octocat-toggle-markdown)
     ;; Shadow magit-section-mode-map's "g" → revert-buffer with a prefix map.
     (define-key map (kbd "g")  g)
     (define-key map (kbd "gr") #'octocat-issue-refresh)
@@ -277,6 +278,7 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
   :group 'octocat
   (setq-local buffer-read-only t)
   (setq-local revert-buffer-function #'octocat-issue-refresh)
+  (setq-local octocat--refresh-fn #'octocat-issue-refresh)
   (font-lock-mode -1))
 
 

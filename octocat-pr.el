@@ -382,6 +382,7 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
     (define-key map (kbd "C-c C-o") #'octocat-browse)
     (define-key map (kbd "C-c C-a") #'octocat-pr-add-comment)
     (define-key map (kbd "C-c C-e") #'octocat-pr-edit)
+    (define-key map (kbd "C-c C-v") #'octocat-toggle-markdown)
     ;; Shadow magit-section-mode-map's "g" → revert-buffer with a prefix map.
     (define-key map (kbd "g")  g)
     (define-key map (kbd "gr") #'octocat-pr-refresh)
@@ -394,6 +395,7 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
   :group 'octocat
   (setq-local buffer-read-only t)
   (setq-local revert-buffer-function #'octocat-pr-refresh)
+  (setq-local octocat--refresh-fn #'octocat-pr-refresh)
   (font-lock-mode -1))
 
 (defvar-local octocat--pr-number nil

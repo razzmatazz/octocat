@@ -703,27 +703,54 @@ below it.  An empty vector renders a dimmed \"(no comments)\" placeholder."
 
 ;;;; Markdown rendering
 
+(defvar-local octocat--markdown-raw nil
+  "Non-nil means show markdown body text verbatim instead of rendered.
+When nil (the default) `octocat--insert-markdown' processes text through
+`gfm-view-mode' font-lock.  Toggle with `octocat-toggle-markdown'.")
+
+(defvar-local octocat--refresh-fn nil
+  "Buffer-local refresh function called by `octocat-toggle-markdown'.
+Each markdown-displaying mode sets this to its own refresh command so the
+toggle can re-render the buffer after flipping `octocat--markdown-raw'.")
+
 (defun octocat--insert-markdown (text &optional indent)
   "Insert TEXT rendered via `gfm-view-mode' font-lock into the current buffer.
 Each line is prefixed with INDENT (a string, default \"  \").
 Windows-style CR characters are stripped before rendering.
 Markup delimiters are hidden and syntax is highlighted using the
-faces from `markdown-mode', which is a declared dependency."
+faces from `markdown-mode', which is a declared dependency.
+
+When `octocat--markdown-raw' is non-nil in the current buffer the text is
+inserted verbatim without any font-lock rendering."
   (let* ((indent (or indent "  "))
-         (text (replace-regexp-in-string "\r" "" text))
-         (rendered
-          (condition-case _err
-              (with-temp-buffer
-                (insert text)
-                (gfm-view-mode)
-                (font-lock-ensure)
-                (buffer-string))
-            ;; gfm-mode can crash on malformed input (e.g. unterminated
-            ;; code fences).  Fall back to the raw text so the caller
-            ;; always gets something sensible.
-            (error text))))
-    (dolist (line (split-string rendered "\n"))
-      (insert indent line "\n"))))
+         (text (replace-regexp-in-string "\r" "" text)))
+    (if octocat--markdown-raw
+        (dolist (line (split-string text "\n"))
+          (insert indent line "\n"))
+      (let ((rendered
+             (condition-case _err
+                 (with-temp-buffer
+                   (insert text)
+                   (gfm-view-mode)
+                   (font-lock-ensure)
+                   (buffer-string))
+               ;; gfm-mode can crash on malformed input (e.g. unterminated
+               ;; code fences).  Fall back to the raw text so the caller
+               ;; always gets something sensible.
+               (error text))))
+        (dolist (line (split-string rendered "\n"))
+          (insert indent line "\n"))))))
+
+(defun octocat-toggle-markdown ()
+  "Toggle between rendered and raw markdown display in the current buffer.
+When raw mode is active the body text is shown verbatim; when rendered mode
+is active (the default) it is processed through `gfm-view-mode' font-lock.
+After toggling, the buffer is refreshed via `octocat--refresh-fn'."
+  (interactive)
+  (setq octocat--markdown-raw (not octocat--markdown-raw))
+  (message "Markdown display: %s" (if octocat--markdown-raw "raw" "rendered"))
+  (when octocat--refresh-fn
+    (funcall octocat--refresh-fn)))
 
 (provide 'octocat-core)
 ;;; octocat-core.el ends here
