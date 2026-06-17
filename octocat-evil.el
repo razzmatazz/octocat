@@ -190,26 +190,19 @@
     (define-key aux-m (kbd "RET")   #'octocat-job-download-artifact))
 
   ;; ── octocat-tree-mode ─────────────────────────────────────────────────
-  ;; Derives from magit-section-mode: use evil-get-auxiliary-keymap t t.
-  ;; TAB must be bound in *both* normal and motion aux keymaps.  The parent
-  ;; (magit-section-mode-map) already has TAB → magit-section-toggle in its
-  ;; normal-state aux slot.  Because keymap lookup walks the chain and finds
-  ;; the parent's slot before the child-owned one, binding TAB only in `aux'
-  ;; is silently shadowed.  Binding in `aux-m' (motion state) avoids the
-  ;; parent collision and wins because normal state inherits motion state.
-  (let ((aux   (evil-get-auxiliary-keymap octocat-tree-mode-map 'normal t t))
-        (aux-m (evil-get-auxiliary-keymap octocat-tree-mode-map 'motion t t)))
-    (define-key aux   (kbd "g")       nil)
-    (define-key aux   (kbd "RET")     #'octocat-tree-visit)
-    (define-key aux   (kbd "TAB")     #'octocat-tree-expand)
-    (define-key aux   [tab]           #'octocat-tree-expand)
-    (define-key aux   (kbd "C-c C-o") #'octocat-tree-browse)
-    (define-key aux   (kbd "o")       #'octocat-tree-browse)
-    (define-key aux   (kbd "q")       #'quit-window)
-    (define-key aux   (kbd "gr")      #'octocat-tree-refresh)
-    (define-key aux-m (kbd "RET")     #'octocat-tree-visit)
-    (define-key aux-m (kbd "TAB")     #'octocat-tree-expand)
-    (define-key aux-m [tab]           #'octocat-tree-expand))
+  ;; Derives from special-mode (not magit-section-mode): evil-define-key* is safe.
+  (evil-define-key* 'normal octocat-tree-mode-map
+    (kbd "RET")     #'octocat-tree-visit
+    (kbd "TAB")     #'octocat-tree-expand
+    [tab]           #'octocat-tree-expand
+    (kbd "C-c C-o") #'octocat-tree-browse
+    (kbd "o")       #'octocat-tree-browse
+    (kbd "q")       #'quit-window
+    (kbd "gr")      #'octocat-tree-refresh)
+  (evil-define-key* 'motion octocat-tree-mode-map
+    (kbd "RET")     #'octocat-tree-visit
+    (kbd "TAB")     #'octocat-tree-expand
+    [tab]           #'octocat-tree-expand)
 
   ;; ── octocat-file-mode ─────────────────────────────────────────────────
   ;; Derives from special-mode (not magit-section-mode): evil-define-key* is safe.
