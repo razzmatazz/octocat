@@ -25,17 +25,20 @@
 ;;   octocat-file-mode — read-only file content viewer with syntax highlighting
 ;;
 ;; Entry point: `octocat-tree-open', bound to T in `octocat-repo-mode'.
+;;
+;; octocat-tree-mode derives from `special-mode'.  The buffer is rendered
+;; entirely with plain text and text properties — no magit-section machinery.
+;; Each non-header line carries:
+;;
+;;   octocat-tree--type   \\='dir | \\='file  — kind of entry
+;;   octocat-tree--entry  <hash-table>    — the GitHub API entry object
+;;
+;; Expand/collapse state is tracked in `octocat-tree--expanded-shas'.
 
 ;;; Code:
 
 (require 'cl-lib)
-(require 'magit-section)
 (require 'octocat-core)
-
-;; octocat-visit and octocat-browse live in octocat.el; circular load
-;; prevention — declare them only.
-(declare-function octocat-visit  "octocat" ())
-(declare-function octocat-browse "octocat" ())
 
 ;; octocat-repo buffer-locals accessed from octocat-tree-open.
 (defvar octocat-repo--repo)
@@ -60,13 +63,11 @@
 (defvar-local octocat-tree--subtree-cache nil
   "Alist mapping directory SHA string to fetched entries vector.
 Populated by `octocat-tree--fetch-dir' callbacks; consulted by
-`octocat-tree--render' to decide whether to show a placeholder or
-real children.  Cleared on full refresh (gr).")
+`octocat-tree--render' to decide whether to show children or not.
+Cleared on full refresh (gr).")
 
 (defvar-local octocat-tree--expanded-shas nil
-  "List of tree-entry SHA strings that are currently expanded.
-Saved before each re-render; used during construction to re-expand
-the same dirs without re-fetching (data is in subtree-cache).")
+  "List of tree-entry SHA strings that are currently expanded.")
 
 
 ;;;; Buffer-local variables — file mode
@@ -88,7 +89,7 @@ the same dirs without re-fetching (data is in subtree-cache).")
 
 (defvar octocat-tree-mode-map
   (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map magit-section-mode-map)
+    (set-keymap-parent map special-mode-map)
     map)
   "Keymap for `octocat-tree-mode'.")
 (define-key octocat-tree-mode-map (kbd "RET")     #'octocat-tree-visit)
@@ -96,13 +97,13 @@ the same dirs without re-fetching (data is in subtree-cache).")
 (define-key octocat-tree-mode-map (kbd "q")       #'quit-window)
 (define-key octocat-tree-mode-map (kbd "C-c C-o") #'octocat-tree-browse)
 (define-key octocat-tree-mode-map (kbd "o")       #'octocat-tree-browse)
+(define-key octocat-tree-mode-map (kbd "gr")      #'octocat-tree-refresh)
 
-(define-derived-mode octocat-tree-mode magit-section-mode "Octocat-Tree"
+(define-derived-mode octocat-tree-mode special-mode "Octocat-Tree"
   "Major mode for browsing a GitHub repository file tree.
 
 \\{octocat-tree-mode-map}"
   :group 'octocat
-  (setq-local buffer-read-only t)
   (setq-local truncate-lines t)
   (setq-local revert-buffer-function #'octocat-tree-refresh)
   (font-lock-mode -1))
@@ -195,101 +196,129 @@ PATH is used only to select the mode via `auto-mode-alist'."
     (buffer-string)))
 
 
+;;;; Rendering helpers
+
+(defun octocat-tree--propertize-line (str props)
+  "Return STR with PROPS applied over its whole length, plus a trailing newline.
+The newline does not carry PROPS."
+  (concat (apply #'propertize str props) "\n"))
+
+(defun octocat-tree--insert-entry-line (indent glyph name face type entry)
+  "Insert one tree line with text properties.
+INDENT is a string of leading spaces.  GLYPH is a 1-2 char icon.
+NAME is the file/dir name.  FACE is applied to the icon+name.
+TYPE is \\='dir or \\='file.  ENTRY is the API hash-table stored as a property.
+
+The type/entry/mouse-face/help-echo properties span the entire line
+including the indent, so `get-text-property' at `line-beginning-position'
+works regardless of nesting depth."
+  (let* ((label (propertize (concat glyph " " name) 'face face))
+         (line  (concat indent label))
+         (help  (if (eq type 'dir)
+                    "RET/TAB: expand  o: browse on GitHub"
+                  "RET: view file  o: browse on GitHub")))
+    (add-text-properties 0 (length line)
+                         (list 'octocat-tree--type  type
+                               'octocat-tree--entry entry
+                               'mouse-face          'highlight
+                               'help-echo           help)
+                         line)
+    (insert line "\n")))
+
+
 ;;;; Rendering — tree mode
 
 (defun octocat-tree--render-loading ()
   "Render a loading skeleton in the current tree buffer."
   (let ((inhibit-read-only t))
     (erase-buffer)
-    (magit-insert-section (octocat-tree-root)
-      (magit-insert-heading
-        (concat
-         (propertize (or octocat-tree--repo "") 'face 'octocat-repo)
-         "  "
-         (octocat-tree--branch-glyph)
-         "  "
-         (propertize (or octocat-tree--branch "") 'face 'octocat-branch)))
-      (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))))
+    (insert (propertize
+             (concat
+              (propertize (or octocat-tree--repo "") 'face 'octocat-repo)
+              "  "
+              (octocat-tree--branch-glyph)
+              "  "
+              (propertize (or octocat-tree--branch "") 'face 'octocat-branch))
+             'octocat-tree--type 'header)
+            "\n"
+            (propertize "  Loading…\n" 'face 'octocat-dimmed))))
 
-(defun octocat-tree--collect-expanded-shas ()
-  "Walk the live section tree and return SHAs of currently expanded dirs."
-  (let (shas)
-    (when (and (boundp 'magit-root-section) magit-root-section)
-      (cl-labels ((walk (section)
-                    (when (eq (oref section type) 'tree-dir)
-                      (unless (oref section hidden)
-                        (let* ((entry (oref section value))
-                               (sha   (and (hash-table-p entry)
-                                           (gethash "sha" entry))))
-                          (when sha (push sha shas)))))
-                    (dolist (child (oref section children))
-                      (walk child))))
-        (walk magit-root-section)))
-    shas))
+(defun octocat-tree--sorted-entries (entries)
+  "Return ENTRIES (a vector) as a list sorted dirs-first then alphabetically."
+  (cl-sort (cl-coerce entries 'list)
+           (lambda (a b)
+             (let ((ta (gethash "type" a ""))
+                   (tb (gethash "type" b "")))
+               (cond
+                ((and (equal ta "tree") (equal tb "blob")) t)
+                ((and (equal ta "blob") (equal tb "tree")) nil)
+                (t (string< (gethash "path" a "")
+                            (gethash "path" b ""))))))))
 
 (defun octocat-tree--render-entries (entries depth)
-  "Insert magit sections for ENTRIES (a vector) at nesting DEPTH.
-Dirs are collapsed unless their SHA is in `octocat-tree--expanded-shas'.
-Files are leaf sections."
-  (let* ((sorted (cl-sort (cl-coerce entries 'list)
-                           (lambda (a b)
-                             (let ((ta (gethash "type" a ""))
-                                   (tb (gethash "type" b "")))
-                               (cond
-                                ((and (equal ta "tree") (equal tb "blob")) t)
-                                ((and (equal ta "blob") (equal tb "tree")) nil)
-                                (t (string< (gethash "path" a "")
-                                            (gethash "path" b ""))))))))
-         (indent (make-string (* depth 2) ?\s)))
-    (dolist (entry sorted)
-      (let* ((name   (or (gethash "path" entry) ""))
-             (type   (or (gethash "type" entry) ""))
-             (sha    (or (gethash "sha"  entry) ""))
-             (cached (cdr (assoc sha octocat-tree--subtree-cache)))
-             (expandedp (member sha octocat-tree--expanded-shas)))
+  "Insert plain-text lines for ENTRIES (a vector) at nesting DEPTH.
+Dirs whose SHA is in `octocat-tree--expanded-shas' are recursively
+expanded (using cached children from `octocat-tree--subtree-cache')."
+  (let ((indent (make-string (* depth 2) ?\s)))
+    (dolist (entry (octocat-tree--sorted-entries entries))
+      (let* ((name      (or (gethash "path" entry) ""))
+             (type      (or (gethash "type" entry) ""))
+             (sha       (or (gethash "sha"  entry) ""))
+             (expandedp (member sha octocat-tree--expanded-shas))
+             (cached    (cdr (assoc sha octocat-tree--subtree-cache))))
         (if (equal type "tree")
-            (let ((sec (magit-insert-section (tree-dir entry)
-                         (magit-insert-heading
-                           (concat indent
-                                   (propertize (concat "▸ " name "/")
-                                               'face 'octocat-branch)))
-                         (if (and expandedp cached)
-                             (octocat-tree--render-entries cached (1+ depth))
-                           ;; Placeholder: shown only while not yet loaded.
-                           (magit-insert-section (tree-loading)
-                             (magit-insert-heading
-                               (concat indent "  "
-                                       (propertize "Loading…" 'face 'octocat-dimmed)
-                                       "\n")))))))
-              ;; Collapse dirs that aren't in expanded-shas.
-              (unless expandedp
-                (magit-section-hide sec)))
-          ;; Blob entry — leaf node.
-          (magit-insert-section (tree-file entry)
-            (magit-insert-heading
-              (concat indent "  "
-                      (propertize name 'face 'default)
-                      "\n"))))))))
+            (progn
+              (octocat-tree--insert-entry-line
+               indent
+               (if expandedp "▾" "▸")
+               (concat name "/")
+               'octocat-branch
+               'dir
+               entry)
+              (when (and expandedp cached)
+                (octocat-tree--render-entries cached (1+ depth)))
+              (when (and expandedp (not cached))
+                ;; Fetch in flight — show loading placeholder at child indent,
+                ;; so it aligns with the entries that will replace it.
+                (let ((child-indent (make-string (* (1+ depth) 2) ?\s)))
+                  (insert (propertize
+                           (concat child-indent "  "
+                                   (propertize "Loading…" 'face 'octocat-dimmed))
+                           'octocat-tree--type 'loading)
+                          "\n"))))
+          ;; Blob — leaf node.  Single-space glyph matches the width of "▸"/"▾"
+          ;; so that file names align with directory names at the same depth.
+          (octocat-tree--insert-entry-line
+           indent " " name 'default 'file entry))))))
 
 (defun octocat-tree--render (entries)
-  "Erase the buffer and render the tree from ENTRIES (root vector)."
-  (let ((inhibit-read-only t))
+  "Erase the buffer and render the full tree from root ENTRIES vector.
+Point is restored to the same line and column after re-rendering."
+  (let ((saved-line (line-number-at-pos))
+        (saved-col  (current-column))
+        (inhibit-read-only t))
     (erase-buffer)
-    (magit-insert-section (octocat-tree-root)
-      (magit-insert-heading
-        (concat
-         (propertize (or octocat-tree--repo "") 'face 'octocat-repo)
-         "  "
-         (octocat-tree--branch-glyph)
-         "  "
-         (propertize (or octocat-tree--branch "") 'face 'octocat-branch)
-         "  "
-         (propertize "[Browse files]"
-                     'face       'octocat-dimmed
-                     'mouse-face 'magit-section-highlight
-                     'help-echo  "RET: browse file tree"
-                     'octocat-action 'browse-files)))
-      (octocat-tree--render-entries entries 0))))
+    ;; Header line.
+    (insert (propertize
+             (concat
+              (propertize (or octocat-tree--repo "") 'face 'octocat-repo)
+              "  "
+              (octocat-tree--branch-glyph)
+              "  "
+              (propertize (or octocat-tree--branch "") 'face 'octocat-branch)
+              "  "
+              (propertize "[Browse files]"
+                          'face            'octocat-dimmed
+                          'mouse-face      'highlight
+                          'help-echo       "RET: browse file tree"
+                          'octocat-action  'browse-files))
+             'octocat-tree--type 'header)
+            "\n")
+    (octocat-tree--render-entries entries 0)
+    ;; Restore point to the same line and column.
+    (goto-char (point-min))
+    (forward-line (1- saved-line))
+    (move-to-column saved-col)))
 
 
 ;;;; Rendering — file mode
@@ -326,6 +355,17 @@ Files are leaf sections."
             (propertize (make-string 60 ?━) 'face 'octocat-dimmed)
             "\n"
             fontified)))
+
+
+;;;; Point navigation helpers
+
+(defun octocat-tree--entry-at-point ()
+  "Return the entry hash-table on the current line, or nil."
+  (get-text-property (line-beginning-position) 'octocat-tree--entry))
+
+(defun octocat-tree--type-at-point ()
+  "Return the \\='octocat-tree--type symbol on the current line, or nil."
+  (get-text-property (line-beginning-position) 'octocat-tree--type))
 
 
 ;;;; Interactive commands — tree mode
@@ -390,65 +430,61 @@ Clears the subtree cache and re-fetches the root tree."
                       (octocat-tree--render entries-result)))))))))))))
 
 (defun octocat-tree-expand ()
-  "Toggle expansion of the directory section at point.
-On a collapsed dir: shows it and fetches children if not yet loaded.
-On an expanded dir: hides it.
-On any other section type: delegates to `magit-section-toggle'."
+  "Toggle expansion of the directory entry at point.
+On a collapsed dir: marks it expanded and re-renders; fetches children
+if not yet cached.  On an expanded dir: collapses it and re-renders."
   (interactive)
-  (let ((section (magit-current-section)))
-    (unless section
-      (user-error "Octocat: No section at point"))
-    (if (not (eq (oref section type) 'tree-dir))
-        (magit-section-toggle section)
-      (let* ((entry  (oref section value))
-             (sha    (gethash "sha" entry))
-             (hidden (oref section hidden))
-             (cached (cdr (assoc sha octocat-tree--subtree-cache))))
-        (if (not hidden)
-            ;; Already expanded — collapse it.
-            (magit-section-hide section)
-          ;; Collapsed — expand it.
-          (if cached
-              ;; Already cached: just re-render with current expanded state.
-              (progn
-                (push sha octocat-tree--expanded-shas)
-                (octocat-tree--re-render-from-cache))
-            ;; Not yet fetched: fetch and then re-render.
-            (push sha octocat-tree--expanded-shas)
-            (let ((buf  (current-buffer))
-                  (repo octocat-tree--repo))
-              (setq mode-line-process " [loading…]")
-              (octocat-tree--fetch-dir
-               repo sha
-               (lambda (result)
-                 (when (buffer-live-p buf)
-                   (with-current-buffer buf
-                     (setq mode-line-process nil)
-                     (if (eq (car-safe result) 'error)
+  (let ((type  (octocat-tree--type-at-point))
+        (entry (octocat-tree--entry-at-point)))
+    (unless (eq type 'dir)
+      (user-error "Octocat: No directory at point"))
+    (let* ((sha       (gethash "sha" entry))
+           (expandedp (member sha octocat-tree--expanded-shas))
+           (cached    (cdr (assoc sha octocat-tree--subtree-cache))))
+      (if expandedp
+          ;; Already expanded — collapse it.
+          (progn
+            (setq octocat-tree--expanded-shas
+                  (delete sha octocat-tree--expanded-shas))
+            (octocat-tree--render octocat-tree--entries))
+        ;; Collapsed — expand it.
+        (push sha octocat-tree--expanded-shas)
+        (if cached
+            ;; Already cached: re-render immediately.
+            (octocat-tree--render octocat-tree--entries)
+          ;; Not yet fetched: show expanded glyph with loading placeholder,
+          ;; then fetch asynchronously.
+          (octocat-tree--render octocat-tree--entries)
+          (let ((buf  (current-buffer))
+                (repo octocat-tree--repo))
+            (setq mode-line-process " [loading…]")
+            (octocat-tree--fetch-dir
+             repo sha
+             (lambda (result)
+               (when (buffer-live-p buf)
+                 (with-current-buffer buf
+                   (setq mode-line-process nil)
+                   (if (eq (car-safe result) 'error)
+                       (progn
+                         (setq octocat-tree--expanded-shas
+                               (delete sha octocat-tree--expanded-shas))
                          (message "Octocat: Error loading dir: %s" (cdr result))
-                       (push (cons sha result) octocat-tree--subtree-cache)
-                       (octocat-tree--re-render-from-cache)))))))))))))
-
-(defun octocat-tree--re-render-from-cache ()
-  "Re-render the tree buffer in place, preserving collapse state."
-  ;; Collect currently expanded SHAs before erasing buffer.
-  (setq octocat-tree--expanded-shas (octocat-tree--collect-expanded-shas))
-  (when octocat-tree--entries
-    (octocat-tree--render octocat-tree--entries)))
+                         (octocat-tree--render octocat-tree--entries))
+                     (push (cons sha result) octocat-tree--subtree-cache)
+                     (octocat-tree--render octocat-tree--entries))))))))))))
 
 (defun octocat-tree-visit ()
   "Open the file at point in `octocat-file-mode', or toggle a directory."
   (interactive)
-  ;; First check for an inline octocat-action text property (Browse files token).
-  (unless (eq (get-text-property (point) 'octocat-action) 'browse-files)
-    (let ((section (magit-current-section)))
-      (unless section
-        (user-error "Octocat: No section at point"))
-      (pcase (oref section type)
-        ('tree-dir  (octocat-tree-expand))
-        ('tree-file
-         (let* ((entry    (oref section value))
-                (path     (gethash "path" entry))
+  ;; Header line may carry an octocat-action property for the Browse-files token.
+  (if (eq (get-text-property (point) 'octocat-action) 'browse-files)
+      nil  ; no-op here; browser shortcut is on o/C-c C-o
+    (let ((type  (octocat-tree--type-at-point))
+          (entry (octocat-tree--entry-at-point)))
+      (pcase type
+        ('dir  (octocat-tree-expand))
+        ('file
+         (let* ((path     (gethash "path" entry))
                 (sha      (gethash "sha"  entry))
                 (repo     octocat-tree--repo)
                 (branch   octocat-tree--branch)
@@ -468,24 +504,23 @@ On any other section type: delegates to `magit-section-toggle'."
 (defun octocat-tree-browse ()
   "Open the current tree entry on GitHub in the browser."
   (interactive)
-  (let* ((section (magit-current-section))
-         (repo    octocat-tree--repo)
-         (branch  octocat-tree--branch))
+  (let* ((repo   octocat-tree--repo)
+         (branch octocat-tree--branch)
+         (type   (octocat-tree--type-at-point))
+         (entry  (octocat-tree--entry-at-point)))
     (unless (and repo branch)
       (user-error "Octocat: Buffer has no repo or branch context"))
-    (pcase (and section (oref section type))
-      ('tree-file
-       (let* ((entry (oref section value))
-              (path  (gethash "path" entry))
-              (url   (format "https://github.com/%s/blob/%s/%s"
-                             repo branch path)))
+    (pcase type
+      ('file
+       (let* ((path (gethash "path" entry))
+              (url  (format "https://github.com/%s/blob/%s/%s"
+                            repo branch path)))
          (message "Octocat: Opening %s in browser…" path)
          (browse-url url)))
-      ('tree-dir
-       (let* ((entry (oref section value))
-              (path  (gethash "path" entry))
-              (url   (format "https://github.com/%s/tree/%s/%s"
-                             repo branch path)))
+      ('dir
+       (let* ((path (gethash "path" entry))
+              (url  (format "https://github.com/%s/tree/%s/%s"
+                            repo branch path)))
          (message "Octocat: Opening %s/ in browser…" path)
          (browse-url url)))
       (_
