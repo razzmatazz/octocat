@@ -1,10 +1,10 @@
-# visual line mode should be enabled for pr and issue views by default
+# TODO list
 
-# ability to load items on demand, i.e. when section opens, not when dashboard does
+## ability to load items on demand, i.e. when section opens, not when dashboard does
 
-# ability to view checks
+## ability to view checks
 
-# ability to view PR reviews, i.e. view comments on code lines, etc.
+## ability to view PR reviews, i.e. view comments on code lines, etc.
 
 ## ~~Can we show active PR more prominently on the dashboard?~~
 
@@ -15,9 +15,9 @@ convention (bold + underline on the branch name itself; no prefix glyph so colum
 alignment stays intact).  See docs/user-interface-conventions.md for the full rationale
 and code patterns.
 
-# ability to select current branch for filtering commits+runs+prs (single pr shown) form the dashboard
+## ability to select current branch for filtering commits+runs+prs (single pr shown) form the dashboard
 
-# ability to review PRs, submit comments, etc.
+## ability to review PRs, submit comments, etc.
 
 ## I want C-o to work inside PRs, issues, etc as well -- not only from dashboard
 
