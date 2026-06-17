@@ -40,6 +40,54 @@
 (declare-function octocat-browse "octocat" ())
 (declare-function octocat-visit  "octocat" ())
 
+;;;; Edit / comment commands — submit helpers
+
+(defun octocat-pr--submit-comment (body source on-success on-error)
+  "Submit BODY as a new comment on the PR in SOURCE buffer.
+Calls ON-SUCCESS on completion or ON-ERROR with a message on failure."
+  (with-current-buffer source
+    (let ((repo octocat--pr-repo)
+          (num  (number-to-string octocat--pr-number)))
+      (octocat--run-gh "comment"
+        (list "pr" "comment" num "--repo" repo "--body" body)
+        (lambda (out) (string-trim out))
+        (lambda (result)
+          (if (eq (car-safe result) 'error)
+              (funcall on-error (cdr result))
+            (funcall on-success)))))))
+
+(defun octocat-pr--submit-edit-body (body source on-success on-error)
+  "Replace the body of the PR in SOURCE buffer with BODY.
+Calls ON-SUCCESS on completion or ON-ERROR with a message on failure."
+  (with-current-buffer source
+    (let ((repo octocat--pr-repo)
+          (num  (number-to-string octocat--pr-number)))
+      (octocat--run-gh "edit-body"
+        (list "pr" "edit" num "--repo" repo "--body" body)
+        (lambda (out) (string-trim out))
+        (lambda (result)
+          (if (eq (car-safe result) 'error)
+              (funcall on-error (cdr result))
+            (funcall on-success)))))))
+
+(defun octocat-pr--submit-edit-comment (body source on-success on-error)
+  "Edit the comment identified in `octocat-edit--user-data' with BODY.
+The :comment-id plist key is read from the edit buffer (current-buffer at
+call time).  SOURCE supplies the repo string.
+Calls ON-SUCCESS on completion or ON-ERROR with a message on failure."
+  (let ((repo       (with-current-buffer source octocat--pr-repo))
+        (comment-id (plist-get octocat-edit--user-data :comment-id)))
+    (octocat--run-gh "edit-comment"
+      (list "api"
+            (format "repos/%s/issues/comments/%s" repo comment-id)
+            "--method" "PATCH"
+            "-f" (format "body=%s" body))
+      (lambda (out) (string-trim out))
+      (lambda (result)
+        (if (eq (car-safe result) 'error)
+            (funcall on-error (cdr result))
+          (funcall on-success))))))
+
 ;;;; Edit / comment commands
 
 (defun octocat-pr-add-comment ()
@@ -47,7 +95,10 @@
   (interactive)
   (unless (and octocat--pr-repo octocat--pr-number)
     (user-error "Octocat: Buffer is not associated with a pull request"))
-  (octocat--open-edit-buffer octocat--pr-repo 'pr octocat--pr-number 'comment))
+  (octocat--open-edit-buffer
+   (format "New comment on PR #%d" octocat--pr-number)
+   #'octocat-pr--submit-comment
+   #'octocat-pr-refresh))
 
 (defun octocat-pr-edit-body ()
   "Open an edit buffer to replace the body of the current PR."
@@ -58,7 +109,11 @@
   ;; edit in-place rather than retyping everything.
   (let* ((cache (octocat--detail-cache-load octocat--pr-repo "pr" octocat--pr-number))
          (body  (and cache (octocat--nonempty (gethash "body" cache)))))
-    (octocat--open-edit-buffer octocat--pr-repo 'pr octocat--pr-number 'edit-body body)))
+    (octocat--open-edit-buffer
+     (format "Edit body of PR #%d" octocat--pr-number)
+     #'octocat-pr--submit-edit-body
+     #'octocat-pr-refresh
+     body)))
 
 (defun octocat-pr-edit-title ()
   "Prompt in the minibuffer to rename the title of the current PR."
@@ -106,8 +161,12 @@ On someone else\\='s comment: signal an error."
            (user-error "Octocat: You can't edit someone else's comment"))
          (unless comment-id
            (user-error "Octocat: Could not determine comment ID from URL"))
-         (octocat--open-edit-buffer octocat--pr-repo 'pr octocat--pr-number
-                                    'edit-comment body comment-id)))
+         (octocat--open-edit-buffer
+          (format "Edit comment on PR #%d" octocat--pr-number)
+          #'octocat-pr--submit-edit-comment
+          #'octocat-pr-refresh
+          body
+          (list :comment-id comment-id))))
       (_
        (user-error "Octocat: Nothing to edit here")))))
 

@@ -27,8 +27,18 @@
 ;;   - Editing an existing comment you authored (`C-c C-e' or RET on a comment section)
 ;;
 ;; The workflow mirrors Magit's commit-message buffer:
-;;   C-c C-c  — submit (validate, call gh, kill buffer, refresh source)
+;;   C-c C-c  — submit (validate, call submit-fn, kill buffer, call refresh-fn)
 ;;   C-c C-k  — abort  (confirm, kill buffer)
+;;
+;; This file is intentionally free of PR/issue domain knowledge.  All
+;; submit logic is provided by the caller via two function arguments:
+;;
+;;   SUBMIT-FN  (body source-buffer on-success on-error)
+;;     Called with the trimmed buffer text.  Must arrange its own async
+;;     operation and invoke ON-SUCCESS () or ON-ERROR (msg) when done.
+;;
+;;   REFRESH-FN (source-buffer)
+;;     Called with the source buffer after a successful submit.
 ;;
 ;; Entry point: `octocat--open-edit-buffer'.
 
@@ -36,33 +46,28 @@
 
 (require 'octocat-core)
 
-;;; Forward declarations
-
-(declare-function octocat-pr-refresh    "octocat-pr"    (&optional _ignore-auto _noconfirm))
-(declare-function octocat-issue-refresh "octocat-issue" (&optional _ignore-auto _noconfirm))
-
 
 ;;;; Buffer-local state
 
-(defvar-local octocat-edit--repo nil
-  "The \"owner/repo\" string this edit buffer targets.")
+(defvar-local octocat-edit--title nil
+  "Short human-readable title shown in the buffer name and header line.")
 
-(defvar-local octocat-edit--kind nil
-  "Symbol: `pr' or `issue' — the kind of item being edited.")
+(defvar-local octocat-edit--submit-fn nil
+  "Function (BODY SOURCE-BUFFER ON-SUCCESS ON-ERROR) called on submit.
+BODY is the trimmed buffer text.  The function must perform its async
+operation and call ON-SUCCESS () on success or ON-ERROR (MSG) on failure.")
 
-(defvar-local octocat-edit--number nil
-  "The integer number of the PR or issue being edited.")
-
-(defvar-local octocat-edit--action nil
-  "Symbol `comment', `edit-body', or `edit-comment'.
-Determines what gh call `octocat-edit-submit' makes.")
-
-(defvar-local octocat-edit--comment-id nil
-  "Numeric REST comment ID string, set when action is `edit-comment'.")
+(defvar-local octocat-edit--refresh-fn nil
+  "Function called with SOURCE-BUFFER after a successful submit.")
 
 (defvar-local octocat-edit--source-buffer nil
-  "The PR/issue buffer that opened this edit buffer.
-Used to refresh the source after a successful submit.")
+  "The PR/issue buffer that opened this edit buffer.")
+
+(defvar-local octocat-edit--user-data nil
+  "Caller-supplied plist for arbitrary extra state.
+Set via the USER-DATA argument to `octocat--open-edit-buffer'.
+Submit functions can read this with `octocat-edit--user-data' on
+`current-buffer', since they are called from inside the edit buffer.")
 
 (defvar-local octocat-edit--window nil
   "The window displaying this edit buffer.
@@ -100,107 +105,52 @@ Type your markdown text, then:
 
 ;;;; Internal helpers
 
-(defun octocat-edit--buffer-name (repo kind number action)
-  "Return the name for an edit buffer targeting REPO KIND NUMBER ACTION."
-  (format "*octocat-edit: %s/%s #%d (%s)*"
-          repo
-          (if (eq kind 'pr) "pr" "issue")
-          number
-          (pcase action
-            ('comment      "comment")
-            ('edit-body    "body")
-            ('edit-comment "edit-comment")
-            (_             (symbol-name action)))))
+(defun octocat-edit--buffer-name (title)
+  "Return the name for an edit buffer with TITLE."
+  (format "*octocat-edit: %s*" title))
 
-(defun octocat-edit--header-line (kind number action)
-  "Return a header-line string for KIND NUMBER ACTION."
-  (let ((target (format "%s #%d"
-                        (if (eq kind 'pr) "PR" "issue")
-                        number))
-        (verb (pcase action
-                ('comment      "New comment on")
-                ('edit-body    "Edit body of")
-                ('edit-comment "Edit comment on")
-                (_             (format "%s" action)))))
-    (format "  %s %s    %s  submit   %s  discard"
-            verb target
-            (propertize "C-c C-c" 'face 'help-key-binding)
-            (propertize "C-c C-k" 'face 'help-key-binding))))
+(defun octocat-edit--header-line (title)
+  "Return a header-line string for TITLE."
+  (format "  %s    %s  submit   %s  discard"
+          title
+          (propertize "C-c C-c" 'face 'help-key-binding)
+          (propertize "C-c C-k" 'face 'help-key-binding)))
 
-(defun octocat-edit--gh-args (repo kind number action body comment-id)
-  "Return a `gh' argument list to perform ACTION on KIND NUMBER in REPO.
-BODY is the text to submit.  COMMENT-ID is the numeric REST comment ID
-string, required when ACTION is `edit-comment'.  Returns a list of strings."
-  (let ((num (number-to-string number)))
-    (pcase action
-      ('comment
-       (list (if (eq kind 'pr) "pr" "issue")
-             "comment" num
-             "--repo" repo
-             "--body" body))
-      ('edit-body
-       (list (if (eq kind 'pr) "pr" "issue")
-             "edit" num
-             "--repo" repo
-             "--body" body))
-      ('edit-comment
-       (unless comment-id
-         (error "Octocat-edit: edit-comment action requires a comment-id"))
-       (list "api"
-             (format "repos/%s/issues/comments/%s" repo comment-id)
-             "--method" "PATCH"
-             "-f" (format "body=%s" body)))
-      (_ (error "Octocat-edit: unknown action %s" action)))))
 
-(defun octocat-edit--refresh-source (buf)
-  "Refresh the source PR/issue buffer BUF, if it is still live."
-  (when (buffer-live-p buf)
-    (with-current-buffer buf
-      (cond
-       ((derived-mode-p 'octocat-pr-mode)    (octocat-pr-refresh))
-       ((derived-mode-p 'octocat-issue-mode) (octocat-issue-refresh))))))
 
 
 ;;;; Commands
 
 (defun octocat-edit-submit ()
-  "Submit the edit buffer: validate, call gh, kill buffer, refresh source."
+  "Submit the edit buffer: validate, call submit-fn, kill buffer, refresh source."
   (interactive)
   (let ((body (string-trim (buffer-string))))
     (when (string-empty-p body)
       (user-error "Octocat: body is empty — nothing to submit"))
-    (let* ((repo   octocat-edit--repo)
-           (kind   octocat-edit--kind)
-           (number octocat-edit--number)
-           (action octocat-edit--action)
-           (comment-id octocat-edit--comment-id)
-           (source     octocat-edit--source-buffer)
-           (edit-win   octocat-edit--window)
-           (args       (octocat-edit--gh-args repo kind number action body comment-id))
-           (edit-buf   (current-buffer)))
+    (let ((submit-fn  octocat-edit--submit-fn)
+          (refresh-fn octocat-edit--refresh-fn)
+          (source     octocat-edit--source-buffer)
+          (edit-win   octocat-edit--window)
+          (edit-buf   (current-buffer)))
       (setq mode-line-process " [submitting…]")
-      (octocat--run-gh
-       (format "edit-%s" (symbol-name action))
-       args
-       ;; parse-fn: gh outputs a URL or nothing useful; we just ignore it.
-       (lambda (output) (string-trim output))
-       (lambda (result)
-         (if (eq (car-safe result) 'error)
-             ;; Report the error without closing the buffer so the user
-             ;; can see their text and retry.
-             (when (buffer-live-p edit-buf)
-               (with-current-buffer edit-buf
-                 (setq mode-line-process nil)
-                 (message "Octocat submit error: %s" (cdr result))))
-           ;; Success: close the edit window (kills buffer, restores split).
-           (when (buffer-live-p edit-buf)
-             (with-current-buffer edit-buf
-               (set-buffer-modified-p nil)))
-           (if (window-live-p edit-win)
-               (quit-window t edit-win)
-             (when (buffer-live-p edit-buf)
-               (kill-buffer edit-buf)))
-           (octocat-edit--refresh-source source)))))))
+      (funcall submit-fn body source
+               ;; on-success: close edit window then refresh source
+               (lambda ()
+                 (when (buffer-live-p edit-buf)
+                   (with-current-buffer edit-buf
+                     (set-buffer-modified-p nil)))
+                 (if (window-live-p edit-win)
+                     (quit-window t edit-win)
+                   (when (buffer-live-p edit-buf)
+                     (kill-buffer edit-buf)))
+                 (when (buffer-live-p source)
+                   (funcall refresh-fn source)))
+               ;; on-error: report but leave buffer open so user can retry
+               (lambda (msg)
+                 (when (buffer-live-p edit-buf)
+                   (with-current-buffer edit-buf
+                     (setq mode-line-process nil)
+                     (message "Octocat submit error: %s" msg))))))))
 
 (defun octocat-edit-abort ()
   "Discard the edit buffer and return to the source buffer."
@@ -214,22 +164,25 @@ string, required when ACTION is `edit-comment'.  Returns a list of strings."
 
 ;;;; Public entry point
 
-(defun octocat--open-edit-buffer (repo kind number action
-                                       &optional initial-content comment-id)
-  "Open (or reuse) an edit buffer for REPO KIND NUMBER ACTION.
+(defun octocat--open-edit-buffer (title submit-fn refresh-fn
+                                        &optional initial-content user-data)
+  "Open (or reuse) an edit buffer with TITLE, wired to SUBMIT-FN and REFRESH-FN.
 
-REPO           — \"owner/repo\" string.
-KIND           — symbol `pr' or `issue'.
-NUMBER         — integer PR or issue number.
-ACTION         — symbol `comment' (add comment), `edit-body' (replace body),
-                 or `edit-comment' (edit an existing comment).
+TITLE       — short human-readable string used in the buffer name and header.
+SUBMIT-FN   — function (BODY SOURCE-BUFFER ON-SUCCESS ON-ERROR) called on
+              \\[octocat-edit-submit].  Must perform its async operation and
+              invoke ON-SUCCESS () on success or ON-ERROR (MSG) on failure.
+              It is called from inside the edit buffer, so submit functions
+              can read `octocat-edit--user-data' from `current-buffer'.
+REFRESH-FN  — function (SOURCE-BUFFER) called after a successful submit.
 INITIAL-CONTENT — string pre-populated into the buffer; nil for blank.
-COMMENT-ID     — numeric REST comment ID string; required for `edit-comment'.
+USER-DATA   — optional plist stored as `octocat-edit--user-data', available
+              to SUBMIT-FN via `(octocat-edit--user-data)' on current buffer.
 
-The buffer is shown in a bottom window.  When the user finishes with
-\\[octocat-edit-submit], the source buffer is automatically refreshed.
+The buffer is shown in a bottom window.  The source buffer is the one
+that was current when this function was called.
 Use \\[octocat-edit-abort] to discard."
-  (let* ((name   (octocat-edit--buffer-name repo kind number action))
+  (let* ((name   (octocat-edit--buffer-name title))
          (source (current-buffer))
          (buf    (get-buffer-create name)))
     (with-current-buffer buf
@@ -237,14 +190,13 @@ Use \\[octocat-edit-abort] to discard."
         (octocat-edit-mode))
       ;; Restore state even if buffer already existed (e.g. re-opened after
       ;; a failed submit).
-      (setq octocat-edit--repo            repo
-            octocat-edit--kind            kind
-            octocat-edit--number          number
-            octocat-edit--action          action
-            octocat-edit--comment-id      comment-id
-            octocat-edit--source-buffer   source)
+      (setq octocat-edit--title          title
+            octocat-edit--submit-fn      submit-fn
+            octocat-edit--refresh-fn     refresh-fn
+            octocat-edit--source-buffer  source
+            octocat-edit--user-data      user-data)
       (setq-local header-line-format
-                  (octocat-edit--header-line kind number action))
+                  (octocat-edit--header-line title))
       ;; Only pre-populate when the buffer is fresh (not dirty from a
       ;; previous failed attempt the user wants to keep).
       (when (and initial-content
