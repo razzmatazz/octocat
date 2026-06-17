@@ -251,7 +251,7 @@ Use \\[octocat-edit-abort] to discard."
                  (not (buffer-modified-p))
                  (string-empty-p (string-trim (buffer-string))))
         (erase-buffer)
-        (insert initial-content)
+        (insert (string-replace "\r\n" "\n" initial-content))
         (goto-char (point-max)))
       (set-buffer-modified-p nil))
     ;; display-buffer returns the window and automatically stamps it with a
