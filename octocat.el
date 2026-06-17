@@ -43,6 +43,7 @@
 (require 'octocat-job)
 (require 'octocat-checks)
 (require 'octocat-repo)
+(require 'octocat-tree)
 
 ;; Forward declarations for sub-module buffer-locals referenced by
 ;; octocat-visit (defined here).  These silence the byte-compiler.
@@ -71,7 +72,21 @@
 ;; when called from a repo buffer (it is defined as buffer-local in
 ;; octocat-repo.el which we already require, but the compiler may still
 ;; warn without this).
-(defvar octocat-repo--repo)      ; defined as buffer-local in octocat-repo.el
+(defvar octocat-repo--repo)           ; defined as buffer-local in octocat-repo.el
+
+;; Forward declarations for octocat-tree.el buffer-locals referenced by
+;; octocat-visit and octocat-browse when called from tree/file buffers.
+(defvar octocat-tree--repo)           ; defined as buffer-local in octocat-tree.el
+(defvar octocat-tree--branch)         ; defined as buffer-local in octocat-tree.el
+(defvar octocat-tree--file-repo)      ; defined as buffer-local in octocat-tree.el
+(defvar octocat-tree--file-path)      ; defined as buffer-local in octocat-tree.el
+(defvar octocat-tree--file-sha)       ; defined as buffer-local in octocat-tree.el
+(defvar octocat-tree--file-branch)    ; defined as buffer-local in octocat-tree.el
+
+(declare-function octocat-tree-open        "octocat-tree" ())
+(declare-function octocat-file-refresh     "octocat-tree" (&optional _ignore-auto _noconfirm))
+(declare-function octocat-file-mode        "octocat-tree" ())
+(declare-function octocat-tree--render-file-loading "octocat-tree" (path))
 
 ;; Evil integration is optional; declare its entry point to silence the
 ;; byte-compiler when `octocat-evil' has not been loaded yet.
@@ -103,8 +118,11 @@
 (defun octocat-visit ()
   "Open the detail view for the item at point."
   (interactive)
-  (let ((section (magit-current-section)))
-    (pcase (and section (oref section type))
+  ;; Check for inline action text property first (e.g. [Browse files] token).
+  (if (eq (get-text-property (point) 'octocat-action) 'browse-files)
+      (octocat-tree-open)
+    (let ((section (magit-current-section)))
+      (pcase (and section (oref section type))
       ('repo
        ;; Dashboard: open the per-repo buffer for the selected repo.
        ;; Attach to the current working tree when its origin matches.
@@ -278,7 +296,25 @@
       ;; RET on the feed "[+] Load more…" row fetches more feed events.
       ('load-more-feed
        (octocat-feed-load-more))
-      (_ nil))))
+      ;; RET on a tree file entry opens the file viewer.
+      ('tree-file
+       (let* ((entry    (oref section value))
+              (path     (gethash "path" entry))
+              (sha      (gethash "sha"  entry))
+              (repo     octocat-tree--repo)
+              (branch   octocat-tree--branch)
+              (buf-name (format "*octocat-file: %s %s*" repo path))
+              (buf      (get-buffer-create buf-name)))
+         (pop-to-buffer buf)
+         (unless (derived-mode-p 'octocat-file-mode)
+           (octocat-file-mode))
+         (setq octocat-tree--file-repo   repo
+               octocat-tree--file-path   path
+               octocat-tree--file-sha    sha
+               octocat-tree--file-branch branch)
+         (octocat-tree--render-file-loading path)
+         (octocat-file-refresh)))
+      (_ nil)))))
 
 (defun octocat-browse ()
   "Open the item at point in the browser, or the current detail view.
@@ -367,6 +403,24 @@ handler, e.g. point is on a title/header line):
        ('octocat-root
         (let ((url (format "https://github.com/%s" repo)))
           (message "Octocat: Opening %s in browser…" repo)
+          (browse-url url)))
+       ('tree-file
+        (let* ((entry  (oref section value))
+               (path   (gethash "path" entry))
+               (t-repo (or octocat-tree--repo repo))
+               (branch (or octocat-tree--branch "HEAD"))
+               (url    (format "https://github.com/%s/blob/%s/%s"
+                               t-repo branch path)))
+          (message "Octocat: Opening %s in browser…" path)
+          (browse-url url)))
+       ('tree-dir
+        (let* ((entry  (oref section value))
+               (path   (gethash "path" entry))
+               (t-repo (or octocat-tree--repo repo))
+               (branch (or octocat-tree--branch "HEAD"))
+               (url    (format "https://github.com/%s/tree/%s/%s"
+                               t-repo branch path)))
+          (message "Octocat: Opening %s/ in browser…" path)
           (browse-url url))))
      ;; Major-mode fallback — fires when point is on a section type that has
      ;; no URL of its own (e.g. a title/header line), or when no section is
@@ -418,6 +472,21 @@ handler, e.g. point is on a title/header line):
          (let ((url (format "https://github.com/%s/commit/%s/checks"
                             octocat--checks-repo octocat--checks-sha)))
            (message "Octocat: Opening checks in browser…")
+           (browse-url url))))
+      ((derived-mode-p 'octocat-tree-mode)
+       (let ((url (format "https://github.com/%s/tree/%s"
+                          octocat-tree--repo octocat-tree--branch)))
+         (message "Octocat: Opening tree in browser…")
+         (browse-url url)))
+      ((derived-mode-p 'octocat-file-mode)
+       (when (and octocat-tree--file-repo
+                  octocat-tree--file-branch
+                  octocat-tree--file-path)
+         (let ((url (format "https://github.com/%s/blob/%s/%s"
+                            octocat-tree--file-repo
+                            octocat-tree--file-branch
+                            octocat-tree--file-path)))
+           (message "Octocat: Opening file in browser…")
            (browse-url url))))))))
 
 
