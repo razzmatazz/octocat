@@ -1,5 +1,9 @@
 # TODO list
 
+## Implement a way to browse codebase
+
+Maybe tree-based viewer with dirs/files listed when expanding folder? Unsure
+
 ## ability to load items on demand, i.e. when section opens, not when dashboard does
 
 ## ability to view checks
@@ -124,16 +128,6 @@ beats all state maps, so `f` shadows `evil-find-char` automatically, exactly
 as Magit does for its own `f` → `magit-fetch`. Mirror it in `octocat-evil.el`
 via `evil-define-key* 'normal` for consistency with the existing pattern.
 
-## A way to view the entire diff for PR
-
-Currently I need to view this commit-by-commit
-
-## PR: We need a way to view reviews
-
-Probably show the entire diff, file sections, with subsections where review comments are shown?
-
 ## ~~PR/issue body rendering~~
 
 Fixed by stripping `\r` from body and comment text in both `octocat-pr.el` and `octocat-issue.el` at the binding site, before any rendering or splitting.
-
-## Commits can be and should be cached
