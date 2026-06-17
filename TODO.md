@@ -1,9 +1,5 @@
 # visual line mode should be enabled for pr and issue views by default
 
-# i'd like to view raw comments/body where currently it is rendered markdown
-
-e.g. now way to open links like [xxx][url] (with C-c C-o or xdg-browse-url M-x command) unless i RET into the body -- but I don't want to edit
-
 # ability to load items on demand, i.e. when section opens, not when dashboard does
 
 # ability to view checks
