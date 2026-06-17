@@ -588,7 +588,7 @@ Prompts for a destination directory and runs `gh run download' asynchronously."
 \\{octocat-job-mode-map}"
   :group 'octocat
   (setq-local buffer-read-only t)
-  (setq-local truncate-lines t)
+  (setq-local truncate-lines nil)
   (setq-local revert-buffer-function #'octocat-job-refresh)
   (font-lock-mode -1))
 

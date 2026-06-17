@@ -357,7 +357,7 @@ calls `octocat-job-download-artifact'."
 \\{octocat-run-mode-map}"
   :group 'octocat
   (setq-local buffer-read-only t)
-  (setq-local truncate-lines t)
+  (setq-local truncate-lines nil)
   (setq-local revert-buffer-function #'octocat-run-refresh)
   (font-lock-mode -1))
 

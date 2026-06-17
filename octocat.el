@@ -449,7 +449,7 @@ Starts at `octocat-feed-limit' and grows with `octocat-feed-load-more'.")
 \\{octocat-mode-map}"
   :group 'octocat
   (setq-local buffer-read-only t)
-  (setq-local truncate-lines t)
+  (setq-local truncate-lines nil)
   (setq-local revert-buffer-function #'octocat-refresh)
   (font-lock-mode -1))
 
