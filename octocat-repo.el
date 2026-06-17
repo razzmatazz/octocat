@@ -33,11 +33,13 @@
 (require 'octocat-run)
 (require 'octocat-job)
 (require 'octocat-checks)
+(require 'octocat-tree)
 
 ;; octocat-visit and octocat-browse live in octocat.el; we cannot require
 ;; that file here (circular dependency), so declare them for the compiler.
-(declare-function octocat-visit  "octocat" ())
-(declare-function octocat-browse "octocat" ())
+(declare-function octocat-visit    "octocat"      ())
+(declare-function octocat-browse   "octocat"      ())
+(declare-function octocat-tree-open "octocat-tree" ())
 
 ;; Forward declarations for sub-module buffer-locals referenced by
 ;; octocat-visit (defined in octocat.el) but used here via the shared
@@ -512,7 +514,14 @@ Issues, and Workflows, each with a dimmed \\='Loading…\\=' placeholder."
     (erase-buffer)
     (magit-insert-section (octocat-root)
       (magit-insert-heading
-        (propertize repo 'face 'octocat-repo))
+        (concat
+         (propertize repo 'face 'octocat-repo)
+         "  "
+         (propertize "[Browse files]"
+                     'face       'octocat-dimmed
+                     'mouse-face 'magit-section-highlight
+                     'help-echo  "RET: browse file tree"
+                     'octocat-action 'browse-files)))
       (when octocat-repo--local-dir
         (insert (concat (propertize "Local checkout: " 'face 'octocat-dimmed)
                         (propertize octocat-repo--local-dir 'face 'octocat-branch)
@@ -579,7 +588,13 @@ Render collapsible sections; delegate to the individual render helpers."
                          (cond ((octocat-repo--disabled-feature-p workflows) "0 workflow(s)")
                                ((eq (car-safe workflows) 'error)             "workflows: n/a")
                                (t (format "%d workflow(s)" (length workflows)))))
-                 'face 'octocat-dimmed)))
+                 'face 'octocat-dimmed)
+                "  "
+                (propertize "[Browse files]"
+                            'face       'octocat-dimmed
+                            'mouse-face 'magit-section-highlight
+                            'help-echo  "RET: browse file tree"
+                            'octocat-action 'browse-files)))
       (when octocat-repo--local-dir
         (insert (concat (propertize "Local checkout: " 'face 'octocat-dimmed)
                         (propertize octocat-repo--local-dir 'face 'octocat-branch)
@@ -606,6 +621,7 @@ Render collapsible sections; delegate to the individual render helpers."
 (define-key octocat-repo-mode-map (kbd "q")       #'quit-window)
 (define-key octocat-repo-mode-map (kbd "RET")     #'octocat-visit)
 (define-key octocat-repo-mode-map (kbd "+")       #'octocat-repo-load-more)
+(define-key octocat-repo-mode-map (kbd "C-c C-t") #'octocat-tree-open)
 
 (define-key octocat-repo-mode-map (kbd "C-c C-o") #'octocat-browse)
 (define-derived-mode octocat-repo-mode magit-section-mode "Octocat-Repo"

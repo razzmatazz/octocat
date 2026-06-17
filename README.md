@@ -119,6 +119,38 @@ Each file entry is a collapsible section.  The diff hunks are rendered with
 
 ---
 
+### File tree browser (`octocat-tree-mode`)
+
+From any per-repository buffer, press `T` or `RET` on the **[Browse files]**
+token in the header to open an interactive file tree browser for the current
+branch.
+
+```
+owner/repo  ⎇  main  [Browse files]
+▸ src/
+▸ tests/
+  .gitignore
+  README.md
+```
+
+- **`TAB`** on a directory fetches its children on first use (shown as
+  "Loading…") and caches them; subsequent presses toggle expand/collapse
+  without re-fetching.
+- **`RET`** on a file opens it in `octocat-file-mode` with syntax
+  highlighting applied via the normal major-mode machinery.
+- **`o` / `C-c C-o`** opens the selected file or directory on GitHub in
+  the browser.
+- **`gr`** re-fetches the root tree from scratch, clearing the subtree cache.
+- **`q`** closes the buffer.
+
+#### File viewer (`octocat-file-mode`)
+
+`RET` on a file entry opens a read-only buffer showing the raw file content
+with syntax highlighting inferred from the file extension.  Press `o` (or
+`C-c C-o`) to open the file on GitHub, and `gr` to reload.
+
+---
+
 ### Keybindings
 
 | Key | Action |
@@ -128,6 +160,7 @@ Each file entry is a collapsible section.  The diff hunks are rendered with
 | `C-c C-a` | Add a comment (PR and issue detail views) |
 | `C-c C-e` | Edit body or comment at point (PR and issue detail views) |
 | `C-c C-v` | Toggle between rendered and raw markdown (PR, commit, and issue detail views) |
+| `C-c C-t` | Open file tree browser (repo buffer) |
 | `g` / `gr` | Refresh current buffer |
 | `q` | Close buffer |
 | `TAB` | Expand / collapse section at point |

@@ -42,9 +42,18 @@
 (defvar octocat-workflow-mode-map)
 (defvar octocat-run-mode-map)
 (defvar octocat-job-mode-map)
+(defvar octocat-tree-mode-map)
+(defvar octocat-file-mode-map)
 
 (declare-function octocat-visit              "octocat"           ())
 (declare-function octocat-browse             "octocat"           ())
+(declare-function octocat-tree-open          "octocat-tree"      ())
+(declare-function octocat-tree-visit         "octocat-tree"      ())
+(declare-function octocat-tree-browse        "octocat-tree"      ())
+(declare-function octocat-tree-expand        "octocat-tree"      ())
+(declare-function octocat-tree-refresh       "octocat-tree"      (&optional _ignore-auto _noconfirm))
+(declare-function octocat-file-refresh       "octocat-tree"      (&optional _ignore-auto _noconfirm))
+(declare-function octocat-file-browse        "octocat-tree"      ())
 (declare-function octocat-toggle-markdown    "octocat-core"      ())
 (declare-function octocat-pr-refresh         "octocat-pr"        (&optional _ignore-auto _noconfirm))
 (declare-function octocat-pr-add-comment     "octocat-pr"        ())
@@ -179,6 +188,38 @@
     (define-key aux   (kbd "q")     #'quit-window)
     (define-key aux   (kbd "gr")    #'octocat-job-refresh)
     (define-key aux-m (kbd "RET")   #'octocat-job-download-artifact))
+
+  ;; ── octocat-tree-mode ─────────────────────────────────────────────────
+  ;; Derives from magit-section-mode: use evil-get-auxiliary-keymap t t.
+  ;; TAB must be bound in *both* normal and motion aux keymaps.  The parent
+  ;; (magit-section-mode-map) already has TAB → magit-section-toggle in its
+  ;; normal-state aux slot.  Because keymap lookup walks the chain and finds
+  ;; the parent's slot before the child-owned one, binding TAB only in `aux'
+  ;; is silently shadowed.  Binding in `aux-m' (motion state) avoids the
+  ;; parent collision and wins because normal state inherits motion state.
+  (let ((aux   (evil-get-auxiliary-keymap octocat-tree-mode-map 'normal t t))
+        (aux-m (evil-get-auxiliary-keymap octocat-tree-mode-map 'motion t t)))
+    (define-key aux   (kbd "g")       nil)
+    (define-key aux   (kbd "RET")     #'octocat-tree-visit)
+    (define-key aux   (kbd "TAB")     #'octocat-tree-expand)
+    (define-key aux   [tab]           #'octocat-tree-expand)
+    (define-key aux   (kbd "C-c C-o") #'octocat-tree-browse)
+    (define-key aux   (kbd "o")       #'octocat-tree-browse)
+    (define-key aux   (kbd "q")       #'quit-window)
+    (define-key aux   (kbd "gr")      #'octocat-tree-refresh)
+    (define-key aux-m (kbd "RET")     #'octocat-tree-visit)
+    (define-key aux-m (kbd "TAB")     #'octocat-tree-expand)
+    (define-key aux-m [tab]           #'octocat-tree-expand))
+
+  ;; ── octocat-file-mode ─────────────────────────────────────────────────
+  ;; Derives from special-mode (not magit-section-mode): evil-define-key* is safe.
+  (evil-define-key* 'normal octocat-file-mode-map
+    (kbd "C-c C-o") #'octocat-file-browse
+    (kbd "o")       #'octocat-file-browse
+    (kbd "q")       #'quit-window
+    (kbd "gr")      #'octocat-file-refresh)
+  (evil-define-key* 'motion octocat-file-mode-map
+    (kbd "gr")      #'octocat-file-refresh)
 
   ;; Refresh all octocat keymaps so the new bindings take effect in any
   ;; already-open buffers.
