@@ -525,6 +525,10 @@ Issues, and Workflows, each with a dimmed \\='Loading…\\=' placeholder."
       (when octocat-repo--local-dir
         (insert (concat (propertize "Local checkout: " 'face 'octocat-dimmed)
                         (propertize octocat-repo--local-dir 'face 'octocat-branch)
+                        (when octocat-repo--current-branch
+                          (concat "  " (octocat-tree--branch-glyph) "  "
+                                  (propertize octocat-repo--current-branch
+                                              'face 'octocat-branch-current)))
                         "\n")))
       (insert "\n")
       (octocat-repo--hide-if-saved 'issues
@@ -598,6 +602,10 @@ Render collapsible sections; delegate to the individual render helpers."
       (when octocat-repo--local-dir
         (insert (concat (propertize "Local checkout: " 'face 'octocat-dimmed)
                         (propertize octocat-repo--local-dir 'face 'octocat-branch)
+                        (when current-branch
+                          (concat "  " (octocat-tree--branch-glyph) "  "
+                                  (propertize current-branch
+                                              'face 'octocat-branch-current)))
                         "\n")))
       (insert "\n")
       (octocat-repo--hide-if-saved 'issues        (octocat-repo--render-issues issues))
