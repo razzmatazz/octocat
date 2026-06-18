@@ -213,6 +213,7 @@
   (evil-define-key* 'normal octocat-file-mode-map
     (kbd "C-c C-o") #'octocat-file-browse
     (kbd "o")       #'octocat-file-browse
+    (kbd "T")       #'octocat-tree-find-file
     (kbd "q")       #'quit-window
     (kbd "gr")      #'octocat-file-refresh)
   (evil-define-key* 'motion octocat-file-mode-map

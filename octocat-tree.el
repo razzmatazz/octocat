@@ -125,6 +125,7 @@ Populated on first call and reused until `octocat-tree-refresh' clears it.")
   "Keymap for `octocat-file-mode'.")
 (define-key octocat-file-mode-map (kbd "C-c C-o") #'octocat-file-browse)
 (define-key octocat-file-mode-map (kbd "o")       #'octocat-file-browse)
+(define-key octocat-file-mode-map (kbd "T")       #'octocat-tree-find-file)
 (define-key octocat-file-mode-map (kbd "gr")      #'octocat-file-refresh)
 
 (define-derived-mode octocat-file-mode special-mode "Octocat-File"
@@ -625,6 +626,48 @@ all file paths via `completing-read', and opens the selected file in
                     (lambda (files-result)
                       (when (buffer-live-p repo-buf)
                         (with-current-buffer repo-buf
+                          (setq mode-line-process nil)
+                          (if (eq (car-safe files-result) 'error)
+                              (message "Octocat: Error loading file list: %s"
+                                       (cdr files-result))
+                            (let* ((path (completing-read "Find file: "
+                                                          files-result nil t))
+                                   (sha  (cdr (assoc path files-result))))
+                              (octocat-tree--open-file-by-path
+                               repo branch path sha))))))))))))))))
+   ((derived-mode-p 'octocat-file-mode)
+    (unless octocat-tree--file-repo
+      (user-error "Octocat: Buffer is not associated with a file"))
+    ;; File buffers don't keep a root SHA.  Reuse an existing tree buffer's
+    ;; cache when available; otherwise fetch the root SHA fresh.
+    (let* ((repo     octocat-tree--file-repo)
+           (branch   octocat-tree--file-branch)
+           (buf-name (format "*octocat-tree: %s*" repo))
+           (tree-buf (get-buffer buf-name)))
+      (if (and tree-buf
+               (buffer-local-value 'octocat-tree--root-sha tree-buf))
+          ;; Tree buffer already has a loaded root SHA — use its cache.
+          (with-current-buffer tree-buf
+            (octocat-tree--do-find-file repo branch octocat-tree--root-sha))
+        ;; No tree buffer yet (or root not loaded).  Fetch the root SHA
+        ;; fresh without opening the tree browser.
+        (setq mode-line-process " [loading…]")
+        (let ((file-buf (current-buffer)))
+          (octocat-tree--fetch-root-sha
+           repo branch
+           (lambda (sha-result)
+             (when (buffer-live-p file-buf)
+               (with-current-buffer file-buf
+                 (setq mode-line-process nil)
+                 (if (eq (car-safe sha-result) 'error)
+                     (message "Octocat: Error fetching tree root: %s"
+                              (cdr sha-result))
+                   (setq mode-line-process " [loading…]")
+                   (octocat-tree--fetch-all-files
+                    repo sha-result
+                    (lambda (files-result)
+                      (when (buffer-live-p file-buf)
+                        (with-current-buffer file-buf
                           (setq mode-line-process nil)
                           (if (eq (car-safe files-result) 'error)
                               (message "Octocat: Error loading file list: %s"
