@@ -39,7 +39,8 @@
 ;; that file here (circular dependency), so declare them for the compiler.
 (declare-function octocat-visit    "octocat"      ())
 (declare-function octocat-browse   "octocat"      ())
-(declare-function octocat-tree-open "octocat-tree" ())
+(declare-function octocat-tree-open      "octocat-tree" ())
+(declare-function octocat-tree-find-file "octocat-tree" ())
 
 ;; Forward declarations for sub-module buffer-locals referenced by
 ;; octocat-visit (defined in octocat.el) but used here via the shared
@@ -630,6 +631,7 @@ Render collapsible sections; delegate to the individual render helpers."
 (define-key octocat-repo-mode-map (kbd "RET")     #'octocat-visit)
 (define-key octocat-repo-mode-map (kbd "+")       #'octocat-repo-load-more)
 (define-key octocat-repo-mode-map (kbd "C-c C-t") #'octocat-tree-open)
+(define-key octocat-repo-mode-map (kbd "T")       #'octocat-tree-find-file)
 
 (define-key octocat-repo-mode-map (kbd "C-c C-o") #'octocat-browse)
 (define-derived-mode octocat-repo-mode magit-section-mode "Octocat-Repo"

@@ -69,6 +69,11 @@ Cleared on full refresh (gr).")
 (defvar-local octocat-tree--expanded-shas nil
   "List of tree-entry SHA strings that are currently expanded.")
 
+(defvar-local octocat-tree--all-files nil
+  "Cached result of the recursive tree fetch used by `octocat-tree-find-file'.
+An alist mapping file path strings to their blob SHA strings.
+Populated on first call and reused until `octocat-tree-refresh' clears it.")
+
 
 ;;;; Buffer-local variables — file mode
 
@@ -94,6 +99,7 @@ Cleared on full refresh (gr).")
   "Keymap for `octocat-tree-mode'.")
 (define-key octocat-tree-mode-map (kbd "RET")     #'octocat-tree-visit)
 (define-key octocat-tree-mode-map (kbd "TAB")     #'octocat-tree-expand)
+(define-key octocat-tree-mode-map (kbd "T")       #'octocat-tree-find-file)
 (define-key octocat-tree-mode-map (kbd "q")       #'quit-window)
 (define-key octocat-tree-mode-map (kbd "C-c C-o") #'octocat-tree-browse)
 (define-key octocat-tree-mode-map (kbd "o")       #'octocat-tree-browse)
@@ -165,6 +171,28 @@ Calls CALLBACK with a vector of entry hash-tables, or a cons (error . MSG)."
             (tree  (gethash "tree" data)))
        (if (vectorp tree)
            tree
+         (error "Unexpected tree response format"))))
+   callback))
+
+(defun octocat-tree--fetch-all-files (repo sha callback)
+  "Fetch the full recursive file list for REPO rooted at tree SHA.
+Calls CALLBACK with an alist of (PATH . BLOB-SHA) pairs for every blob
+in the tree, or a cons (error . MSG) on failure."
+  (octocat--run-gh
+   "tree-all-files"
+   (list "api"
+         (format "repos/%s/git/trees/%s?recursive=1" repo sha))
+   (lambda (output)
+     (let* ((data  (json-parse-string output))
+            (tree  (gethash "tree" data)))
+       (if (vectorp tree)
+           (let (result)
+             (seq-doseq (entry tree)
+               (when (equal (gethash "type" entry) "blob")
+                 (push (cons (gethash "path" entry)
+                             (gethash "sha"  entry))
+                       result)))
+             (nreverse result))
          (error "Unexpected tree response format"))))
    callback))
 
@@ -399,7 +427,8 @@ Clears the subtree cache and re-fetches the root tree."
   (unless octocat-tree--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
   (setq octocat-tree--subtree-cache nil
-        octocat-tree--expanded-shas nil)
+        octocat-tree--expanded-shas nil
+        octocat-tree--all-files     nil)
   (let ((buf    (current-buffer))
         (repo   octocat-tree--repo)
         (branch octocat-tree--branch))
@@ -501,6 +530,111 @@ if not yet cached.  On an expanded dir: collapses it and re-renders."
            (octocat-tree--render-file-loading path)
            (octocat-file-refresh)))
         (_ nil)))))
+
+(defun octocat-tree--open-file-by-path (repo branch path sha)
+  "Open the file viewer buffer for PATH (blob SHA) in REPO on BRANCH."
+  (let* ((buf-name (format "*octocat-file: %s %s*" repo path))
+         (buf      (get-buffer-create buf-name)))
+    (pop-to-buffer buf)
+    (unless (derived-mode-p 'octocat-file-mode)
+      (octocat-file-mode))
+    (setq octocat-tree--file-repo   repo
+          octocat-tree--file-path   path
+          octocat-tree--file-sha    sha
+          octocat-tree--file-branch branch)
+    (octocat-tree--render-file-loading path)
+    (octocat-file-refresh)))
+
+(defun octocat-tree--do-find-file (repo branch root-sha)
+  "Fetch the recursive file list for REPO/BRANCH (root SHA ROOT-SHA).
+Uses `completing-read' to let the user pick a file, then opens it."
+  (let ((buf (current-buffer)))
+    (if octocat-tree--all-files
+        ;; Already cached — jump straight to completing-read.
+        (let* ((path (completing-read "Find file: " octocat-tree--all-files nil t))
+               (sha  (cdr (assoc path octocat-tree--all-files))))
+          (octocat-tree--open-file-by-path repo branch path sha))
+      ;; Not yet cached — fetch, cache, then prompt.
+      (setq mode-line-process " [loading…]")
+      (octocat-tree--fetch-all-files
+       repo root-sha
+       (lambda (result)
+         (when (buffer-live-p buf)
+           (with-current-buffer buf
+             (setq mode-line-process nil)
+             (if (eq (car-safe result) 'error)
+                 (message "Octocat: Error loading file list: %s" (cdr result))
+               (setq octocat-tree--all-files result)
+               (let* ((path (completing-read "Find file: " result nil t))
+                      (sha  (cdr (assoc path result))))
+                 (octocat-tree--open-file-by-path repo branch path sha))))))))))
+
+(defun octocat-tree-find-file ()
+  "Interactively find and open a file in this repository by path.
+Fetches the full recursive file tree (cached after first call), presents
+all file paths via `completing-read', and opens the selected file in
+`octocat-file-mode'.  Works from both `octocat-tree-mode' and
+`octocat-repo-mode' buffers."
+  (interactive)
+  (cond
+   ((derived-mode-p 'octocat-tree-mode)
+    (unless octocat-tree--repo
+      (user-error "Octocat: Buffer is not associated with a repository"))
+    (unless octocat-tree--root-sha
+      (user-error "Octocat: Tree root SHA not yet loaded; wait for refresh to finish"))
+    (octocat-tree--do-find-file octocat-tree--repo
+                                octocat-tree--branch
+                                octocat-tree--root-sha))
+   ((derived-mode-p 'octocat-repo-mode)
+    (unless octocat-repo--repo
+      (user-error "Octocat: Buffer is not associated with a repository"))
+    ;; Repo buffers don't keep a root SHA — open (or reuse) the tree buffer
+    ;; so we can delegate to its cache.  octocat-tree-open switches to the
+    ;; buffer and runs a refresh if needed, so root-sha will be set.
+    (let* ((repo   octocat-repo--repo)
+           (branch (or octocat-repo--current-branch
+                       (and (boundp 'octocat-repo--default-branch)
+                            octocat-repo--default-branch)
+                       "HEAD"))
+           (buf-name (format "*octocat-tree: %s*" repo))
+           (tree-buf (get-buffer buf-name)))
+      (if (and tree-buf
+               (buffer-local-value 'octocat-tree--root-sha tree-buf))
+          ;; Tree buffer already has a loaded root SHA — use its cache.
+          (with-current-buffer tree-buf
+            (octocat-tree--do-find-file repo branch octocat-tree--root-sha))
+        ;; No tree buffer yet (or root not loaded).  Fetch the root SHA
+        ;; fresh without opening the tree browser.
+        (setq mode-line-process " [loading…]")
+        (let ((repo-buf (current-buffer)))
+          (octocat-tree--fetch-root-sha
+           repo branch
+           (lambda (sha-result)
+             (when (buffer-live-p repo-buf)
+               (with-current-buffer repo-buf
+                 (setq mode-line-process nil)
+                 (if (eq (car-safe sha-result) 'error)
+                     (message "Octocat: Error fetching tree root: %s"
+                              (cdr sha-result))
+                   ;; Now fetch all files; we don't have a tree buffer to
+                   ;; cache in, so just fetch+prompt directly.
+                   (setq mode-line-process " [loading…]")
+                   (octocat-tree--fetch-all-files
+                    repo sha-result
+                    (lambda (files-result)
+                      (when (buffer-live-p repo-buf)
+                        (with-current-buffer repo-buf
+                          (setq mode-line-process nil)
+                          (if (eq (car-safe files-result) 'error)
+                              (message "Octocat: Error loading file list: %s"
+                                       (cdr files-result))
+                            (let* ((path (completing-read "Find file: "
+                                                          files-result nil t))
+                                   (sha  (cdr (assoc path files-result))))
+                              (octocat-tree--open-file-by-path
+                               repo branch path sha))))))))))))))))
+   (t
+    (user-error "Octocat: Not in a repo or tree buffer"))))
 
 (defun octocat-tree-browse ()
   "Open the current tree entry on GitHub in the browser."

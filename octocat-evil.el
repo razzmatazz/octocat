@@ -48,6 +48,7 @@
 (declare-function octocat-visit              "octocat"           ())
 (declare-function octocat-browse             "octocat"           ())
 (declare-function octocat-tree-open          "octocat-tree"      ())
+(declare-function octocat-tree-find-file     "octocat-tree"      ())
 (declare-function octocat-tree-visit         "octocat-tree"      ())
 (declare-function octocat-tree-browse        "octocat-tree"      ())
 (declare-function octocat-tree-expand        "octocat-tree"      ())
@@ -99,6 +100,7 @@
     (kbd "RET")     #'octocat-visit
     (kbd "+")       #'octocat-repo-load-more
     (kbd "C-c C-o") #'octocat-browse
+    (kbd "T")       #'octocat-tree-find-file
     (kbd "q")       #'quit-window)
   (evil-define-key* 'motion octocat-repo-mode-map
     (kbd "RET")     #'octocat-visit)
@@ -195,6 +197,7 @@
     (kbd "RET")     #'octocat-tree-visit
     (kbd "TAB")     #'octocat-tree-expand
     [tab]           #'octocat-tree-expand
+    (kbd "T")       #'octocat-tree-find-file
     (kbd "C-c C-o") #'octocat-tree-browse
     (kbd "o")       #'octocat-tree-browse
     (kbd "q")       #'quit-window

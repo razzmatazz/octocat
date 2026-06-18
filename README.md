@@ -138,6 +138,11 @@ owner/repo  ⎇  main  [Browse files]
   without re-fetching.
 - **`RET`** on a file opens it in `octocat-file-mode` with syntax
   highlighting applied via the normal major-mode machinery.
+- **`T`** opens a fuzzy file finder (`completing-read`) over the full
+  recursive file list of the repository.  The list is fetched on first use
+  and cached for subsequent calls; pressing `T` again is instant.  Selecting
+  a path opens it directly in `octocat-file-mode` without navigating the
+  tree manually.
 - **`o` / `C-c C-o`** opens the selected file or directory on GitHub in
   the browser.
 - **`gr`** re-fetches the root tree from scratch, clearing the subtree cache.
@@ -161,6 +166,7 @@ with syntax highlighting inferred from the file extension.  Press `o` (or
 | `C-c C-e` | Edit body or comment at point (PR and issue detail views) |
 | `C-c C-v` | Toggle between rendered and raw markdown (PR, commit, and issue detail views) |
 | `C-c C-t` | Open file tree browser (repo buffer) |
+| `T` | Open fuzzy file finder — `completing-read` over the full recursive file list; works from both the repo buffer and the file tree browser (list is cached after first fetch) |
 | `g` / `gr` | Refresh current buffer |
 | `q` | Close buffer |
 | `TAB` | Expand / collapse section at point |
