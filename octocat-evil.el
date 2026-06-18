@@ -1,6 +1,7 @@
 ;;; octocat-evil.el --- Evil keybindings for octocat  -*- lexical-binding: t; package-lint-main-file: "octocat.el"; -*-
 
 ;; Copyright (C) 2026 Saulius Menkevicius
+;; Assisted-by: Claude:claude-sonnet-4-6
 
 ;; This file is NOT part of GNU Emacs.
 

@@ -1,5 +1,23 @@
 # Contributing to octocat.el
 
+## AI-assisted code
+
+Using AI to assist in writing code or opening pull requests is fine, but the
+human author should be the first and most thorough reviewer of any such
+output.  Please help track AI assistance by adding a
+[Linux-style `Assisted-by:` line](https://docs.kernel.org/process/coding-assistants.html#attribution)
+immediately after the `Author:` header (or `Copyright` line in sub-files that
+omit `Author:`):
+
+```elisp
+;; Author: Your Name <you@example.com>
+;; Assisted-by: Claude:claude-sonnet-4-6
+```
+
+`AGENT_NAME` is the product name (e.g. `Claude`) and `MODEL_VERSION` is the
+specific model (e.g. `claude-sonnet-4-6`).  This convention follows
+[MELPA's attribution spec](https://github.com/melpa/melpa/blob/master/CONTRIBUTING.org).
+
 ## Code conventions
 
 ### Indicating loading / async activity

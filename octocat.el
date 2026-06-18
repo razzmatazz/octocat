@@ -3,6 +3,7 @@
 ;; Copyright (C) 2026 Saulius Menkevicius
 
 ;; Author: octocat.el contributors
+;; Assisted-by: Claude:claude-sonnet-4-6
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "29.1") (magit-section "3.0") (markdown-mode "2.0"))
 ;; Keywords: tools, vc, github

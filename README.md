@@ -2,6 +2,9 @@
 
 A GitHub client for Emacs, powered by the [`gh`](https://cli.github.com/) command-line tool.
 
+> **Note:** This project was largely written with the assistance of LLMs (Claude).
+> Source files carry an `Assisted-by:` header line per the [MELPA attribution convention](https://github.com/melpa/melpa/blob/master/CONTRIBUTING.org).
+
 ## Overview
 
 `octocat.el` integrates GitHub workflows directly into Emacs by leveraging the official GitHub CLI (`gh`). It provides a convenient Emacs interface for common GitHub operations without leaving your editor.
