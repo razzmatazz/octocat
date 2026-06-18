@@ -155,7 +155,26 @@ owner/repo  ⎇  main  [Browse files]
 
 `RET` on a file entry opens a read-only buffer showing the raw file content
 with syntax highlighting inferred from the file extension.  Press `o` (or
-`C-c C-o`) to open the file on GitHub, and `gr` to reload.
+`C-c C-o`) to open the file on GitHub, `C-c C-l` to open the file's commit
+history, and `gr` to reload.
+
+#### File commit log (`octocat-file-log-mode`)
+
+Press `C-c C-l` from a file viewer buffer to open the commit history for that
+file.  The log buffer lists up to 25 commits that touched the file, one per
+row:
+
+```
+owner/repo  src/foo.el  (7 commits)
+  a1b2c3d  2026-06-01       Jane Doe          Refactor parser logic
+  f4e5d6c  2026-05-28       Bob Smith         Fix edge case in tokeniser
+  …
+```
+
+- **`RET`** on a commit row opens its full commit detail view.
+- **`o` / `C-c C-o`** opens the commit on GitHub in the browser.
+- **`gr`** re-fetches the commit list from the API.
+- **`q`** closes the buffer.
 
 ---
 
@@ -170,6 +189,7 @@ with syntax highlighting inferred from the file extension.  Press `o` (or
 | `C-c C-v` | Toggle between rendered and raw markdown (PR, commit, and issue detail views) |
 | `C-c C-t` | Open file tree browser (repo buffer) |
 | `C-c C-f` | Open fuzzy file finder — `completing-read` over the full recursive file list; works from both the repo buffer and the file tree browser (list is cached after first fetch) |
+| `C-c C-l` | Open file commit log — shows the commit history for the file currently open in `octocat-file-mode` |
 | `g` / `gr` | Refresh current buffer |
 | `q` | Close buffer |
 | `TAB` | Expand / collapse section at point |

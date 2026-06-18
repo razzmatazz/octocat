@@ -42,6 +42,7 @@
 (declare-function octocat-browse   "octocat"      ())
 (declare-function octocat-tree-open      "octocat-tree" ())
 (declare-function octocat-tree-find-file "octocat-tree" ())
+(declare-function octocat-file-log-open  "octocat-tree" ())
 
 ;; Forward declarations for sub-module buffer-locals referenced by
 ;; octocat-visit (defined in octocat.el) but used here via the shared

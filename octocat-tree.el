@@ -1,4 +1,4 @@
-;;; octocat-tree.el --- File tree browser for octocat  -*- lexical-binding: t; package-lint-main-file: "octocat.el"; -*-
+;;; octocat-tree.el --- File tree and file log browser for octocat  -*- lexical-binding: t; package-lint-main-file: "octocat.el"; -*-
 
 ;; Copyright (C) 2026 Saulius Menkevicius
 ;; Assisted-by: Claude:claude-sonnet-4-6
@@ -20,16 +20,21 @@
 
 ;;; Commentary:
 
-;; Two new modes for browsing a repository's file tree:
+;; Three modes for browsing a repository's files:
 ;;
-;;   octocat-tree-mode — interactive tree browser; dirs expand on demand
-;;   octocat-file-mode — read-only file content viewer with syntax highlighting
+;;   octocat-tree-mode     — interactive tree browser; dirs expand on demand
+;;   octocat-file-mode     — read-only file content viewer with syntax highlighting
+;;   octocat-file-log-mode — commit log for a single file (git log -- <path>)
 ;;
-;; Entry point: `octocat-tree-open', bound to T in `octocat-repo-mode'.
+;; Entry points:
+;;   `octocat-tree-open'     — open the tree browser (bound to T in repo mode)
+;;   `octocat-file-log-open' — open the file commit log (C-c C-l in file mode)
 ;;
-;; octocat-tree-mode derives from `special-mode'.  The buffer is rendered
-;; entirely with plain text and text properties — no magit-section machinery.
-;; Each non-header line carries:
+;; octocat-tree-mode and octocat-file-mode derive from `special-mode'.
+;; octocat-file-log-mode derives from `magit-section-mode' and renders
+;; one magit-section per commit so RET can navigate to the commit detail view.
+;;
+;; octocat-tree-mode buffer rendering uses plain text and text properties:
 ;;
 ;;   octocat-tree--type   \\='dir | \\='file  — kind of entry
 ;;   octocat-tree--entry  <hash-table>    — the GitHub API entry object
@@ -45,6 +50,11 @@
 (defvar octocat-repo--repo)
 (defvar octocat-repo--current-branch)
 (defvar octocat-repo--default-branch)
+
+;; octocat-visit and octocat-browse are defined in octocat.el and bound in
+;; octocat-file-log-mode-map.  Declare them here so the byte-compiler does not warn.
+(declare-function octocat-visit  "octocat" ())
+(declare-function octocat-browse "octocat" ())
 
 
 ;;;; Buffer-local variables — tree mode
@@ -126,6 +136,7 @@ Populated on first call and reused until `octocat-tree-refresh' clears it.")
 (define-key octocat-file-mode-map (kbd "C-c C-o") #'octocat-file-browse)
 (define-key octocat-file-mode-map (kbd "o")       #'octocat-file-browse)
 (define-key octocat-file-mode-map (kbd "C-c C-f") #'octocat-tree-find-file)
+(define-key octocat-file-mode-map (kbd "C-c C-l") #'octocat-file-log-open)
 (define-key octocat-file-mode-map (kbd "gr")      #'octocat-file-refresh)
 
 (define-derived-mode octocat-file-mode special-mode "Octocat-File"
@@ -135,6 +146,41 @@ Populated on first call and reused until `octocat-tree-refresh' clears it.")
   :group 'octocat
   (setq-local truncate-lines t)
   (setq-local revert-buffer-function #'octocat-file-refresh))
+
+
+;;;; Buffer-local variables — file log mode
+
+(defvar-local octocat-file-log--repo nil
+  "The \"owner/repo\" string for the file log buffer.")
+
+(defvar-local octocat-file-log--path nil
+  "Relative file path whose commit history is being shown.")
+
+(defvar-local octocat-file-log--branch nil
+  "Branch/ref name for the file log buffer.")
+
+
+;;;; Mode: octocat-file-log-mode
+
+(defvar octocat-file-log-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map magit-section-mode-map)
+    map)
+  "Keymap for `octocat-file-log-mode'.")
+(define-key octocat-file-log-mode-map (kbd "q")       #'quit-window)
+(define-key octocat-file-log-mode-map (kbd "RET")     #'octocat-visit)
+(define-key octocat-file-log-mode-map (kbd "C-c C-o") #'octocat-browse)
+(define-key octocat-file-log-mode-map (kbd "gr")      #'octocat-file-log-refresh)
+
+(define-derived-mode octocat-file-log-mode magit-section-mode "Octocat-File-Log"
+  "Major mode for browsing the commit history of a single file.
+
+\\{octocat-file-log-mode-map}"
+  :group 'octocat
+  (setq-local buffer-read-only t)
+  (setq-local truncate-lines t)
+  (setq-local revert-buffer-function #'octocat-file-log-refresh)
+  (font-lock-mode -1))
 
 
 ;;;; Branch glyph helper
@@ -755,6 +801,137 @@ all file paths via `completing-read', and opens the selected file in
                      octocat-tree--file-path)))
     (message "Octocat: Opening %s in browser…" octocat-tree--file-path)
     (browse-url url)))
+
+;;;; API fetch helper — file commits
+
+(defun octocat-tree--fetch-file-commits (repo path callback)
+  "Fetch commit history for PATH in REPO asynchronously.
+Requests up to 25 commits touching PATH using the GitHub REST
+commits endpoint with the \\='path\\=' filter.  Calls CALLBACK with a
+list of commit hash-tables, or a cons (error . MSG) on failure."
+  (octocat--run-gh
+   "file-commits"
+   (list "api"
+         (format "repos/%s/commits?per_page=25&path=%s"
+                 repo (url-hexify-string path)))
+   #'octocat--parse-json-list
+   callback))
+
+
+;;;; Rendering — file log mode
+
+(defun octocat-file-log--render-loading ()
+  "Render a loading skeleton in the current file-log buffer."
+  (let ((inhibit-read-only t))
+    (erase-buffer)
+    (magit-insert-section (octocat-file-log-root)
+      (magit-insert-heading
+        (concat
+         (propertize (or octocat-file-log--repo "") 'face 'octocat-repo)
+         "  "
+         (propertize (or octocat-file-log--path "") 'face 'octocat-branch)
+         "\n"))
+      (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))))
+
+(defun octocat-file-log--render (commits)
+  "Render COMMITS (a list of commit hash-tables) in the current file-log buffer."
+  (let ((inhibit-read-only t)
+        (repo   octocat-file-log--repo)
+        (path   octocat-file-log--path))
+    (erase-buffer)
+    (magit-insert-section (octocat-file-log-root)
+      (magit-insert-heading
+        (concat
+         (propertize (or repo "") 'face 'octocat-repo)
+         "  "
+         (propertize (or path "") 'face 'octocat-branch)
+         "  "
+         (propertize (format "(%d commits)" (length commits))
+                     'face 'octocat-dimmed)
+         "\n"))
+      (if (null commits)
+          (insert (propertize "  (no commits found)\n" 'face 'octocat-dimmed))
+        (dolist (commit commits)
+          (let* ((sha     (or (gethash "sha" commit) ""))
+                 (short   (substring sha 0 (min 7 (length sha))))
+                 (c       (gethash "commit" commit))
+                 (msg     (or (and c (gethash "message" c)) ""))
+                 (subject (car (split-string msg "\n")))
+                 (date-s  (or (and c
+                                   (let ((a (gethash "author" c)))
+                                     (and a (gethash "date" a))))
+                              ""))
+                 (date    (octocat--format-ts date-s))
+                 (author  (octocat--commit-author commit))
+                 (hint    '(mouse-face magit-section-highlight
+                            help-echo  "RET: open commit details  C-c C-o: browse on GitHub")))
+            (magit-insert-section (octocat-file-log-commit commit)
+              (magit-insert-heading
+                (apply #'propertize
+                       (concat
+                        "  "
+                        (propertize short 'face 'octocat-dimmed)
+                        "  "
+                        (propertize (format "%-16s" date)  'face 'octocat-dimmed)
+                        "  "
+                        (propertize (format "%-16s" (truncate-string-to-width author 16 nil ?\s "…"))
+                                    'face 'octocat-pr-author)
+                        "  "
+                        (octocat--format-title subject)
+                        "\n")
+                       hint)))))))))
+
+
+;;;; Interactive commands — file log mode
+
+(defun octocat-file-log-open ()
+  "Open the commit log browser for the file shown in the current buffer.
+Works from an `octocat-file-mode' buffer.  Opens (or switches to) the
+\\='*octocat-file-log: REPO PATH*\\=' buffer and refreshes it."
+  (interactive)
+  (unless (derived-mode-p 'octocat-file-mode)
+    (user-error "Octocat: Not in a file viewer buffer"))
+  (unless (and octocat-tree--file-repo octocat-tree--file-path)
+    (user-error "Octocat: Buffer has no file context"))
+  (let* ((repo     octocat-tree--file-repo)
+         (path     octocat-tree--file-path)
+         (branch   octocat-tree--file-branch)
+         (buf-name (format "*octocat-file-log: %s %s*" repo path))
+         (buf      (get-buffer-create buf-name)))
+    (pop-to-buffer buf)
+    (unless (derived-mode-p 'octocat-file-log-mode)
+      (octocat-file-log-mode))
+    (setq octocat-file-log--repo   repo
+          octocat-file-log--path   path
+          octocat-file-log--branch branch)
+    (octocat-file-log--render-loading)
+    (octocat-file-log-refresh)))
+
+(defun octocat-file-log-refresh (&optional _ignore-auto _noconfirm)
+  "Refresh the file log buffer by re-fetching commits from the GitHub API."
+  (interactive)
+  (unless (and octocat-file-log--repo octocat-file-log--path)
+    (user-error "Octocat: Buffer is not associated with a file"))
+  (let ((buf    (current-buffer))
+        (repo   octocat-file-log--repo)
+        (path   octocat-file-log--path))
+    (setq mode-line-process " [refreshing…]")
+    (octocat-tree--fetch-file-commits
+     repo path
+     (lambda (result)
+       (when (buffer-live-p buf)
+         (with-current-buffer buf
+           (setq mode-line-process nil)
+           (let ((saved (octocat--save-point)))
+             (if (eq (car-safe result) 'error)
+                 (let ((inhibit-read-only t))
+                   (erase-buffer)
+                   (insert (propertize
+                            (format "Error loading commits: %s\n" (cdr result))
+                            'face 'error)))
+               (octocat-file-log--render result))
+             (octocat--restore-point saved))))))))
+
 
 (provide 'octocat-tree)
 ;;; octocat-tree.el ends here

@@ -76,18 +76,20 @@
 (defvar octocat-repo--repo)           ; defined as buffer-local in octocat-repo.el
 
 ;; Forward declarations for octocat-tree.el buffer-locals referenced by
-;; octocat-visit and octocat-browse when called from tree/file buffers.
+;; octocat-visit and octocat-browse when called from tree/file/file-log buffers.
 (defvar octocat-tree--repo)           ; defined as buffer-local in octocat-tree.el
 (defvar octocat-tree--branch)         ; defined as buffer-local in octocat-tree.el
 (defvar octocat-tree--file-repo)      ; defined as buffer-local in octocat-tree.el
 (defvar octocat-tree--file-path)      ; defined as buffer-local in octocat-tree.el
 (defvar octocat-tree--file-sha)       ; defined as buffer-local in octocat-tree.el
 (defvar octocat-tree--file-branch)    ; defined as buffer-local in octocat-tree.el
+(defvar octocat-file-log--repo)       ; defined as buffer-local in octocat-tree.el
 
 (declare-function octocat-tree-open        "octocat-tree" ())
 (declare-function octocat-file-refresh     "octocat-tree" (&optional _ignore-auto _noconfirm))
 (declare-function octocat-file-mode        "octocat-tree" ())
 (declare-function octocat-tree--render-file-loading "octocat-tree" (path))
+(declare-function octocat-file-log-open    "octocat-tree" ())
 
 ;; Evil integration is optional; declare its entry point to silence the
 ;; byte-compiler when `octocat-evil' has not been loaded yet.
@@ -160,6 +162,23 @@
               (msg      (or (and c (gethash "message" c)) ""))
               (_subject (car (split-string msg "\n")))
               (repo     (or octocat--pr-repo octocat-repo--repo))
+              (short    (substring oid 0 (min 7 (length oid))))
+              (buf-name (format "*octocat-commit: %s@%s*" repo short))
+              (buf      (get-buffer-create buf-name)))
+         (pop-to-buffer buf)
+         (unless (derived-mode-p 'octocat-commit-mode)
+           (octocat-commit-mode))
+         (setq octocat--commit-repo repo
+               octocat--commit-sha  oid)
+         (octocat--render-commit-loading oid)
+         (octocat-commit-refresh)))
+      ('octocat-file-log-commit
+       (let* ((commit   (oref section value))
+              (c        (gethash "commit" commit))
+              (oid      (or (gethash "sha" commit) ""))
+              (msg      (or (and c (gethash "message" c)) ""))
+              (_subject (car (split-string msg "\n")))
+              (repo     (or octocat-file-log--repo octocat-repo--repo))
               (short    (substring oid 0 (min 7 (length oid))))
               (buf-name (format "*octocat-commit: %s@%s*" repo short))
               (buf      (get-buffer-create buf-name)))
@@ -488,7 +507,17 @@ handler, e.g. point is on a title/header line):
                             octocat-tree--file-branch
                             octocat-tree--file-path)))
            (message "Octocat: Opening file in browser…")
-           (browse-url url))))))))
+           (browse-url url))))
+      ((derived-mode-p 'octocat-file-log-mode)
+       (let* ((commit  (and (magit-current-section)
+                            (oref (magit-current-section) value)))
+              (oid     (and commit (gethash "sha" commit)))
+              (repo    octocat-file-log--repo))
+         (when (and repo oid)
+           (let ((url (format "https://github.com/%s/commit/%s" repo oid)))
+             (message "Octocat: Opening commit %s in browser…"
+                      (substring oid 0 (min 7 (length oid))))
+             (browse-url url)))))))))
 
 
 ;;;; Dashboard major mode

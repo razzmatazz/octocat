@@ -45,6 +45,7 @@
 (defvar octocat-job-mode-map)
 (defvar octocat-tree-mode-map)
 (defvar octocat-file-mode-map)
+(defvar octocat-file-log-mode-map)
 
 (declare-function octocat-visit              "octocat"           ())
 (declare-function octocat-browse             "octocat"           ())
@@ -56,6 +57,8 @@
 (declare-function octocat-tree-refresh       "octocat-tree"      (&optional _ignore-auto _noconfirm))
 (declare-function octocat-file-refresh       "octocat-tree"      (&optional _ignore-auto _noconfirm))
 (declare-function octocat-file-browse        "octocat-tree"      ())
+(declare-function octocat-file-log-open      "octocat-tree"      ())
+(declare-function octocat-file-log-refresh   "octocat-tree"      (&optional _ignore-auto _noconfirm))
 (declare-function octocat-toggle-markdown    "octocat-core"      ())
 (declare-function octocat-pr-refresh         "octocat-pr"        (&optional _ignore-auto _noconfirm))
 (declare-function octocat-pr-add-comment     "octocat-pr"        ())
@@ -214,10 +217,22 @@
     (kbd "C-c C-o") #'octocat-file-browse
     (kbd "o")       #'octocat-file-browse
     (kbd "C-c C-f") #'octocat-tree-find-file
+    (kbd "C-c C-l") #'octocat-file-log-open
     (kbd "q")       #'quit-window
     (kbd "gr")      #'octocat-file-refresh)
   (evil-define-key* 'motion octocat-file-mode-map
     (kbd "gr")      #'octocat-file-refresh)
+
+  ;; ── octocat-file-log-mode ─────────────────────────────────────────────
+  ;; Derives from magit-section-mode: use evil-get-auxiliary-keymap with t t.
+  (let ((aux   (evil-get-auxiliary-keymap octocat-file-log-mode-map 'normal t t))
+        (aux-m (evil-get-auxiliary-keymap octocat-file-log-mode-map 'motion t t)))
+    (define-key aux   (kbd "g")       nil)
+    (define-key aux   (kbd "RET")     #'octocat-visit)
+    (define-key aux   (kbd "C-c C-o") #'octocat-browse)
+    (define-key aux   (kbd "q")       #'quit-window)
+    (define-key aux   (kbd "gr")      #'octocat-file-log-refresh)
+    (define-key aux-m (kbd "RET")     #'octocat-visit))
 
   ;; Refresh all octocat keymaps so the new bindings take effect in any
   ;; already-open buffers.
