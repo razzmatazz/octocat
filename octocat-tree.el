@@ -125,7 +125,7 @@ Cleared on full refresh (gr).")
 
 \\{octocat-file-mode-map}"
   :group 'octocat
-  (setq-local truncate-lines nil)
+  (setq-local truncate-lines t)
   (setq-local revert-buffer-function #'octocat-file-refresh))
 
 
@@ -354,7 +354,8 @@ Point is restored to the same line and column after re-rendering."
             "\n"
             (propertize (make-string 60 ?━) 'face 'octocat-dimmed)
             "\n"
-            fontified)))
+            fontified)
+    (goto-char (point-min))))
 
 
 ;;;; Point navigation helpers
