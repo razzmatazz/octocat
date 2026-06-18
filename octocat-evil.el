@@ -101,7 +101,7 @@
     (kbd "RET")     #'octocat-visit
     (kbd "+")       #'octocat-repo-load-more
     (kbd "C-c C-o") #'octocat-browse
-    (kbd "T")       #'octocat-tree-find-file
+    (kbd "C-c C-f") #'octocat-tree-find-file
     (kbd "q")       #'quit-window)
   (evil-define-key* 'motion octocat-repo-mode-map
     (kbd "RET")     #'octocat-visit)
@@ -198,7 +198,7 @@
     (kbd "RET")     #'octocat-tree-visit
     (kbd "TAB")     #'octocat-tree-expand
     [tab]           #'octocat-tree-expand
-    (kbd "T")       #'octocat-tree-find-file
+    (kbd "C-c C-f") #'octocat-tree-find-file
     (kbd "C-c C-o") #'octocat-tree-browse
     (kbd "o")       #'octocat-tree-browse
     (kbd "q")       #'quit-window
@@ -213,7 +213,7 @@
   (evil-define-key* 'normal octocat-file-mode-map
     (kbd "C-c C-o") #'octocat-file-browse
     (kbd "o")       #'octocat-file-browse
-    (kbd "T")       #'octocat-tree-find-file
+    (kbd "C-c C-f") #'octocat-tree-find-file
     (kbd "q")       #'quit-window
     (kbd "gr")      #'octocat-file-refresh)
   (evil-define-key* 'motion octocat-file-mode-map

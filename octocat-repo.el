@@ -632,7 +632,7 @@ Render collapsible sections; delegate to the individual render helpers."
 (define-key octocat-repo-mode-map (kbd "RET")     #'octocat-visit)
 (define-key octocat-repo-mode-map (kbd "+")       #'octocat-repo-load-more)
 (define-key octocat-repo-mode-map (kbd "C-c C-t") #'octocat-tree-open)
-(define-key octocat-repo-mode-map (kbd "T")       #'octocat-tree-find-file)
+(define-key octocat-repo-mode-map (kbd "C-c C-f") #'octocat-tree-find-file)
 
 (define-key octocat-repo-mode-map (kbd "C-c C-o") #'octocat-browse)
 (define-derived-mode octocat-repo-mode magit-section-mode "Octocat-Repo"

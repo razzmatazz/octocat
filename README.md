@@ -124,7 +124,7 @@ Each file entry is a collapsible section.  The diff hunks are rendered with
 
 ### File tree browser (`octocat-tree-mode`)
 
-From any per-repository buffer, press `T` or `RET` on the **[Browse files]**
+From any per-repository buffer, press `C-c C-f` or `RET` on the **[Browse files]**
 token in the header to open an interactive file tree browser for the current
 branch.
 
@@ -141,9 +141,9 @@ owner/repo  ⎇  main  [Browse files]
   without re-fetching.
 - **`RET`** on a file opens it in `octocat-file-mode` with syntax
   highlighting applied via the normal major-mode machinery.
-- **`T`** opens a fuzzy file finder (`completing-read`) over the full
+- **`C-c C-f`** opens a fuzzy file finder (`completing-read`) over the full
   recursive file list of the repository.  The list is fetched on first use
-  and cached for subsequent calls; pressing `T` again is instant.  Selecting
+  and cached for subsequent calls; pressing `C-c C-f` again is instant.  Selecting
   a path opens it directly in `octocat-file-mode` without navigating the
   tree manually.
 - **`o` / `C-c C-o`** opens the selected file or directory on GitHub in
@@ -169,7 +169,7 @@ with syntax highlighting inferred from the file extension.  Press `o` (or
 | `C-c C-e` | Edit body or comment at point (PR and issue detail views) |
 | `C-c C-v` | Toggle between rendered and raw markdown (PR, commit, and issue detail views) |
 | `C-c C-t` | Open file tree browser (repo buffer) |
-| `T` | Open fuzzy file finder — `completing-read` over the full recursive file list; works from both the repo buffer and the file tree browser (list is cached after first fetch) |
+| `C-c C-f` | Open fuzzy file finder — `completing-read` over the full recursive file list; works from both the repo buffer and the file tree browser (list is cached after first fetch) |
 | `g` / `gr` | Refresh current buffer |
 | `q` | Close buffer |
 | `TAB` | Expand / collapse section at point |
