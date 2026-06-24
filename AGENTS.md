@@ -149,7 +149,7 @@ The canonical reload sequence is:
 
 > **Gotcha — `makunbound` on a void symbol raises an error.** If the
 > variable is already void (e.g. it was cleared by a previous `makunbound`
-> call or by `unload-feature`), calling `makunbound` again signals
+> call), calling `makunbound` again signals
 > `Symbol's value as variable is void`.  Always guard it:
 >
 > ```elisp
@@ -159,30 +159,12 @@ The canonical reload sequence is:
 >
 > Or use `ignore-errors`.
 
-**Prefer `unload-feature` over `makunbound` for full reloads.** The `makunbound` + `load-file` pattern has a subtle failure mode: `load-file` re-evaluates the file and calls `(provide 'octocat-FOO)`, but if the feature was never removed from `features`, any transitive `(require 'octocat-FOO)` inside other files will be a no-op — which means `defvar` forms in that file never re-run after a `makunbound`.  The safest approach for a full reload is to `unload-feature` every octocat package in **reverse dependency order** first, so all `defvar` and `defun` forms run fresh:
-
-```elisp
-;; 1. Kill buffers and .elc files as usual.
-;; 2. Unload in reverse load order (most-dependent first):
-(ignore-errors (unload-feature 'octocat t))
-(ignore-errors (unload-feature 'octocat-repo t))
-(ignore-errors (unload-feature 'octocat-evil t))
-(ignore-errors (unload-feature 'octocat-checks t))
-(ignore-errors (unload-feature 'octocat-tree t))
-(ignore-errors (unload-feature 'octocat-issue t))
-(ignore-errors (unload-feature 'octocat-pr t))
-(ignore-errors (unload-feature 'octocat-pr-diff t))
-(ignore-errors (unload-feature 'octocat-workflow t))
-(ignore-errors (unload-feature 'octocat-run t))
-(ignore-errors (unload-feature 'octocat-job t))
-(ignore-errors (unload-feature 'octocat-commit t))
-(ignore-errors (unload-feature 'octocat-edit t))
-(ignore-errors (unload-feature 'octocat-core t))
-;; 3. Then load-file in normal order as usual.
-```
-
-Use `ignore-errors` on each `unload-feature` call so that features which
-are not currently loaded don't abort the sequence.
+**Do not use `unload-feature` to reload octocat packages.** It cascade-unloads
+`markdown-mode` (a transitive dependency of `octocat-core`), which leaves
+dangling advice and causes repeated `jit-lock` redisplay errors. Use the
+`makunbound` + `load-file` pattern above instead — `load-file` always
+re-evaluates the file regardless of `features`, so `defvar` forms re-run
+without needing `unload-feature`.
 
 ## evil-define-key* aux-keymap slot divergence
 
