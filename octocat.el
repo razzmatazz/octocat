@@ -127,12 +127,13 @@
     (let ((section (magit-current-section)))
       (pcase (and section (oref section type))
       ('repo
-       ;; Dashboard: open the per-repo buffer for the selected repo.
+       ;; Dashboard: open the per-repo buffer for the selected repo in
+       ;; another window so the dashboard stays reachable via `q'.
        ;; Attach to the current working tree when its origin matches.
        (let* ((full-name (oref section value))
               (buf-name  (format "*octocat-repo: %s*" full-name))
               (buf       (get-buffer-create buf-name)))
-         (switch-to-buffer buf)
+         (pop-to-buffer buf)
          (unless (derived-mode-p 'octocat-repo-mode)
            (octocat-repo-mode))
          (setq octocat-repo--repo      full-name
@@ -302,7 +303,7 @@
              (message "Octocat: No repository associated with this event")
            (let* ((buf-name (format "*octocat-repo: %s*" full-name))
                   (buf      (get-buffer-create buf-name)))
-             (switch-to-buffer buf)
+             (pop-to-buffer buf)
              (unless (derived-mode-p 'octocat-repo-mode)
                (octocat-repo-mode))
              (setq octocat-repo--repo      full-name
