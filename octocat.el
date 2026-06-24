@@ -289,26 +289,93 @@
                octocat--checks-ref  ref)
          (octocat--render-checks-loading sha)
          (octocat-checks-refresh)))
-      ;; RET on a feed-event row opens the per-repo buffer for the repo
-      ;; referenced by that event.  The event hash-table has a "repo" key
-      ;; whose value is a hash-table with a "name" field of the form
-      ;; "owner/repo".
+      ;; RET on a feed-event row dispatches based on event type:
+      ;;   PushEvent                      → octocat-commit for the head SHA
+      ;;   PullRequestEvent / Review*     → octocat-pr for the PR number
+      ;;   IssuesEvent / IssueCommentEvent → octocat-issue for the issue number
+      ;;   everything else                → octocat-repo for the repo
       ('feed-event
        (let* ((ev        (oref section value))
+              (type      (and ev (hash-table-p ev) (gethash "type" ev)))
               (repo-obj  (and ev (hash-table-p ev) (gethash "repo" ev)))
               (full-name (and repo-obj
                               (hash-table-p repo-obj)
-                              (octocat--nonempty (gethash "name" repo-obj)))))
+                              (octocat--nonempty (gethash "name" repo-obj))))
+              (payload   (and ev (hash-table-p ev) (gethash "payload" ev))))
          (if (not full-name)
              (message "Octocat: No repository associated with this event")
-           (let* ((buf-name (format "*octocat-repo: %s*" full-name))
-                  (buf      (get-buffer-create buf-name)))
-             (pop-to-buffer buf)
-             (unless (derived-mode-p 'octocat-repo-mode)
-               (octocat-repo-mode))
-             (setq octocat-repo--repo      full-name
-                   octocat-repo--local-dir (octocat-repo--local-dir-for full-name))
-             (octocat-repo-refresh)))))
+           (cond
+            ;; ── Push → commit buffer for the head SHA ─────────────────
+            ((equal type "PushEvent")
+             (let* ((head  (and (hash-table-p payload)
+                                (octocat--nonempty (gethash "head" payload))))
+                    (oid   (or head ""))
+                    (short (substring oid 0 (min 7 (length oid))))
+                    (buf   (get-buffer-create
+                            (format "*octocat-commit: %s@%s*" full-name short))))
+               (pop-to-buffer buf)
+               (unless (derived-mode-p 'octocat-commit-mode)
+                 (octocat-commit-mode))
+               (setq octocat--commit-repo full-name
+                     octocat--commit-sha  oid)
+               (octocat--render-commit-loading oid)
+               (octocat-commit-refresh)))
+            ;; ── PR / review events → PR buffer ────────────────────────
+            ((member type '("PullRequestEvent"
+                            "PullRequestReviewEvent"
+                            "PullRequestReviewCommentEvent"))
+             (let* ((pr-obj (and (hash-table-p payload)
+                                 (gethash "pull_request" payload)))
+                    (number (or (and (hash-table-p payload)
+                                     (gethash "number" payload))
+                                (and (hash-table-p pr-obj)
+                                     (gethash "number" pr-obj))))
+                    (title  (or (and (hash-table-p pr-obj)
+                                     (octocat--nonempty (gethash "title" pr-obj)))
+                                ""))
+                    (buf    (and number
+                                 (get-buffer-create
+                                  (format "*octocat-pr: %s#%d*" full-name number)))))
+               (if (not number)
+                   (message "Octocat: No PR number in event payload")
+                 (pop-to-buffer buf)
+                 (unless (derived-mode-p 'octocat-pr-mode)
+                   (octocat-pr-mode))
+                 (setq octocat--pr-repo   full-name
+                       octocat--pr-number number)
+                 (octocat--render-pr-loading number title "OPEN")
+                 (octocat-pr-refresh))))
+            ;; ── Issue / comment events → issue buffer ─────────────────
+            ((member type '("IssuesEvent" "IssueCommentEvent"))
+             (let* ((issue-obj (and (hash-table-p payload)
+                                    (gethash "issue" payload)))
+                    (number    (and (hash-table-p issue-obj)
+                                    (gethash "number" issue-obj)))
+                    (title     (or (and (hash-table-p issue-obj)
+                                        (octocat--nonempty (gethash "title" issue-obj)))
+                                   ""))
+                    (buf       (and number
+                                    (get-buffer-create
+                                     (format "*octocat-issue: %s#%d*" full-name number)))))
+               (if (not number)
+                   (message "Octocat: No issue number in event payload")
+                 (pop-to-buffer buf)
+                 (unless (derived-mode-p 'octocat-issue-mode)
+                   (octocat-issue-mode))
+                 (setq octocat--issue-repo   full-name
+                       octocat--issue-number number)
+                 (octocat--render-issue-loading number title "OPEN")
+                 (octocat-issue-refresh))))
+            ;; ── Everything else → repo buffer ─────────────────────────
+            (t
+             (let ((buf (get-buffer-create
+                         (format "*octocat-repo: %s*" full-name))))
+               (pop-to-buffer buf)
+               (unless (derived-mode-p 'octocat-repo-mode)
+                 (octocat-repo-mode))
+               (setq octocat-repo--repo      full-name
+                     octocat-repo--local-dir (octocat-repo--local-dir-for full-name))
+               (octocat-repo-refresh)))))))
       ;; RET on a "load more" row fetches the next page of that list.
       ;; This case is handled by octocat-repo-mode's RET binding which
       ;; calls octocat-visit; dispatch to octocat-repo-load-more here.
@@ -666,24 +733,20 @@ The detail text is derived from the event type and payload fields."
                        (octocat--nonempty (gethash "action" payload)))))
     (pcase type
       ("PushEvent"
-       (let* ((commits (and (hash-table-p payload)
-                            (gethash "commits" payload)))
-              (n (if (vectorp commits) (length commits) 0))
-              (ref (and (hash-table-p payload)
-                        (octocat--nonempty (gethash "ref" payload))))
+       ;; The /received_events API omits commits[] and size for watched
+       ;; repos — only ref, head, and before are provided.  Show the branch
+       ;; and a short SHA instead of an unreliable commit count.
+       (let* ((ref    (and (hash-table-p payload)
+                           (octocat--nonempty (gethash "ref" payload))))
               (branch (if ref
                           (replace-regexp-in-string "^refs/heads/" "" ref)
                         "?"))
-              (first-commit (and (vectorp commits) (> (length commits) 0)
-                                 (aref commits 0)))
-              (msg (and (hash-table-p first-commit)
-                        (octocat--nonempty (gethash "message" first-commit))))
-              (subject (and msg (car (split-string msg "\n")))))
-         (if subject
-             (format "pushed %d %s to %s: %s"
-                     n (if (= n 1) "commit" "commits") branch
-                     (truncate-string-to-width subject 30 nil nil "…"))
-           (format "pushed %d %s to %s" n (if (= n 1) "commit" "commits") branch))))
+              (head   (and (hash-table-p payload)
+                           (octocat--nonempty (gethash "head" payload))))
+              (short  (and head (substring head 0 (min 7 (length head))))))
+         (if short
+             (format "pushed to %s (%s)" branch short)
+           (format "pushed to %s" branch))))
       ("PullRequestEvent"
        (let* ((pr     (and (hash-table-p payload) (gethash "pull_request" payload)))
               (title  (and (hash-table-p pr) (octocat--nonempty (gethash "title" pr))))
@@ -786,51 +849,54 @@ REPOS is a list of hash-tables from the GitHub user/repos endpoint."
   "Insert the Feed section using FEED list.
 FEED is a list of hash-tables from the GitHub received_events endpoint."
   (let ((limit (or octocat--feed-limit octocat-feed-limit)))
-    (magit-insert-section (feed)
-      (magit-insert-heading
-        (propertize "Feed" 'face 'octocat-section-heading))
-      (if (null feed)
-          (insert (propertize "  (no recent activity)\n" 'face 'octocat-dimmed))
-        (dolist (ev feed)
-          (let* ((type   (or (gethash "type"       ev) ""))
-                 (actor  (let ((a (gethash "actor" ev)))
-                           (if (and a (hash-table-p a))
-                               (or (gethash "login" a) "")
-                             "")))
-                 (repo   (let ((r (gethash "repo" ev)))
-                           (if (and r (hash-table-p r))
-                               (or (gethash "name" r) "")
-                             "")))
-                 (detail (octocat--dashboard-event-detail ev))
-                 (date   (octocat--relative-ts
-                          (or (gethash "created_at" ev) "")))
-                 (hint   '(mouse-face magit-section-highlight
-                           help-echo  "RET: open repo")))
-            (magit-insert-section (feed-event ev)
-              (magit-insert-heading
-                (apply #'propertize
-                       (concat
-                        "  "
-                        (octocat--dashboard-event-icon type)
-                        "  "
-                        (propertize (format "%-16s" actor) 'face 'octocat-pr-author)
-                        "  "
-                        (propertize (format "%-35s" repo)  'face 'octocat-branch)
-                        "  "
-                        (octocat--format-title detail)
-                        "  "
-                        (propertize date 'face 'octocat-dimmed)
-                        "\n")
-                       hint)))))
-        (when (>= (length feed) limit)
-          (let ((hint '(mouse-face magit-section-highlight
-                        help-echo  "RET / +: load more feed events")))
-            (magit-insert-section (load-more-feed)
-              (magit-insert-heading
-                (concat (apply #'propertize
-                               (format "  [+] Load %d more…" octocat-feed-limit)
-                               'face 'octocat-dimmed hint)
-                        "\n")))))))))
+    ;; Insert the "Feed" heading as plain text — not a collapsible
+    ;; magit-section.  Wrapping all feed-event children in a parent (feed)
+    ;; section causes magit to highlight the entire block whenever the
+    ;; cursor sits anywhere inside it, giving the feed a distracting
+    ;; background colour that repo rows do not share.
+    (insert (propertize "Feed" 'face 'octocat-section-heading) "\n")
+    (if (null feed)
+        (insert (propertize "  (no recent activity)\n" 'face 'octocat-dimmed))
+      (dolist (ev feed)
+        (let* ((type   (or (gethash "type"       ev) ""))
+               (actor  (let ((a (gethash "actor" ev)))
+                         (if (and a (hash-table-p a))
+                             (or (gethash "login" a) "")
+                           "")))
+               (repo   (let ((r (gethash "repo" ev)))
+                         (if (and r (hash-table-p r))
+                             (or (gethash "name" r) "")
+                           "")))
+               (detail (octocat--dashboard-event-detail ev))
+               (date   (octocat--relative-ts
+                        (or (gethash "created_at" ev) "")))
+               (hint   '(mouse-face magit-section-highlight
+                         help-echo  "RET: open commit or repo")))
+          (magit-insert-section (feed-event ev)
+            (magit-insert-heading
+              (apply #'propertize
+                     (concat
+                      "  "
+                      (octocat--dashboard-event-icon type)
+                      "  "
+                      (propertize (format "%-16s" actor) 'face 'octocat-pr-author)
+                      "  "
+                      (propertize (format "%-35s" repo)  'face 'octocat-branch)
+                      "  "
+                      (octocat--format-title detail)
+                      "  "
+                      (propertize date 'face 'octocat-dimmed)
+                      "\n")
+                     hint)))))
+      (when (>= (length feed) limit)
+        (let ((hint '(mouse-face magit-section-highlight
+                      help-echo  "RET / +: load more feed events")))
+          (magit-insert-section (load-more-feed)
+            (magit-insert-heading
+              (concat (apply #'propertize
+                             (format "  [+] Load %d more…" octocat-feed-limit)
+                             'face 'octocat-dimmed hint)
+                      "\n"))))))))
 
 (defun octocat--render-dashboard (repos feed)
   "Render the dashboard buffer content from REPOS and FEED data.
@@ -876,10 +942,8 @@ Follows the standard stale-while-revalidate pattern:
               (propertize "Recent Repositories" 'face 'octocat-section-heading))
             (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
           (insert "\n")
-          (magit-insert-section (feed)
-            (magit-insert-heading
-              (propertize "Feed" 'face 'octocat-section-heading))
-            (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))))
+          (insert (propertize "Feed" 'face 'octocat-section-heading) "\n")
+          (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))))
     ;; ── Step 2: fetch fresh data asynchronously ───────────────────────
     (setq mode-line-process " [refreshing…]")
     (force-mode-line-update)
