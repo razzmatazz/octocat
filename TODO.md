@@ -1,8 +1,6 @@
 # TODO list
 
-## Implement a way to browse codebase
-
-Maybe tree-based viewer with dirs/files listed when expanding folder? Unsure
+## ability to load a random repo, via C-c C-r ?! or maybe C-u M-x octocat-repo ?
 
 ## ability to load items on demand, i.e. when section opens, not when dashboard does
 
