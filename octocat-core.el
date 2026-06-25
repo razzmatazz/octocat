@@ -31,6 +31,12 @@
 (require 'json)
 (require 'markdown-mode)
 
+;; Forward declarations for octocat-repo.el functions called from this file.
+;; octocat-repo.el is loaded after octocat-core.el, so we cannot require it.
+(declare-function octocat-repo-mode            "octocat-repo" ())
+(declare-function octocat-repo--local-dir-for  "octocat-repo" (repo))
+(declare-function octocat-repo-refresh         "octocat-repo" (&optional _ignore-auto _noconfirm))
+
 
 ;;;; Options
 
@@ -774,6 +780,24 @@ After toggling, the buffer is refreshed via `octocat--refresh-fn'."
   (message "Markdown display: %s" (if octocat--markdown-raw "raw" "rendered"))
   (when octocat--refresh-fn
     (funcall octocat--refresh-fn)))
+
+;;;; Repo navigation
+
+(defvar octocat-repo--repo)
+(defvar octocat-repo--local-dir)
+
+(defun octocat-visit-repo (repo)
+  "Open (or switch to) the *octocat-repo: REPO* buffer.
+REPO is an \"owner/name\" string.  This is the shared implementation used
+by the repo-nav section in every detail view."
+  (let* ((buf-name (format "*octocat-repo: %s*" repo))
+         (buf      (get-buffer-create buf-name)))
+    (pop-to-buffer buf)
+    (unless (derived-mode-p 'octocat-repo-mode)
+      (octocat-repo-mode))
+    (setq octocat-repo--repo      repo
+          octocat-repo--local-dir (octocat-repo--local-dir-for repo))
+    (octocat-repo-refresh)))
 
 (provide 'octocat-core)
 ;;; octocat-core.el ends here

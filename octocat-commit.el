@@ -274,6 +274,14 @@ matching comments immediately after each rendered diff line."
                 (propertize short 'face 'octocat-commit-sha)))
       (magit-insert-section (commit-meta)
         (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))
+        (let ((hint (list 'mouse-face 'magit-section-highlight
+                          'help-echo  "RET: open repo view")))
+          (magit-insert-section (repo-nav octocat--commit-repo)
+            (magit-insert-heading
+              (concat (apply #'propertize "  Repo     " hint)
+                      (apply #'propertize (or octocat--commit-repo "")
+                             'face 'octocat-repo hint)
+                      (apply #'propertize "\n" hint)))))
         (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
       (insert "\n")
       (magit-insert-section (commit-message)
@@ -328,6 +336,14 @@ is shown instead."
       ;; ── Meta ──────────────────────────────────────────────────────────
       (magit-insert-section (commit-meta)
         (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))
+        (let ((hint (list 'mouse-face 'magit-section-highlight
+                          'help-echo  "RET: open repo view")))
+          (magit-insert-section (repo-nav octocat--commit-repo)
+            (magit-insert-heading
+              (concat (apply #'propertize "  Repo    " hint)
+                      (apply #'propertize (or octocat--commit-repo "")
+                             'face 'octocat-repo hint)
+                      (apply #'propertize "\n" hint)))))
         (insert (format "  Author  %s\n"
                         (propertize author 'face 'octocat-pr-author)))
         (when github-handle

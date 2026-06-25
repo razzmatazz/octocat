@@ -129,6 +129,15 @@ Returns nil when the check was not created by GitHub Actions."
                            (not (string-empty-p (or octocat--checks-ref ""))))
                   (concat "  " (propertize octocat--checks-ref
                                            'face 'octocat-branch)))))
+      (let ((hint (list 'mouse-face 'magit-section-highlight
+                        'help-echo  "RET: open repo view")))
+        (magit-insert-section (repo-nav octocat--checks-repo)
+          (magit-insert-heading
+            (concat (apply #'propertize "  Repo     " hint)
+                    (apply #'propertize (or octocat--checks-repo "")
+                           'face 'octocat-repo hint)
+                    (apply #'propertize "\n" hint)))))
+      (insert "\n")
       (magit-insert-section (checks-list)
         (magit-insert-heading
           (propertize "Check Runs" 'face 'octocat-section-heading))
@@ -152,6 +161,16 @@ CHECKS-LIST is a list of check-run hash-tables from the GitHub Checks API."
                 (propertize short 'face 'octocat-commit-sha)
                 (when ref
                   (concat "  " (propertize ref 'face 'octocat-branch)))))
+      ;; ── Repo breadcrumb ─────────────────────────────────────────────────
+      (let ((hint (list 'mouse-face 'magit-section-highlight
+                        'help-echo  "RET: open repo view")))
+        (magit-insert-section (repo-nav octocat--checks-repo)
+          (magit-insert-heading
+            (concat (apply #'propertize "  Repo     " hint)
+                    (apply #'propertize (or octocat--checks-repo "")
+                           'face 'octocat-repo hint)
+                    (apply #'propertize "\n" hint)))))
+      (insert "\n")
       ;; ── Check Runs list ─────────────────────────────────────────────────
       (magit-insert-section (checks-list)
         (magit-insert-heading

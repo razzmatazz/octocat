@@ -409,6 +409,14 @@ Does nothing when ANNOTATIONS is empty or nil."
                 (propertize (or job-name "") 'face 'octocat-run-job-name)))
       (magit-insert-section (job-info)
         (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))
+        (let ((hint (list 'mouse-face 'magit-section-highlight
+                          'help-echo  "RET: open repo view")))
+          (magit-insert-section (repo-nav octocat--job-repo)
+            (magit-insert-heading
+              (concat (apply #'propertize "  Repo      " hint)
+                      (apply #'propertize (or octocat--job-repo "")
+                             'face 'octocat-repo hint)
+                      (apply #'propertize "\n" hint)))))
         (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
       (insert "\n")
       (magit-insert-section (job-steps)
@@ -462,6 +470,14 @@ or nil/[] when unavailable."
       ;; ── Info ────────────────────────────────────────────────────────────
       (magit-insert-section (job-info)
         (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))
+        (let ((hint (list 'mouse-face 'magit-section-highlight
+                          'help-echo  "RET: open repo view")))
+          (magit-insert-section (repo-nav octocat--job-repo)
+            (magit-insert-heading
+              (concat (apply #'propertize "  Repo      " hint)
+                      (apply #'propertize (or octocat--job-repo "")
+                             'face 'octocat-repo hint)
+                      (apply #'propertize "\n" hint)))))
         (unless (string-empty-p display-status)
           (insert (format "  Status     %s\n"
                           (propertize display-status

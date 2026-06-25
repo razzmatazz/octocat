@@ -104,6 +104,15 @@ Uses the GitHub REST API via `gh api'."
                 (propertize (format "#%d" number) 'face 'octocat-pr-number)
                 "  "
                 (propertize "diff" 'face 'octocat-dimmed)))
+      (let ((hint (list 'mouse-face 'magit-section-highlight
+                        'help-echo  "RET: open repo view")))
+        (magit-insert-section (repo-nav octocat--pr-diff-repo)
+          (magit-insert-heading
+            (concat (apply #'propertize "  Repo     " hint)
+                    (apply #'propertize (or octocat--pr-diff-repo "")
+                           'face 'octocat-repo hint)
+                    (apply #'propertize "\n" hint)))))
+      (insert "\n")
       (magit-insert-section (pr-diff-files)
         (magit-insert-heading (propertize "Files" 'face 'octocat-section-heading))
         (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
@@ -177,6 +186,16 @@ is still in flight, or nil when there are no comments."
                 (propertize (format "-%d" total-del) 'face 'diff-removed)
                 (propertize (format "  %d file(s)" (length files))
                             'face 'octocat-dimmed)))
+      ;; ── Repo breadcrumb ───────────────────────────────────────────────
+      (let ((hint (list 'mouse-face 'magit-section-highlight
+                        'help-echo  "RET: open repo view")))
+        (magit-insert-section (repo-nav octocat--pr-diff-repo)
+          (magit-insert-heading
+            (concat (apply #'propertize "  Repo     " hint)
+                    (apply #'propertize (or octocat--pr-diff-repo "")
+                           'face 'octocat-repo hint)
+                    (apply #'propertize "\n" hint)))))
+      (insert "\n")
       ;; ── Files ─────────────────────────────────────────────────────────
       (magit-insert-section (pr-diff-files)
         (magit-insert-heading

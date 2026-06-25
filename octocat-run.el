@@ -156,6 +156,14 @@ STATUS takes priority over CONCLUSION for in-progress detection."
                 (propertize (number-to-string run-id) 'face 'octocat-pr-number)))
       (magit-insert-section (run-info)
         (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))
+        (let ((hint (list 'mouse-face 'magit-section-highlight
+                          'help-echo  "RET: open repo view")))
+          (magit-insert-section (repo-nav octocat--run-repo)
+            (magit-insert-heading
+              (concat (apply #'propertize "  Repo      " hint)
+                      (apply #'propertize (or octocat--run-repo "")
+                             'face 'octocat-repo hint)
+                      (apply #'propertize "\n" hint)))))
         (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
       (insert "\n")
       (magit-insert-section (run-jobs)
@@ -202,6 +210,14 @@ ARTIFACTS is an optional vector of artifact hash-tables from the Actions API."
       ;; ── Info ────────────────────────────────────────────────────────────
       (magit-insert-section (run-info)
         (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))
+        (let ((hint (list 'mouse-face 'magit-section-highlight
+                          'help-echo  "RET: open repo view")))
+          (magit-insert-section (repo-nav octocat--run-repo)
+            (magit-insert-heading
+              (concat (apply #'propertize "  Repo      " hint)
+                      (apply #'propertize (or octocat--run-repo "")
+                             'face 'octocat-repo hint)
+                      (apply #'propertize "\n" hint)))))
         (unless (string-empty-p wf-name)
           (insert (format "  Workflow   %s\n"
                           (propertize wf-name 'face 'octocat-section-heading))))

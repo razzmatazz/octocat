@@ -226,6 +226,18 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
                 title
                 "  "
                 (propertize (downcase state) 'face (octocat--pr-state-face state))))
+      (magit-insert-section (pr-meta)
+        (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))
+        (let ((hint (list 'mouse-face 'magit-section-highlight
+                          'help-echo  "RET: open repo view")))
+          (magit-insert-section (repo-nav octocat--pr-repo)
+            (magit-insert-heading
+              (concat (apply #'propertize "  Repo     " hint)
+                      (apply #'propertize (or octocat--pr-repo "")
+                             'face 'octocat-repo hint)
+                      (apply #'propertize "\n" hint)))))
+        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
+      (insert "\n")
       (magit-insert-section (pr-body)
         (magit-insert-heading (propertize "Body" 'face 'octocat-section-heading))
         (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
@@ -291,6 +303,14 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
       ;; ── Meta ────────────────────────────────────────────────────────────
       (magit-insert-section (pr-meta)
         (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))
+        (let ((hint (list 'mouse-face 'magit-section-highlight
+                          'help-echo  "RET: open repo view")))
+          (magit-insert-section (repo-nav octocat--pr-repo)
+            (magit-insert-heading
+              (concat (apply #'propertize "  Repo     " hint)
+                      (apply #'propertize (or octocat--pr-repo "")
+                             'face 'octocat-repo hint)
+                      (apply #'propertize "\n" hint)))))
         (magit-insert-section (pr-title)
           (magit-insert-heading
             (let ((hint '(mouse-face magit-section-highlight

@@ -125,6 +125,11 @@ Keys: prs, issues, commits, recent-runs.
 Nil until first refresh; each key is then initialised from
 `octocat-section-limit' and incremented by `octocat-repo-load-more'.")
 
+(defvar-local octocat-repo--fork-parent nil
+  "\"owner/repo\" string of the upstream repository when this repo is a fork.
+Nil when the repo is not a fork or when the information has not yet been
+fetched.  Set by `octocat-repo-refresh' after the async API call returns.")
+
 
 ;;;; Repo detection
 
@@ -240,6 +245,21 @@ Calls CALLBACK with a non-empty string such as \"main\", or a cons
        (if (string-empty-p s)
            (error "Empty default_branch in repo response")
          s)))
+   callback))
+
+
+(defun octocat-repo--fetch-fork-parent (repo callback)
+  "Fetch the parent repository name for REPO asynchronously.
+Calls CALLBACK with an \"owner/repo\" string when REPO is a fork, or nil
+when it is not a fork.  Uses the GitHub REST API via `gh api'."
+  (octocat--run-gh
+   "fork-parent"
+   (list "api"
+         (format "repos/%s" repo)
+         "--jq" "if .fork then .parent.full_name else empty end")
+   (lambda (output)
+     (let ((s (string-trim output)))
+       (and (not (string-empty-p s)) s)))
    callback))
 
 
@@ -563,6 +583,15 @@ Issues, and Workflows, each with a dimmed \\='Loading…\\=' placeholder."
                           (when (and subject (not (string-empty-p subject)))
                             (concat "  " subject))
                           "\n"))))
+      (when octocat-repo--fork-parent
+        (let ((hint (list 'mouse-face 'magit-section-highlight
+                          'help-echo  "RET: open parent repo view")))
+          (magit-insert-section (fork-parent octocat-repo--fork-parent)
+            (magit-insert-heading
+              (concat (apply #'propertize "Forked from  " hint)
+                      (apply #'propertize octocat-repo--fork-parent
+                             'face 'octocat-repo hint)
+                      (apply #'propertize "\n" hint))))))
       (insert "\n")
       (octocat-repo--hide-if-saved 'issues
         (magit-insert-section (issues)
@@ -596,7 +625,7 @@ Issues, and Workflows, each with a dimmed \\='Loading…\\=' placeholder."
 
 (defun octocat-repo--render (prs issues workflows repo
                              &optional recent-runs commits default-branch current-branch
-                             head-info)
+                             head-info fork-parent)
   "Erase the buffer and render repo sections for REPO.
 PRS, ISSUES, WORKFLOWS may each be a list of hash-tables or a cons
 \(error . MSG) when the corresponding feature is disabled or unavailable.
@@ -610,6 +639,8 @@ non-nil the matching branch column in the PR and Workflow Runs lists is
 highlighted with `octocat-branch-current'.
 HEAD-INFO is an optional plist (:branch :hash :subject) from
 `octocat--head-info', used to render the Local Head line.
+FORK-PARENT is an optional \"owner/repo\" string; when non-nil a RET-able
+\\='Forked from\\=' line is shown below the Local Head line.
 Render collapsible sections; delegate to the individual render helpers."
   (octocat-repo--save-section-state)
   (let ((inhibit-read-only t))
@@ -651,6 +682,15 @@ Render collapsible sections; delegate to the individual render helpers."
                           (when (and subject (not (string-empty-p subject)))
                             (concat "  " subject))
                           "\n"))))
+      (when (and fork-parent (stringp fork-parent) (not (string-empty-p fork-parent)))
+        (let ((hint (list 'mouse-face 'magit-section-highlight
+                          'help-echo  "RET: open parent repo view")))
+          (magit-insert-section (fork-parent fork-parent)
+            (magit-insert-heading
+              (concat (apply #'propertize "Forked from  " hint)
+                      (apply #'propertize fork-parent
+                             'face 'octocat-repo hint)
+                      (apply #'propertize "\n" hint))))))
       (insert "\n")
       (octocat-repo--hide-if-saved 'issues        (octocat-repo--render-issues issues))
       (insert "\n")
@@ -762,19 +802,21 @@ default branch name itself."
                               (plist-get cache :commits)
                               (plist-get cache :default-branch)
                               current-branch
-                              head-info)
+                              head-info
+                              octocat-repo--fork-parent)
         (octocat--restore-point saved-point))
        ((zerop (buffer-size))
         (octocat-repo--render-loading repo))))
     ;; Always fetch fresh data in the background.
-    ;; All 6 requests fire in parallel; render once all have returned.
+    ;; All 7 requests fire in parallel; render once all have returned.
     (setq mode-line-process " [refreshing…]")
     (let ((pr-result       'pending)
           (issue-result    'pending)
           (workflow-result 'pending)
           (runs-result     'pending)
           (commits-result  'pending)
-          (branch-result   'pending))
+          (branch-result   'pending)
+          (fork-result     'pending))
       (cl-labels
           ((maybe-render ()
              (unless (or (eq pr-result       'pending)
@@ -782,11 +824,16 @@ default branch name itself."
                          (eq workflow-result 'pending)
                          (eq runs-result     'pending)
                          (eq commits-result  'pending)
-                         (eq branch-result   'pending))
+                         (eq branch-result   'pending)
+                         (eq fork-result     'pending))
                (when (buffer-live-p buf)
                  (with-current-buffer buf
                    (setq mode-line-process nil)
-                   (let ((branch (and (stringp branch-result) branch-result)))
+                   (let ((branch      (and (stringp branch-result) branch-result))
+                         (fork-parent (and (stringp fork-result) fork-result)))
+                     ;; Store fork-parent in the buffer-local var so it
+                     ;; survives to the next loading-skeleton render.
+                     (setq octocat-repo--fork-parent fork-parent)
                      ;; Only persist to cache when every limit is at its
                      ;; default, so "load more" results never corrupt the
                      ;; stale-while-revalidate snapshot.
@@ -798,7 +845,7 @@ default branch name itself."
                                             commits-result branch))
                      (octocat-repo--render pr-result issue-result workflow-result
                                            repo runs-result commits-result branch
-                                           current-branch head-info))
+                                           current-branch head-info fork-parent))
                    (octocat--restore-point saved-point))))))
         (octocat--list-prs repo prs-count
                            (lambda (result)
@@ -823,7 +870,11 @@ default branch name itself."
         (octocat-repo--fetch-default-branch repo
                                             (lambda (result)
                                               (setq branch-result result)
-                                              (maybe-render)))))))
+                                              (maybe-render)))
+        (octocat-repo--fetch-fork-parent repo
+                                         (lambda (result)
+                                           (setq fork-result result)
+                                           (maybe-render)))))))
 
 
 ;;;; Load-more command

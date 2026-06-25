@@ -131,6 +131,14 @@ cons \\=(error . MSG) on failure."
                 name))
       (magit-insert-section (workflow-info)
         (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))
+        (let ((hint (list 'mouse-face 'magit-section-highlight
+                          'help-echo  "RET: open repo view")))
+          (magit-insert-section (repo-nav octocat--workflow-repo)
+            (magit-insert-heading
+              (concat (apply #'propertize "  Repo     " hint)
+                      (apply #'propertize (or octocat--workflow-repo "")
+                             'face 'octocat-repo hint)
+                      (apply #'propertize "\n" hint)))))
         (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
       (insert "\n")
       (magit-insert-section (workflow-runs)
@@ -168,6 +176,14 @@ hash-tables."
       ;; ── Info ────────────────────────────────────────────────────────────
       (magit-insert-section (workflow-info)
         (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))
+        (let ((hint (list 'mouse-face 'magit-section-highlight
+                          'help-echo  "RET: open repo view")))
+          (magit-insert-section (repo-nav octocat--workflow-repo)
+            (magit-insert-heading
+              (concat (apply #'propertize "  Repo     " hint)
+                      (apply #'propertize (or octocat--workflow-repo "")
+                             'face 'octocat-repo hint)
+                      (apply #'propertize "\n" hint)))))
         (insert (format "  State    %s\n"
                         (propertize state 'face (octocat--workflow-state-face state))))
         (insert (format "  Path     %s\n"

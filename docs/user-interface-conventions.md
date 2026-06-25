@@ -461,3 +461,36 @@ process object, `t` from `browse-url`, etc.) which is truthy.  The outer
 the `pcase` falls through with `nil` — i.e. the section type was not
 matched.  Both `(pcase … (_ nil))` and an explicit fall-through produce
 `nil`; the fallback `cond` then checks `derived-mode-p` in order.
+
+---
+
+## Navigating back to the parent repo view
+
+Every detail view (PR, issue, commit, workflow, run, job, PR diff, checks)
+belongs to a GitHub repository.  A **`Repo` line** at the top of the Info
+section is the breadcrumb back to the repo view for that repository.
+
+The line is RET-able (and mouse-hoverable) — pressing RET on it opens the
+`*octocat-repo: owner/repo*` buffer for that repository, exactly as if the
+user had navigated there from the dashboard.
+
+The repo name is rendered with the `octocat-repo` face and follows the same
+`mouse-face` + `help-echo` convention as all other RET-able Info rows.  It
+sits first in the Info section — above Title, Author, and all other fields —
+so it reads as a breadcrumb rather than a metadata field.
+
+### Placement
+
+| View | Where the Repo line sits |
+|---|---|
+| PR | First in `pr-meta` section (before Title) |
+| Issue | First in `issue-meta` section (before Title) |
+| Commit | First in `commit-meta` section (before Author) |
+| Workflow | First in `workflow-info` section (before State) |
+| Run | First in `run-info` section (before Workflow) |
+| Job | First in `job-info` section (before Status) |
+| PR diff | First line of root section body (before Files) |
+| Checks | First line of root section body (before Check Runs) |
+
+The same line appears in both the loading skeleton and the fully-rendered
+view so the breadcrumb is always visible from the moment the buffer opens.

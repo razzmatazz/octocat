@@ -384,6 +384,13 @@
       ;; RET on the feed "[+] Load more…" row fetches more feed events.
       ('load-more-feed
        (octocat-feed-load-more))
+      ;; RET on a repo-nav line (inside any detail-view Info section) opens
+      ;; the repo view for the repository this detail view belongs to.
+      ('repo-nav
+       (octocat-visit-repo (oref section value)))
+      ;; RET on the "Forked from" line in a repo view opens the parent repo.
+      ('fork-parent
+       (octocat-visit-repo (oref section value)))
       ;; RET on a tree file entry opens the file viewer.
       ('tree-file
        (let* ((entry    (oref section value))
