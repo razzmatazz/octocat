@@ -100,25 +100,29 @@ After editing, use the `emacs__eval-elisp` MCP tool to reload **all** `octocat*.
 The canonical reload sequence is:
 
 ```elisp
+;; 1. Kill display buffers so stale renders are gone.
 (dolist (buf (buffer-list))
   (when (string-match-p "\\*octocat" (buffer-name buf))
     (kill-buffer buf)))
-(dolist (f (directory-files "/path/to/octocat" t "\\.elc$"))
+;; 2. Kill visited source buffers — with-temp-buffer still evaluates the
+;;    visited buffer if one exists, so kill them first.
+(dolist (f (directory-files "/Users/bob/src/octocat" t "\\.el$"))
+  (let ((buf (find-buffer-visiting f)))
+    (when buf (kill-buffer buf))))
+;; 3. Delete .elc files so bytecode cannot shadow source.
+(dolist (f (directory-files "/Users/bob/src/octocat" t "\\.elc$"))
   (delete-file f))
-(load-file "octocat-core.el")
-(load-file "octocat-edit.el")
-(load-file "octocat-commit.el")
-(load-file "octocat-job.el")
-(load-file "octocat-run.el")
-(load-file "octocat-workflow.el")
-(load-file "octocat-pr-diff.el")
-(load-file "octocat-pr.el")
-(load-file "octocat-issue.el")
-(load-file "octocat-checks.el")
-(load-file "octocat-tree.el")
-(load-file "octocat-repo.el")
-(load-file "octocat-evil.el")   ; ← before octocat.el
-(load-file "octocat.el")
+;; 4. Load each file fresh from disk via a temp buffer — immune to stale
+;;    visited buffers (see gotcha below).
+(dolist (f (list "octocat-core.el" "octocat-edit.el" "octocat-commit.el"
+                 "octocat-job.el" "octocat-run.el" "octocat-workflow.el"
+                 "octocat-pr-diff.el" "octocat-pr.el" "octocat-issue.el"
+                 "octocat-checks.el" "octocat-tree.el" "octocat-repo.el"
+                 "octocat-evil.el" "octocat.el"))   ; ← evil before octocat.el
+  (with-temp-buffer
+    (insert-file-contents (expand-file-name f "/Users/bob/src/octocat"))
+    (emacs-lisp-mode)
+    (eval-buffer)))
 ```
 
 **Always delete `.elc` files before reloading.** Emacs prefers compiled files over source, so stale `.elc` files will silently shadow your edits. Use `make clean` to remove them.
@@ -131,6 +135,31 @@ The canonical reload sequence is:
 > buffer even though the source file is correct.  Always run `make clean`
 > immediately before every `load-file` reload, regardless of whether
 > `make ci` was run in between.
+
+**Use `with-temp-buffer` + `insert-file-contents` to reload, not `load-file`.**
+`load-file` and `eval-buffer` evaluate the *visited buffer* if the file is
+already open in Emacs, not the bytes on disk.  If that buffer is stale —
+e.g. because the file-editing tools wrote new content that Emacs has not
+yet re-read — the old in-memory content is silently re-evaluated and your
+edits have no effect.  The canonical sequence avoids visited buffers
+entirely by reading each file fresh into a temporary buffer.
+
+> **Gotcha — `with-temp-buffer` still uses the visited buffer.**
+> `insert-file-contents` prefers the visited buffer if one exists, so
+> `with-temp-buffer` alone is not enough.  Kill all visited source buffers
+> *before* the reload loop:
+>
+> ```elisp
+> (dolist (f (directory-files "/Users/bob/src/octocat" t "\\.el$"))
+>   (let ((buf (find-buffer-visiting f)))
+>     (when buf (kill-buffer buf))))
+> ```
+>
+> Only after this does `with-temp-buffer` + `insert-file-contents` reliably
+> read the bytes on disk.
+
+This is immune to stale visited buffers and to `.elc` shadowing because it
+reads directly from disk and evaluates source, never bytecode.
 
 **Always kill existing octocat buffers before reloading.** Mode keymaps are defined with `defvar`, which only initialises on first load. Existing buffers capture the old keymap object at mode-activation time and will not pick up new bindings even after a reload. Kill all live octocat buffers first so fresh ones are created against the new keymaps:
 
@@ -159,6 +188,30 @@ The canonical reload sequence is:
 > ```
 >
 > Or use `ignore-errors`.
+
+**After reloading, verify the function is updated in memory before judging
+the result.** Async buffer rendering makes visual inspection unreliable: the
+buffer may finish rendering before or after you look at it, and stale cached
+content can persist in a buffer that was not killed.  Instead, confirm the
+reload took effect by inspecting the in-memory function body directly:
+
+```elisp
+;; Print a substring of the loaded function to confirm the new code is live.
+;; Replace 'some-token' with a distinctive identifier from your edit.
+(let* ((src (format "%s" (symbol-function 'octocat-repo--render-workflow-runs))))
+  (string-search "some-token" src))   ; nil = not present, integer = found at position
+```
+
+If the token is absent after a seemingly successful `load-file`, the most
+likely cause is stale `.elc` files (see the `make ci` gotcha above).
+
+**After killing buffers and reloading, open a fresh buffer to test.** The
+canonical reload sequence kills all octocat buffers *before* reloading, so
+there is nothing to look at afterwards.  Re-open with `(octocat-repo)` (or
+whichever entry point is relevant), then **wait for the async data fetch to
+complete** before judging whether the change works.  Async sections render
+after a network round-trip; checking the buffer immediately after opening
+will show only the loading skeleton, not the final output.
 
 **Do not use `unload-feature` to reload octocat packages.** It cascade-unloads
 `markdown-mode` (a transitive dependency of `octocat-core`), which leaves
