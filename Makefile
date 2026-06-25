@@ -20,7 +20,7 @@ clean:
 	find . -maxdepth 1 -name '*.elc' -delete
 
 compile: image clean
-	$(DOCKER_RUN) sh -c "eask install-deps --dev && eask compile"
+	$(DOCKER_RUN) sh -c "eask install-deps --dev && eask compile --strict"
 
 lint: image
 	$(DOCKER_RUN) sh -c "eask install-deps --dev && eask lint checkdoc && eask lint package"

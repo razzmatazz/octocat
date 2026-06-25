@@ -15,5 +15,3 @@
 (depends-on "emacs"         "29.1")
 (depends-on "magit-section" "3.0")
 (depends-on "markdown-mode" "2.0")
-
-(setq byte-compile-error-on-warn t)
