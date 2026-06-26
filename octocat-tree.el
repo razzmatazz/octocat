@@ -114,6 +114,7 @@ Populated on first call and reused until `octocat-tree-refresh' clears it.")
 (define-key octocat-tree-mode-map (kbd "q")       #'quit-window)
 (define-key octocat-tree-mode-map (kbd "C-c C-o") #'octocat-tree-browse)
 (define-key octocat-tree-mode-map (kbd "o")       #'octocat-tree-browse)
+(define-key octocat-tree-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
 (define-key octocat-tree-mode-map (kbd "gr")      #'octocat-tree-refresh)
 
 (define-derived-mode octocat-tree-mode special-mode "Octocat-Tree"
@@ -137,6 +138,7 @@ Populated on first call and reused until `octocat-tree-refresh' clears it.")
 (define-key octocat-file-mode-map (kbd "o")       #'octocat-file-browse)
 (define-key octocat-file-mode-map (kbd "C-c C-f") #'octocat-tree-find-file)
 (define-key octocat-file-mode-map (kbd "C-c C-l") #'octocat-file-log-open)
+(define-key octocat-file-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
 (define-key octocat-file-mode-map (kbd "gr")      #'octocat-file-refresh)
 
 (define-derived-mode octocat-file-mode special-mode "Octocat-File"
@@ -170,6 +172,7 @@ Populated on first call and reused until `octocat-tree-refresh' clears it.")
 (define-key octocat-file-log-mode-map (kbd "q")       #'quit-window)
 (define-key octocat-file-log-mode-map (kbd "RET")     #'octocat-visit)
 (define-key octocat-file-log-mode-map (kbd "C-c C-o") #'octocat-browse)
+(define-key octocat-file-log-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
 (define-key octocat-file-log-mode-map (kbd "gr")      #'octocat-file-log-refresh)
 
 (define-derived-mode octocat-file-log-mode magit-section-mode "Octocat-File-Log"

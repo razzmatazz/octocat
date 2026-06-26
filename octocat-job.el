@@ -593,6 +593,7 @@ Prompts for a destination directory and runs `gh run download' asynchronously."
     (set-keymap-parent map magit-section-mode-map)
     (define-key map (kbd "q")       #'quit-window)
     (define-key map (kbd "C-c C-o") #'octocat-browse)
+    (define-key map (kbd "C-c C-r") #'octocat-switch-repo)
     (define-key map (kbd "RET")     #'octocat-job-download-artifact)
     (define-key map (kbd "g")  g)
     (define-key map (kbd "gr") #'octocat-job-refresh)
