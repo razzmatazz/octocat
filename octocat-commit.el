@@ -516,6 +516,7 @@ is shown instead."
     (define-key map (kbd "C-c C-o") #'octocat-browse)
     (define-key map (kbd "C-c C-v") #'octocat-toggle-markdown)
     (define-key map (kbd "C-c C-r") #'octocat-switch-repo)
+    (define-key map (kbd "C-c C-s") #'octocat-search-repo)
     ;; Shadow magit-section-mode-map's "g" → revert-buffer with a prefix map.
     (define-key map (kbd "g")  g)
     (define-key map (kbd "gr") #'octocat-commit-refresh)

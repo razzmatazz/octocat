@@ -37,6 +37,33 @@
 (declare-function octocat-repo-mode            "octocat-repo" ())
 (declare-function octocat-repo--local-dir-for  "octocat-repo" (repo))
 (declare-function octocat-repo-refresh         "octocat-repo" (&optional _ignore-auto _noconfirm))
+(declare-function octocat-repo--current-repo   "octocat-repo" ())
+(declare-function octocat-pr-mode              "octocat-pr"   ())
+(declare-function octocat-pr-refresh           "octocat-pr"   (&optional _ignore-auto _noconfirm))
+(declare-function octocat--render-pr-loading   "octocat-pr"   (number title state))
+(declare-function octocat-issue-mode           "octocat-issue" ())
+(declare-function octocat-issue-refresh        "octocat-issue" (&optional _ignore-auto _noconfirm))
+(declare-function octocat--render-issue-loading "octocat-issue" (number title state))
+(declare-function octocat-commit-mode          "octocat-commit" ())
+(declare-function octocat-commit-refresh       "octocat-commit" (&optional _ignore-auto _noconfirm))
+(declare-function octocat--render-commit-loading "octocat-commit" (sha))
+
+;; Buffer-local variable stubs: defined as defvar-local in their respective
+;; files (loaded after octocat-core.el).  The plain defvar here lets the
+;; byte-compiler see the symbol and suppresses "reference to free variable"
+;; warnings without creating a new binding.
+(defvar octocat-repo--repo)
+(defvar octocat--pr-repo)
+(defvar octocat--pr-number)
+(defvar octocat--issue-repo)
+(defvar octocat--issue-number)
+(defvar octocat--commit-repo)
+(defvar octocat--commit-sha)
+(defvar octocat--workflow-repo)
+(defvar octocat--run-repo)
+(defvar octocat--job-repo)
+(defvar octocat--checks-repo)
+(defvar octocat-tree--repo)
 
 
 ;;;; Options
@@ -952,6 +979,262 @@ by the repo-nav section in every detail view."
     (setq octocat-repo--repo      repo
           octocat-repo--local-dir (octocat-repo--local-dir-for repo))
     (octocat-repo-refresh)))
+
+;;;; Repo-wide object search
+
+(defun octocat--search-repo--current-repo ()
+  "Return the \"owner/repo\" string for the current octocat buffer context.
+Tries each buffer-local repo variable in priority order, then falls
+back to parsing the git origin remote via `octocat-repo--current-repo'."
+  (or (and (boundp 'octocat-repo--repo)     (ignore-errors octocat-repo--repo))
+      (and (boundp 'octocat--pr-repo)       (ignore-errors octocat--pr-repo))
+      (and (boundp 'octocat--issue-repo)    (ignore-errors octocat--issue-repo))
+      (and (boundp 'octocat--commit-repo)   (ignore-errors octocat--commit-repo))
+      (and (boundp 'octocat--workflow-repo) (ignore-errors octocat--workflow-repo))
+      (and (boundp 'octocat--run-repo)      (ignore-errors octocat--run-repo))
+      (and (boundp 'octocat--job-repo)      (ignore-errors octocat--job-repo))
+      (and (boundp 'octocat--checks-repo)   (ignore-errors octocat--checks-repo))
+      (and (boundp 'octocat-tree--repo)     (ignore-errors octocat-tree--repo))
+      (ignore-errors (octocat-repo--current-repo))))
+
+(defun octocat--search-make-pr-candidate (pr repo)
+  "Return a propertized candidate string for PR hash-table in REPO."
+  (let* ((number (gethash "number" pr))
+         (title  (or (octocat--nonempty (gethash "title" pr)) ""))
+         (state  (or (octocat--nonempty (gethash "state" pr)) "OPEN"))
+         (author (octocat--author-login pr))
+         (state-face (pcase state
+                       ("MERGED" 'magit-branch-remote)
+                       ("CLOSED" 'error)
+                       (_        'success)))
+         (display
+          (format "%-8s #%-5d  %-42s  %s  %s"
+                  (propertize "[PR]" 'face 'magit-section-heading)
+                  number
+                  (octocat--format-title title)
+                  (propertize (format "(%s)" state) 'face state-face)
+                  (propertize author 'face 'magit-blame-name)))
+         (cand (copy-sequence display)))
+    (put-text-property 0 1 'octocat-search-item
+                       (list :type 'pr :repo repo :number number
+                             :title title :state state)
+                       cand)
+    cand))
+
+(defun octocat--search-make-issue-candidate (issue repo)
+  "Return a propertized candidate string for ISSUE hash-table in REPO."
+  (let* ((number (gethash "number" issue))
+         (title  (or (octocat--nonempty (gethash "title" issue)) ""))
+         (state  (or (octocat--nonempty (gethash "state" issue)) "OPEN"))
+         (author (octocat--author-login issue))
+         (state-face (if (equal state "OPEN") 'success 'error))
+         (display
+          (format "%-8s #%-5d  %-42s  %s  %s"
+                  (propertize "[Issue]" 'face 'magit-section-heading)
+                  number
+                  (octocat--format-title title)
+                  (propertize (format "(%s)" state) 'face state-face)
+                  (propertize author 'face 'magit-blame-name)))
+         (cand (copy-sequence display)))
+    (put-text-property 0 1 'octocat-search-item
+                       (list :type 'issue :repo repo :number number
+                             :title title :state state)
+                       cand)
+    cand))
+
+(defun octocat--search-make-commit-candidate (commit repo)
+  "Return a propertized candidate string for COMMIT hash-table in REPO.
+Handles both the REST shape (\"sha\", nested \"commit\") and the GraphQL
+shape (\"oid\", nested \"commit\") used in different parts of the codebase."
+  (let* ((sha     (or (octocat--nonempty (gethash "sha"    commit))
+                      (octocat--nonempty (gethash "oid"    commit)) ""))
+         (short   (substring sha 0 (min 7 (length sha))))
+         (c       (gethash "commit" commit))
+         (msg     (or (and c (octocat--nonempty (gethash "message" c))) ""))
+         (subject (car (split-string msg "\n")))
+         (author  (octocat--commit-author commit))
+         (display
+          (format "%-8s %s  %-42s  %s"
+                  (propertize "[Commit]" 'face 'magit-section-heading)
+                  (propertize short 'face 'magit-hash)
+                  (octocat--format-title subject)
+                  (propertize author 'face 'magit-blame-name)))
+         (cand (copy-sequence display)))
+    (put-text-property 0 1 'octocat-search-item
+                       (list :type 'commit :repo repo :sha sha)
+                       cand)
+    cand))
+
+(defun octocat--search-open-item (item)
+  "Open the octocat buffer described by ITEM, a plist from `octocat-search-item'."
+  (let ((type (plist-get item :type))
+        (repo (plist-get item :repo)))
+    (pcase type
+      ('pr
+       (let* ((number   (plist-get item :number))
+              (title    (or (plist-get item :title) ""))
+              (state    (or (plist-get item :state) "OPEN"))
+              (buf-name (format "*octocat-pr: %s#%d*" repo number))
+              (buf      (get-buffer-create buf-name)))
+         (pop-to-buffer buf)
+         (unless (derived-mode-p 'octocat-pr-mode)
+           (octocat-pr-mode))
+         (setq octocat--pr-repo   repo
+               octocat--pr-number number)
+         (octocat--render-pr-loading number title state)
+         (octocat-pr-refresh)))
+      ('issue
+       (let* ((number   (plist-get item :number))
+              (title    (or (plist-get item :title) ""))
+              (state    (or (plist-get item :state) "OPEN"))
+              (buf-name (format "*octocat-issue: %s#%d*" repo number))
+              (buf      (get-buffer-create buf-name)))
+         (pop-to-buffer buf)
+         (unless (derived-mode-p 'octocat-issue-mode)
+           (octocat-issue-mode))
+         (setq octocat--issue-repo   repo
+               octocat--issue-number number)
+         (octocat--render-issue-loading number title state)
+         (octocat-issue-refresh)))
+      ('commit
+       (let* ((sha      (plist-get item :sha))
+              (short    (substring sha 0 (min 7 (length sha))))
+              (buf-name (format "*octocat-commit: %s@%s*" repo short))
+              (buf      (get-buffer-create buf-name)))
+         (pop-to-buffer buf)
+         (unless (derived-mode-p 'octocat-commit-mode)
+           (octocat-commit-mode))
+         (setq octocat--commit-repo repo
+               octocat--commit-sha  sha)
+         (octocat--render-commit-loading sha)
+         (octocat-commit-refresh))))))
+
+(defun octocat--async-search-repo-objects (repo)
+  "Build a consult async pipeline stage for live object search in REPO.
+On each input string (minimum 2 chars) fires three parallel `gh' processes:
+  - `gh search prs  --repo=REPO --json ...' for pull requests
+  - `gh search issues --repo=REPO --json ...' for issues (PRs excluded)
+  - `gh search commits --repo=REPO --json ...' for commits
+Results from each process are forwarded to SINK as they arrive.  The
+indicator shows `running' until all three processes have exited, then
+switches to `finished' (or `failed' if all three failed)."
+  (lambda (sink)
+    (let (procs          ; list of live make-process handles
+          pending        ; count of processes still running
+          sent-running)  ; whether we have already sent [indicator running]
+      (cl-labels
+          ;; Kill all live processes and their buffers.
+          ((cleanup ()
+             (dolist (p procs)
+               (when (process-live-p p)
+                 (delete-process p))
+               (when (buffer-live-p (process-buffer p))
+                 (kill-buffer (process-buffer p))))
+             (setq procs nil pending 0 sent-running nil))
+           ;; Called by each sentinel when it finishes.
+           (on-done (candidates)
+             (when candidates
+               (funcall sink candidates))
+             (cl-decf pending)
+             (when (= pending 0)
+               (funcall sink [indicator finished])))
+           ;; Spawn one gh search process.
+           (spawn (gh-args make-cand-fn)
+             (let* ((buf  (generate-new-buffer " *octocat-search-objects*"))
+                    (proc (make-process
+                           :name            "octocat-search-objects"
+                           :buffer          buf
+                           :command         (cons "gh" gh-args)
+                           :connection-type 'pipe
+                           :noquery         t
+                           :sentinel
+                           (lambda (p event)
+                             (cond
+                              ((string-prefix-p "finished" event)
+                               (let ((candidates
+                                      (condition-case _
+                                          (with-current-buffer (process-buffer p)
+                                            (mapcar make-cand-fn
+                                                    (octocat--parse-json-list
+                                                     (buffer-string))))
+                                        (error nil))))
+                                 (when (buffer-live-p (process-buffer p))
+                                   (kill-buffer (process-buffer p)))
+                                 (on-done candidates)))
+                              ((string-prefix-p "killed" event)
+                               (when (buffer-live-p (process-buffer p))
+                                 (kill-buffer (process-buffer p))))
+                              (t
+                               (when (buffer-live-p (process-buffer p))
+                                 (kill-buffer (process-buffer p)))
+                               (on-done nil)))))))
+               (push proc procs))))
+        (lambda (action)
+          (pcase action
+            ;; New query string: kill any running processes, then spawn three.
+            ((pred stringp)
+             (cleanup)
+             (let ((repo-flag (format "--repo=%s" repo)))
+               (setq pending 3)
+               (unless sent-running
+                 (setq sent-running t)
+                 (funcall sink [indicator running]))
+               (funcall sink 'flush)
+               (spawn (list "search" "prs"
+                            repo-flag
+                            "--json" "number,title,state,author"
+                            "--limit" "30"
+                            action)
+                      (lambda (pr)
+                        (octocat--search-make-pr-candidate pr repo)))
+               (spawn (list "search" "issues"
+                            repo-flag
+                            "--json" "number,title,state,author"
+                            "--limit" "30"
+                            action)
+                      (lambda (issue)
+                        (octocat--search-make-issue-candidate issue repo)))
+               (spawn (list "search" "commits"
+                            repo-flag
+                            "--json" "sha,commit,author"
+                            "--limit" "30"
+                            action)
+                      (lambda (commit)
+                        (octocat--search-make-commit-candidate commit repo)))))
+            ;; Session ending: kill everything and forward.
+            ((or 'cancel 'destroy)
+             (cleanup)
+             (funcall sink action))
+            ;; All other consult actions: pass through unchanged.
+            (_ (funcall sink action))))))))
+
+(defun octocat-search-repo ()
+  "Search for a PR, issue, or commit in the current repository.
+
+Fires live `gh search' queries (PRs, issues, and commits in parallel)
+against the repository associated with the current buffer.  Results
+update as each query completes.  Selecting a candidate opens the
+corresponding detail view.
+
+The query is matched against titles, commit messages, and bodies.
+Prefix a hash (e.g. \"a1b2c3\") to narrow to a specific commit."
+  (interactive)
+  (let ((repo (octocat--search-repo--current-repo)))
+    (unless repo
+      (user-error "Octocat: Cannot determine current repository"))
+    (let* ((chosen (consult--read
+                    (consult--async-pipeline
+                     (consult--async-min-input 2)
+                     (consult--async-throttle)
+                     (octocat--async-search-repo-objects repo))
+                    :prompt        (format "Search %s: " repo)
+                    :category      'octocat-object
+                    :sort          nil
+                    :require-match t))
+           (item (and chosen
+                      (get-text-property 0 'octocat-search-item chosen))))
+      (when item
+        (octocat--search-open-item item)))))
 
 (provide 'octocat-core)
 ;;; octocat-core.el ends here

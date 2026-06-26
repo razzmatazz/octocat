@@ -262,6 +262,7 @@ falls back to opening the check in the browser via `octocat-browse'."
     (define-key map (kbd "RET")     #'octocat-checks-visit)
     (define-key map (kbd "C-c C-o") #'octocat-browse)
     (define-key map (kbd "C-c C-r") #'octocat-switch-repo)
+    (define-key map (kbd "C-c C-s") #'octocat-search-repo)
     (define-key map (kbd "g")  g)
     (define-key map (kbd "gr") #'octocat-checks-refresh)
     map)

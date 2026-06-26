@@ -97,6 +97,8 @@
     (kbd "+")       #'octocat-feed-load-more
     (kbd "C-c C-o") #'octocat-browse
     (kbd "C-c C-r") #'octocat-switch-repo
+    (kbd "C-c C-s") #'octocat-search-repo
+    (kbd "gs")      #'octocat-search-repo
     (kbd "q")       #'quit-window)
   (evil-define-key* 'motion octocat-mode-map
     (kbd "RET")     #'octocat-visit)
@@ -130,6 +132,8 @@
     (define-key aux   (kbd "C-c C-e") #'octocat-pr-edit)
     (define-key aux   (kbd "C-c C-v") #'octocat-toggle-markdown)
     (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
+    (define-key aux   (kbd "C-c C-s") #'octocat-search-repo)
+    (define-key aux   (kbd "gs")    #'octocat-search-repo)
     (define-key aux   (kbd "q")     #'quit-window)
     (define-key aux   (kbd "gr")    #'octocat-pr-refresh)
     (define-key aux-m (kbd "RET")   #'octocat-visit))
@@ -145,6 +149,8 @@
     (define-key aux   (kbd "C-c C-o") #'octocat-browse)
     (define-key aux   (kbd "C-c C-v") #'octocat-toggle-markdown)
     (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
+    (define-key aux   (kbd "C-c C-s") #'octocat-search-repo)
+    (define-key aux   (kbd "gs")    #'octocat-search-repo)
     (define-key aux   (kbd "q")     #'quit-window)
     (define-key aux   (kbd "gr")    #'octocat-commit-refresh)
     (define-key aux-m (kbd "RET")   #'octocat-visit))
@@ -154,6 +160,8 @@
     (define-key aux (kbd "g")       nil)
     (define-key aux (kbd "C-c C-o") #'octocat-browse)
     (define-key aux (kbd "C-c C-r") #'octocat-switch-repo)
+    (define-key aux (kbd "C-c C-s") #'octocat-search-repo)
+    (define-key aux (kbd "gs")      #'octocat-search-repo)
     (define-key aux (kbd "q")       #'quit-window)
     (define-key aux (kbd "gr")      #'octocat-pr-diff-refresh))
 
@@ -167,6 +175,8 @@
     (define-key aux   (kbd "C-c C-e") #'octocat-issue-edit)
     (define-key aux   (kbd "C-c C-v") #'octocat-toggle-markdown)
     (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
+    (define-key aux   (kbd "C-c C-s") #'octocat-search-repo)
+    (define-key aux   (kbd "gs")    #'octocat-search-repo)
     (define-key aux   (kbd "q")     #'quit-window)
     (define-key aux   (kbd "gr")    #'octocat-issue-refresh)
     (define-key aux-m (kbd "RET")   #'octocat-visit))
@@ -179,6 +189,8 @@
     (define-key aux   (kbd "+")     #'octocat-workflow-load-more)
     (define-key aux   (kbd "C-c C-o") #'octocat-browse)
     (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
+    (define-key aux   (kbd "C-c C-s") #'octocat-search-repo)
+    (define-key aux   (kbd "gs")    #'octocat-search-repo)
     (define-key aux   (kbd "q")     #'quit-window)
     (define-key aux   (kbd "gr")    #'octocat-workflow-refresh)
     (define-key aux-m (kbd "RET")   #'octocat-workflow-visit))
@@ -190,6 +202,8 @@
     (define-key aux   (kbd "RET")   #'octocat-run-visit-or-download)
     (define-key aux   (kbd "C-c C-o") #'octocat-browse)
     (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
+    (define-key aux   (kbd "C-c C-s") #'octocat-search-repo)
+    (define-key aux   (kbd "gs")    #'octocat-search-repo)
     (define-key aux   (kbd "q")     #'quit-window)
     (define-key aux   (kbd "gr")    #'octocat-run-refresh)
     (define-key aux-m (kbd "RET")   #'octocat-run-visit-or-download))
@@ -201,6 +215,8 @@
     (define-key aux   (kbd "RET")   #'octocat-job-download-artifact)
     (define-key aux   (kbd "C-c C-o") #'octocat-browse)
     (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
+    (define-key aux   (kbd "C-c C-s") #'octocat-search-repo)
+    (define-key aux   (kbd "gs")    #'octocat-search-repo)
     (define-key aux   (kbd "q")     #'quit-window)
     (define-key aux   (kbd "gr")    #'octocat-job-refresh)
     (define-key aux-m (kbd "RET")   #'octocat-job-download-artifact))
@@ -243,6 +259,8 @@
     (define-key aux   (kbd "RET")     #'octocat-visit)
     (define-key aux   (kbd "C-c C-o") #'octocat-browse)
     (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
+    (define-key aux   (kbd "C-c C-s") #'octocat-search-repo)
+    (define-key aux   (kbd "gs")      #'octocat-search-repo)
     (define-key aux   (kbd "q")       #'quit-window)
     (define-key aux   (kbd "gr")      #'octocat-file-log-refresh)
     (define-key aux-m (kbd "RET")     #'octocat-visit))

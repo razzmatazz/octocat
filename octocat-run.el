@@ -364,6 +364,7 @@ calls `octocat-job-download-artifact'."
     (define-key map (kbd "RET")     #'octocat-run-visit-or-download)
     (define-key map (kbd "C-c C-o") #'octocat-browse)
     (define-key map (kbd "C-c C-r") #'octocat-switch-repo)
+    (define-key map (kbd "C-c C-s") #'octocat-search-repo)
     (define-key map (kbd "g")  g)
     (define-key map (kbd "gr") #'octocat-run-refresh)
     map)
