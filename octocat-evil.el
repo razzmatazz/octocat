@@ -59,6 +59,7 @@
 (declare-function octocat-file-browse        "octocat-tree"      ())
 (declare-function octocat-file-log-open      "octocat-tree"      ())
 (declare-function octocat-file-log-refresh   "octocat-tree"      (&optional _ignore-auto _noconfirm))
+(declare-function octocat-switch-repo        "octocat-core"      ())
 (declare-function octocat-toggle-markdown    "octocat-core"      ())
 (declare-function octocat-pr-refresh         "octocat-pr"        (&optional _ignore-auto _noconfirm))
 (declare-function octocat-pr-add-comment     "octocat-pr"        ())
@@ -95,6 +96,7 @@
     (kbd "RET")     #'octocat-visit
     (kbd "+")       #'octocat-feed-load-more
     (kbd "C-c C-o") #'octocat-browse
+    (kbd "C-c C-r") #'octocat-switch-repo
     (kbd "q")       #'quit-window)
   (evil-define-key* 'motion octocat-mode-map
     (kbd "RET")     #'octocat-visit)
@@ -105,6 +107,7 @@
     (kbd "+")       #'octocat-repo-load-more
     (kbd "C-c C-o") #'octocat-browse
     (kbd "C-c C-f") #'octocat-tree-find-file
+    (kbd "C-c C-r") #'octocat-switch-repo
     (kbd "q")       #'quit-window)
   (evil-define-key* 'motion octocat-repo-mode-map
     (kbd "RET")     #'octocat-visit)
@@ -126,6 +129,7 @@
     (define-key aux   (kbd "C-c C-a") #'octocat-pr-add-comment)
     (define-key aux   (kbd "C-c C-e") #'octocat-pr-edit)
     (define-key aux   (kbd "C-c C-v") #'octocat-toggle-markdown)
+    (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
     (define-key aux   (kbd "q")     #'quit-window)
     (define-key aux   (kbd "gr")    #'octocat-pr-refresh)
     (define-key aux-m (kbd "RET")   #'octocat-visit))
@@ -140,6 +144,7 @@
     (define-key aux   (kbd "RET")   #'octocat-visit)
     (define-key aux   (kbd "C-c C-o") #'octocat-browse)
     (define-key aux   (kbd "C-c C-v") #'octocat-toggle-markdown)
+    (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
     (define-key aux   (kbd "q")     #'quit-window)
     (define-key aux   (kbd "gr")    #'octocat-commit-refresh)
     (define-key aux-m (kbd "RET")   #'octocat-visit))
@@ -148,6 +153,7 @@
   (let ((aux (evil-get-auxiliary-keymap octocat-pr-diff-mode-map 'normal t t)))
     (define-key aux (kbd "g")       nil)
     (define-key aux (kbd "C-c C-o") #'octocat-browse)
+    (define-key aux (kbd "C-c C-r") #'octocat-switch-repo)
     (define-key aux (kbd "q")       #'quit-window)
     (define-key aux (kbd "gr")      #'octocat-pr-diff-refresh))
 
@@ -160,6 +166,7 @@
     (define-key aux   (kbd "C-c C-a") #'octocat-issue-add-comment)
     (define-key aux   (kbd "C-c C-e") #'octocat-issue-edit)
     (define-key aux   (kbd "C-c C-v") #'octocat-toggle-markdown)
+    (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
     (define-key aux   (kbd "q")     #'quit-window)
     (define-key aux   (kbd "gr")    #'octocat-issue-refresh)
     (define-key aux-m (kbd "RET")   #'octocat-visit))
@@ -171,6 +178,7 @@
     (define-key aux   (kbd "RET")   #'octocat-workflow-visit)
     (define-key aux   (kbd "+")     #'octocat-workflow-load-more)
     (define-key aux   (kbd "C-c C-o") #'octocat-browse)
+    (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
     (define-key aux   (kbd "q")     #'quit-window)
     (define-key aux   (kbd "gr")    #'octocat-workflow-refresh)
     (define-key aux-m (kbd "RET")   #'octocat-workflow-visit))
@@ -181,6 +189,7 @@
     (define-key aux   (kbd "g")     nil)
     (define-key aux   (kbd "RET")   #'octocat-run-visit-or-download)
     (define-key aux   (kbd "C-c C-o") #'octocat-browse)
+    (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
     (define-key aux   (kbd "q")     #'quit-window)
     (define-key aux   (kbd "gr")    #'octocat-run-refresh)
     (define-key aux-m (kbd "RET")   #'octocat-run-visit-or-download))
@@ -191,6 +200,7 @@
     (define-key aux   (kbd "g")     nil)
     (define-key aux   (kbd "RET")   #'octocat-job-download-artifact)
     (define-key aux   (kbd "C-c C-o") #'octocat-browse)
+    (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
     (define-key aux   (kbd "q")     #'quit-window)
     (define-key aux   (kbd "gr")    #'octocat-job-refresh)
     (define-key aux-m (kbd "RET")   #'octocat-job-download-artifact))
@@ -203,6 +213,7 @@
     [tab]           #'octocat-tree-expand
     (kbd "C-c C-f") #'octocat-tree-find-file
     (kbd "C-c C-o") #'octocat-tree-browse
+    (kbd "C-c C-r") #'octocat-switch-repo
     (kbd "o")       #'octocat-tree-browse
     (kbd "q")       #'quit-window
     (kbd "gr")      #'octocat-tree-refresh)
@@ -218,6 +229,7 @@
     (kbd "o")       #'octocat-file-browse
     (kbd "C-c C-f") #'octocat-tree-find-file
     (kbd "C-c C-l") #'octocat-file-log-open
+    (kbd "C-c C-r") #'octocat-switch-repo
     (kbd "q")       #'quit-window
     (kbd "gr")      #'octocat-file-refresh)
   (evil-define-key* 'motion octocat-file-mode-map
@@ -230,6 +242,7 @@
     (define-key aux   (kbd "g")       nil)
     (define-key aux   (kbd "RET")     #'octocat-visit)
     (define-key aux   (kbd "C-c C-o") #'octocat-browse)
+    (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
     (define-key aux   (kbd "q")       #'quit-window)
     (define-key aux   (kbd "gr")      #'octocat-file-log-refresh)
     (define-key aux-m (kbd "RET")     #'octocat-visit))

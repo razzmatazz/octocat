@@ -30,6 +30,7 @@
 (require 'magit-section)
 (require 'json)
 (require 'markdown-mode)
+(require 'consult)
 
 ;; Forward declarations for octocat-repo.el functions called from this file.
 ;; octocat-repo.el is loaded after octocat-core.el, so we cannot require it.
@@ -785,6 +786,94 @@ After toggling, the buffer is refreshed via `octocat--refresh-fn'."
 
 (defvar octocat-repo--repo)
 (defvar octocat-repo--local-dir)
+
+(defun octocat--async-search-repos ()
+  "Return a consult async pipeline stage that queries GitHub for repos.
+Fires `gh search repos --limit 30 --json fullName QUERY' for each input
+string it receives and forwards results to SINK once the process exits.
+Composes with `consult--async-min-input' and `consult--async-throttle'
+for debouncing; use those upstream in the pipeline.
+
+The stage speaks the full consult sink protocol: it forwards every
+non-string action to SINK unchanged, sends `[indicator running]' when a
+process is launched, and sends `flush'/candidates/`[indicator finished]'
+from the process sentinel when results arrive."
+  (lambda (sink)
+    (let (proc proc-buf)
+      (lambda (action)
+        (pcase action
+          ;; New input string — kill any in-flight process and launch a fresh one.
+          ((pred stringp)
+           (when (and proc (process-live-p proc))
+             (delete-process proc))
+           (when (buffer-live-p proc-buf)
+             (kill-buffer proc-buf))
+           (setq proc nil proc-buf nil)
+           (funcall sink [indicator running])
+           (setq proc-buf (generate-new-buffer " *octocat-search-repos*"))
+           (setq proc
+                 (make-process
+                  :name            "octocat-search-repos"
+                  :buffer          proc-buf
+                  :command         (list "gh" "search" "repos"
+                                         "--limit" "30"
+                                         "--json" "fullName"
+                                         action)
+                  :connection-type 'pipe
+                  :noquery         t
+                  :sentinel
+                  (lambda (p event)
+                    (cond
+                     ((string-prefix-p "finished" event)
+                      (let ((candidates
+                             (condition-case _
+                                 (with-current-buffer (process-buffer p)
+                                   (mapcar (lambda (r) (gethash "fullName" r))
+                                           (octocat--parse-json-list
+                                            (buffer-string))))
+                               (error nil))))
+                        (funcall sink 'flush)
+                        (when candidates
+                          (funcall sink candidates))
+                        (funcall sink [indicator finished])))
+                     ((string-prefix-p "killed" event)
+                      (funcall sink [indicator killed]))
+                     (t
+                      (funcall sink [indicator failed])))))))
+          ;; Session ending — clean up the process and forward to sink.
+          ((or 'cancel 'destroy)
+           (when (and proc (process-live-p proc))
+             (delete-process proc))
+           (when (buffer-live-p proc-buf)
+             (kill-buffer proc-buf))
+           (setq proc nil proc-buf nil)
+           (funcall sink action))
+          ;; All other actions (setup, flush, vectors, …) — pass through.
+          (_ (funcall sink action)))))))
+
+(defun octocat-switch-repo ()
+  "Search GitHub repositories interactively with live API queries.
+Each keystroke (debounced by `consult-async-input-debounce') calls
+`gh search repos' against GitHub's global search index.  Results update
+in place as you type — no pre-fetching, no blocking wait.
+
+Uses `consult--read' with a custom async pipeline so Vertico, Embark,
+Marginalia, and other consult-aware packages integrate seamlessly.
+
+The selected repository is opened via `octocat-visit-repo'."
+  (interactive)
+  (let ((repo
+         (consult--read
+          (consult--async-pipeline
+           (consult--async-min-input 2)
+           (consult--async-throttle)
+           (octocat--async-search-repos))
+          :prompt   "Search GitHub repos: "
+          :category 'octocat-repo
+          :sort     nil)))          ; preserve server-side ranking
+    (when (and repo (not (string-empty-p (string-trim repo))))
+      (octocat-visit-repo (string-trim repo)))))
+
 
 (defun octocat-visit-repo (repo)
   "Open (or switch to) the *octocat-repo: REPO* buffer.

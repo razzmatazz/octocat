@@ -463,6 +463,7 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
     (define-key map (kbd "C-c C-a") #'octocat-pr-add-comment)
     (define-key map (kbd "C-c C-e") #'octocat-pr-edit)
     (define-key map (kbd "C-c C-v") #'octocat-toggle-markdown)
+    (define-key map (kbd "C-c C-r") #'octocat-switch-repo)
     ;; Shadow magit-section-mode-map's "g" → revert-buffer with a prefix map.
     (define-key map (kbd "g")  g)
     (define-key map (kbd "gr") #'octocat-pr-refresh)

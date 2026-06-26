@@ -717,6 +717,7 @@ Render collapsible sections; delegate to the individual render helpers."
 (define-key octocat-repo-mode-map (kbd "C-c C-f") #'octocat-tree-find-file)
 
 (define-key octocat-repo-mode-map (kbd "C-c C-o") #'octocat-browse)
+(define-key octocat-repo-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
 (define-derived-mode octocat-repo-mode magit-section-mode "Octocat-Repo"
   "Major mode for browsing a GitHub repository.
 
