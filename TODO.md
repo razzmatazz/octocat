@@ -4,8 +4,6 @@
 
 https://github.com/melpa/melpa/pull/10048
 
-## ability to load a random repo, via C-c C-r ?! or maybe C-u M-x octocat-repo ?
-
 ## ability to load items on demand, i.e. when section opens, not when dashboard does
 
 ## ability to view checks
