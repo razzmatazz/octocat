@@ -47,10 +47,20 @@
   :group 'octocat)
 
 (defcustom octocat-cache-directory
-  (locate-user-emacs-file "octocat/cache-v2/")
+  (locate-user-emacs-file "octocat/cache-v3/")
   "Directory for storing octocat cache files."
   :type 'directory
   :group 'octocat)
+
+(defcustom octocat-repo-search-cache-ttl 3600
+  "Seconds before a cached repo search result expires.
+When `octocat-switch-repo' receives a query string it has seen before,
+it serves the cached candidate list if the entry is younger than this
+value, skipping the `gh search repos' network call entirely.  Set to 0
+to disable caching."
+  :type 'integer
+  :group 'octocat)
+
 
 
 
@@ -487,18 +497,19 @@ distinct; any remaining non-alphanumeric characters become \"-\"."
    (replace-regexp-in-string "/" "--" repo)))
 
 (defun octocat--cache-file (repo)
-  "Return the cache file path for REPO."
-  (expand-file-name (concat (octocat--cache-safe-repo repo) ".json")
-                    octocat-cache-directory))
+  "Return the cache file path for REPO's dashboard data."
+  (expand-file-name "dashboard.json"
+                    (expand-file-name (octocat--cache-safe-repo repo)
+                                      (expand-file-name "repos" octocat-cache-directory))))
 
 (defun octocat--detail-cache-file (repo type number)
   "Return the cache file path for a detail view.
 REPO is \"owner/repo\", TYPE is a string such as \"pr\", \"issue\", or
 \"commit\", and NUMBER is the item identifier — an integer for PRs and
 issues, or a SHA string for commits."
-  (expand-file-name (format "%s-%s-%s.json"
-                            (octocat--cache-safe-repo repo) type number)
-                    octocat-cache-directory))
+  (expand-file-name (format "%s-%s.json" type number)
+                    (expand-file-name (octocat--cache-safe-repo repo)
+                                      (expand-file-name "repos" octocat-cache-directory))))
 
 (defun octocat--detail-cache-load (repo type number)
   "Load cached detail data for TYPE item NUMBER in REPO.
@@ -526,6 +537,47 @@ Skips silently when DATA is an error cons."
             (set-buffer-multibyte nil)
             (insert (json-serialize data)))
         (error nil)))))
+
+(defun octocat--search-cache-file (query)
+  "Return the cache file path for repo search results for QUERY."
+  (expand-file-name
+   (concat (secure-hash 'sha256 query) ".json")
+   (expand-file-name "search-repos" octocat-cache-directory)))
+
+(defun octocat--search-cache-load (query)
+  "Load cached repo search results for QUERY from disk.
+Returns a cons (TIMESTAMP . CANDIDATES) when a valid entry exists, or
+nil when the file is absent or cannot be parsed.  The caller is
+responsible for checking whether the entry has expired."
+  (let ((file (octocat--search-cache-file query)))
+    (when (file-readable-p file)
+      (condition-case nil
+          (let* ((data       (json-parse-string
+                              (with-temp-buffer
+                                (insert-file-contents file)
+                                (buffer-string))))
+                 (timestamp  (gethash "timestamp"  data))
+                 (candidates (cl-coerce (gethash "candidates" data) 'list)))
+            (cons timestamp candidates))
+        (error nil)))))
+
+(defun octocat--search-cache-save (query candidates)
+  "Persist repo search CANDIDATES for QUERY to disk.
+CANDIDATES is a list of \"owner/name\" strings.  Skips silently on
+write errors so a full disk never breaks interactive search."
+  (let* ((file (octocat--search-cache-file query))
+         (dir  (file-name-directory file))
+         (obj  (let ((h (make-hash-table :test #'equal)))
+                 (puthash "timestamp"  (float-time)        h)
+                 (puthash "query"      query               h)
+                 (puthash "candidates" (vconcat candidates) h)
+                 h)))
+    (make-directory dir t)
+    (condition-case nil
+        (with-temp-file file
+          (set-buffer-multibyte nil)
+          (insert (json-serialize obj)))
+      (error nil))))
 
 (defun octocat--cache-load (repo)
   "Load cached dashboard data for REPO from disk.
@@ -802,44 +854,57 @@ from the process sentinel when results arrive."
     (let (proc proc-buf)
       (lambda (action)
         (pcase action
-          ;; New input string — kill any in-flight process and launch a fresh one.
+          ;; New input string — serve from cache if fresh, otherwise fetch.
           ((pred stringp)
            (when (and proc (process-live-p proc))
              (delete-process proc))
            (when (buffer-live-p proc-buf)
              (kill-buffer proc-buf))
            (setq proc nil proc-buf nil)
-           (funcall sink [indicator running])
-           (setq proc-buf (generate-new-buffer " *octocat-search-repos*"))
-           (setq proc
-                 (make-process
-                  :name            "octocat-search-repos"
-                  :buffer          proc-buf
-                  :command         (list "gh" "search" "repos"
-                                         "--limit" "30"
-                                         "--json" "fullName"
-                                         action)
-                  :connection-type 'pipe
-                  :noquery         t
-                  :sentinel
-                  (lambda (p event)
-                    (cond
-                     ((string-prefix-p "finished" event)
-                      (let ((candidates
-                             (condition-case _
-                                 (with-current-buffer (process-buffer p)
-                                   (mapcar (lambda (r) (gethash "fullName" r))
-                                           (octocat--parse-json-list
-                                            (buffer-string))))
-                               (error nil))))
-                        (funcall sink 'flush)
-                        (when candidates
-                          (funcall sink candidates))
-                        (funcall sink [indicator finished])))
-                     ((string-prefix-p "killed" event)
-                      (funcall sink [indicator killed]))
-                     (t
-                      (funcall sink [indicator failed])))))))
+           (let ((cached (octocat--search-cache-load action)))
+             (if (and cached
+                      (> octocat-repo-search-cache-ttl 0)
+                      (< (- (float-time) (car cached))
+                         octocat-repo-search-cache-ttl))
+                 ;; Cache hit — deliver results without touching the network.
+                 (progn
+                   (funcall sink 'flush)
+                   (when (cdr cached)
+                     (funcall sink (cdr cached)))
+                   (funcall sink [indicator finished]))
+               ;; Cache miss or expired — launch gh.
+               (funcall sink [indicator running])
+               (setq proc-buf (generate-new-buffer " *octocat-search-repos*"))
+               (setq proc
+                     (make-process
+                      :name            "octocat-search-repos"
+                      :buffer          proc-buf
+                      :command         (list "gh" "search" "repos"
+                                             "--limit" "30"
+                                             "--json" "fullName"
+                                             action)
+                      :connection-type 'pipe
+                      :noquery         t
+                      :sentinel
+                      (lambda (p event)
+                        (cond
+                         ((string-prefix-p "finished" event)
+                          (let ((candidates
+                                 (condition-case _
+                                     (with-current-buffer (process-buffer p)
+                                       (mapcar (lambda (r) (gethash "fullName" r))
+                                               (octocat--parse-json-list
+                                                (buffer-string))))
+                                   (error nil))))
+                            (octocat--search-cache-save action candidates)
+                            (funcall sink 'flush)
+                            (when candidates
+                              (funcall sink candidates))
+                            (funcall sink [indicator finished])))
+                         ((string-prefix-p "killed" event)
+                          (funcall sink [indicator killed]))
+                         (t
+                          (funcall sink [indicator failed])))))))))
           ;; Session ending — clean up the process and forward to sink.
           ((or 'cancel 'destroy)
            (when (and proc (process-live-p proc))
