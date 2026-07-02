@@ -20,6 +20,26 @@ specific model (e.g. `claude-sonnet-4-6`).  This convention follows
 
 ## Code conventions
 
+### Entry points (`;;;###autoload` commands)
+
+**All `;;;###autoload` / `M-x`-invokable commands must be defined in
+`octocat.el`**, even when the mode/logic they open lives elsewhere — e.g.
+`octocat-repo` is a thin wrapper in `octocat.el` that calls into
+`octocat-repo-mode` and friends, defined in `octocat-repo.el`.
+
+`octocat.el` is the only file every other file omits requiring (to avoid
+circularity), so it's the only file that can assume everything else is
+loaded — including its own bottom-of-file `octocat--evil-init` trigger,
+which wires up Evil keybindings. A second autoloaded command elsewhere
+could be invoked first, in a session where that trigger never ran, leaving
+Evil bindings unset. See AGENTS.md's "Byte-compiler warnings" section for
+the related loaded-by-`octocat.el` invariant.
+
+When adding a new entry point: define the `;;;###autoload` command in
+`octocat.el` alongside `octocat`/`octocat-repo`; put the mode, keymap, and
+supporting logic in its own `octocat-<feature>.el` file; and make sure
+`octocat.el` `require`s that file.
+
 ### Indicating loading / async activity
 
 Use the buffer-local `mode-line-process` variable to indicate that a

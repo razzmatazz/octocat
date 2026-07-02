@@ -21,7 +21,9 @@
 ;;; Commentary:
 
 ;; Per-repository buffer: Pull Requests, Issues, Workflow Runs, Commits.
-;; Entry point: M-x octocat-repo.
+;; The `M-x octocat-repo' entry point is defined in octocat.el (see
+;; CONTRIBUTING.md, "Entry points"); this file defines `octocat-repo-mode'
+;; and all of its supporting logic.
 
 ;;; Code:
 
@@ -915,30 +917,14 @@ inside a pageable section."
      (octocat-repo-refresh))
     (_ (user-error "Octocat: No pageable section at point"))))
 
-
-;;;; Entry point
-
-;;;###autoload
-(defun octocat-repo ()
-  "Open (or switch to) the octocat-repo buffer for the current GitHub repository.
-When invoked from inside a git working tree the buffer is opened in
-\\='attached\\=' mode: `octocat-repo--local-dir' is set to the root of that
-working tree, and the repo is derived from its \\='origin\\=' remote.
-When invoked without a detectable working tree (or when the user supplies
-a REPO argument in a future extension), the buffer runs in \\='detached\\='
-mode with no local directory bound."
-  (interactive)
-  (let* ((repo     (octocat-repo--current-repo))
-         (local-dir (locate-dominating-file default-directory ".git"))
-         (buf-name (format "*octocat-repo: %s*" repo))
-         (buf      (get-buffer-create buf-name)))
-    (switch-to-buffer buf)
-    (unless (derived-mode-p 'octocat-repo-mode)
-      (octocat-repo-mode))
-    (setq octocat-repo--repo      repo
-          octocat-repo--local-dir (and local-dir
-                                       (expand-file-name local-dir)))
-    (octocat-repo-refresh)))
+;; NOTE: the `M-x octocat-repo' entry point itself (the `;;;###autoload'
+;; command) is defined in `octocat.el', not here -- see CONTRIBUTING.md,
+;; "Entry points".  This keeps every `;;;###autoload' command funneled
+;; through a single file, so loading any octocat entry point always loads
+;; `octocat.el' and its `octocat--evil-init' trigger.  This file supplies
+;; everything the command needs: `octocat-repo-mode', `octocat-repo--repo',
+;; `octocat-repo--local-dir', `octocat-repo--current-repo', and
+;; `octocat-repo-refresh'.
 
 (provide 'octocat-repo)
 ;;; octocat-repo.el ends here

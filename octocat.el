@@ -1019,7 +1019,15 @@ re-runs `octocat-refresh'."
   (octocat-refresh))
 
 
-;;;; Entry point
+;;;; Entry points
+;;
+;; All `;;;###autoload' commands live here, even when the mode/logic they
+;; open is defined in another file (e.g. `octocat-repo' below only calls
+;; into `octocat-repo.el').  This funnels every user-facing entry point
+;; through this one file, guaranteeing `octocat--evil-init' (bottom of this
+;; file) always runs on the very first octocat command of a session.  See
+;; CONTRIBUTING.md, "Entry points", and
+;; plans/repo-mode-evil-ret-binding.md for the bug this convention fixes.
 
 ;;;###autoload
 (defun octocat ()
@@ -1030,6 +1038,28 @@ re-runs `octocat-refresh'."
     (unless (derived-mode-p 'octocat-mode)
       (octocat-mode))
     (octocat-refresh)))
+
+;;;###autoload
+(defun octocat-repo ()
+  "Open (or switch to) the octocat-repo buffer for the current GitHub repository.
+When invoked from inside a git working tree the buffer is opened in
+\\='attached\\=' mode: `octocat-repo--local-dir' is set to the root of that
+working tree, and the repo is derived from its \\='origin\\=' remote.
+When invoked without a detectable working tree (or when the user supplies
+a REPO argument in a future extension), the buffer runs in \\='detached\\='
+mode with no local directory bound."
+  (interactive)
+  (let* ((repo     (octocat-repo--current-repo))
+         (local-dir (locate-dominating-file default-directory ".git"))
+         (buf-name (format "*octocat-repo: %s*" repo))
+         (buf      (get-buffer-create buf-name)))
+    (switch-to-buffer buf)
+    (unless (derived-mode-p 'octocat-repo-mode)
+      (octocat-repo-mode))
+    (setq octocat-repo--repo      repo
+          octocat-repo--local-dir (and local-dir
+                                       (expand-file-name local-dir)))
+    (octocat-repo-refresh)))
 
 
 ;;;; Evil integration

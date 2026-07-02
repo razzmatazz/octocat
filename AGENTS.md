@@ -276,7 +276,16 @@ top of A, alongside the other declarations:
 ```
 
 The `declare-function` form tells the byte-compiler the function exists
-without actually loading the file.  At runtime all files are already loaded
-by `octocat.el`, so there is no actual missing-definition risk.
+without actually loading the file.  At runtime, every `;;;###autoload`
+entry point (`M-x octocat`, `M-x octocat-repo`, ...) is defined in
+`octocat.el` itself (see "Entry points" in CONTRIBUTING.md), and
+`octocat.el` unconditionally `require`s every other file — so any code path
+a user can actually reach guarantees all files are loaded, and there is no
+missing-definition risk. This is a structural guarantee, not just an
+assumption: no other file is allowed to carry its own `;;;###autoload`
+command, precisely so a second, independent load path (bypassing
+`octocat.el`) can never exist. See `plans/repo-mode-evil-ret-binding.md`
+for the bug this convention was introduced to fix (an Evil keybinding
+trigger that only ran when `octocat.el` happened to be loaded first).
 
 

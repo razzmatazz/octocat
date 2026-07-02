@@ -26,7 +26,7 @@ lint: image
 	$(DOCKER_RUN) sh -c "eask install-deps --dev && eask lint checkdoc && eask lint package"
 
 test: image
-	$(DOCKER_RUN) sh -c "eask install-deps --dev && eask test ert test/octocat-tests.el"
+	$(DOCKER_RUN) sh -c "eask install-deps --dev && eask test ert test/octocat-tests.el && eask test ert test/octocat-evil-repo-tests.el"
 
 # compile, lint and test each spin up their own container and are independent
 # of each other once the image exists — run them in parallel with -j3.
