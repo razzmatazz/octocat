@@ -82,21 +82,27 @@ Must be called during render, like any hook."
                   result))
       (_ result))))
 
-(defun octocat-vui-load-more-button (key count help-echo on-click)
+(defun octocat-vui-load-more-button (key count help-echo on-click &optional loading)
   "Return a \"Load COUNT more…\" vui-button with HELP-ECHO, invoking ON-CLICK.
 KEY is a per-section symbol: it is the button's cursor identity, so point
 stays on this section's button when growing the list re-renders it
 instead of drifting to a neighbouring section's button.
+When LOADING is non-nil (the next page is being fetched, see
+`octocat-vui-use-async-sticky'), the label reads \"Loading…\" and the
+button is disabled so it cannot be triggered twice.
 Rows carry no trailing newline (`vui-list' only separates them), so the
 button starts on a fresh line and carries the same two-space indent."
   (vui-fragment
    (vui-newline)
    (vui-text "  ")
-   (vui-button (format "[+] Load %d more…" count)
+   (vui-button (if loading
+                   "[…] Loading…"
+                 (format "[+] Load %d more…" count))
                :no-decoration t
                :face 'octocat-dimmed
                :key key
-               :help-echo help-echo
+               :disabled loading
+               :help-echo (if loading nil help-echo)
                :on-click on-click)))
 
 (provide 'octocat-vui)

@@ -595,7 +595,8 @@ DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
              (octocat-vui-load-more-button
               'load-more-issues octocat-section-limit
               "RET: load more issues"
-              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))))))))
+              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
+              (plist-get result :refreshing)))))))
      )))
 
 (vui-defcomponent octocat-repo-vui--prs-section (repo current-branch)
@@ -625,7 +626,8 @@ DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
              (octocat-vui-load-more-button
               'load-more-prs octocat-section-limit
               "RET: load more pull requests"
-              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))))))))
+              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
+              (plist-get result :refreshing)))))))
      )))
 
 (vui-defcomponent octocat-repo-vui--commits-section (repo default-branch current-branch head-info)
@@ -656,7 +658,8 @@ DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
              (octocat-vui-load-more-button
               'load-more-commits octocat-section-limit
               "RET: load more commits"
-              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))))))))
+              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
+              (plist-get result :refreshing)))))))
      )))
 
 (vui-defcomponent octocat-repo-vui--workflow-runs-section (repo current-branch)
@@ -691,7 +694,8 @@ DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
              (octocat-vui-load-more-button
               'load-more-runs octocat-section-limit
               "RET: load more runs"
-              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))))))))
+              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
+              (plist-get result :refreshing)))))))
      )))
 
 (vui-defcomponent octocat-repo-vui--workflows-section (repo)
