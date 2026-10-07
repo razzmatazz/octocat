@@ -43,6 +43,7 @@
 (require 'octocat-run)
 (require 'octocat-job)
 (require 'octocat-checks)
+(require 'octocat-vui)
 (require 'octocat-repo)
 (require 'octocat-tree)
 

@@ -90,6 +90,12 @@ octocat uses two UI frameworks, split by buffer type:
   structure, hiding/collapsing gotchas, and the correct patterns for
   preserving collapse state across refreshes.
 
+Generic, repo-agnostic vui helpers (the RET-able `octocat-vui-row`,
+`octocat-vui-use-async-sticky`, `octocat-vui-load-more-button`) live in
+`octocat-vui.el`; buffer-specific vui code stays in that buffer's file.
+Put new reusable vui hooks/components there, and keep them free of GitHub
+knowledge.
+
 Do not convert other views to vui.el without a concrete reason; the split is
 deliberate.  New dashboard-style buffers (independent async sections) should
 use vui.el; new document-style buffers should use magit-section.  Never mix
@@ -120,8 +126,8 @@ bookkeeping from it.  Consequences to keep in mind:
   `elpaca`, or `package-vc`) until it is published to an archive.  Document
   this in the README install instructions.
 - Treat vui as a young, fast-moving library: pin or re-test when bumping it,
-  and keep vui usage confined to `octocat-repo.el` so a breaking change or a
-  future removal has a small blast radius.
+  and keep vui usage confined to `octocat-repo.el` and `octocat-vui.el` so a
+  breaking change or a future removal has a small blast radius.
 - If vui is published to MELPA/GNU ELPA, drop the `:repo`/`:fetcher` options
   from `Eask`.
 
