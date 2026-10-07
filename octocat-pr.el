@@ -182,7 +182,7 @@ CALLBACK is called with a list of PR hash-tables, or a cons \\=(error . MSG)."
                          "--repo" repo
                          "--state" "open"
                          "--limit" (number-to-string limit)
-                         "--json" "number,title,author,state,statusCheckRollup,headRefName")
+                         "--json" "number,title,author,state,statusCheckRollup,headRefName,labels")
                    #'octocat--parse-json-list
                    callback))
 
@@ -329,6 +329,9 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
         (when (and closed (not (eq closed :null)) (not (string-empty-p closed))
                    (not (equal state "MERGED")))
           (insert (format "  Closed   %s\n" (octocat--format-ts-full closed))))
+        (let ((chips (octocat--format-labels (gethash "labels" pr))))
+          (unless (string-empty-p chips)
+            (insert (format "  Labels   %s\n" chips))))
         (magit-insert-section (pr-changes)
           (magit-insert-heading
             (let ((hint '(mouse-face magit-section-highlight

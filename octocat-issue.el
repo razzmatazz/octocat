@@ -184,7 +184,7 @@ CALLBACK is called with a list of issue hash-tables, or a cons \\=(error . MSG).
                          "--repo" repo
                          "--state" "open"
                          "--limit" (number-to-string limit)
-                         "--json" "number,title,author,state")
+                         "--json" "number,title,author,state,labels")
                    #'octocat--parse-json-list
                    callback))
 
@@ -316,10 +316,7 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
                       'face 'octocat-section-heading))
         (if (zerop (length labels))
             (insert (propertize "  (no labels)\n" 'face 'octocat-dimmed))
-          (cl-loop for label across labels do
-                   (let ((name (or (gethash "name" label) "")))
-                     (insert (format "  %s\n"
-                                     (propertize name 'face 'octocat-branch)))))))
+          (insert "  " (octocat--format-labels labels) "\n")))
       ;; ── Comments ──────────────────────────────────────────────────────
       (insert "\n")
       (magit-insert-section (issue-comments)

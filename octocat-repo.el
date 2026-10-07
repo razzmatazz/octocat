@@ -397,62 +397,88 @@ when it is not a fork.  Uses the GitHub REST API via `gh api'."
 
 ;;;; Row builders
 
+(defconst octocat-repo-vui--number-width 6
+  "Display width of the right-aligned #NUMBER column in PR and issue rows.")
+
+(defconst octocat-repo-vui--detail-indent
+  (+ 2 1 1 octocat-repo-vui--number-width 2)
+  "Column where titles, and the second detail line, start in PR/issue rows.
+Margin, state glyph, space, number column, gap.")
+
+(defun octocat-repo-vui--state-glyph (state)
+  "Return a coloured one-character glyph for PR/issue STATE (any case).
+The shapes deliberately differ from the CI glyphs (✓ ✗ ●)."
+  (let ((state (downcase (or state "open"))))
+    (cond ((equal state "merged") (propertize "◆" 'face 'octocat-pr-state-merged))
+          ((equal state "closed") (propertize "⊘" 'face 'octocat-pr-state-closed))
+          (t                      (propertize "◉" 'face 'octocat-pr-state-open)))))
+
+(defun octocat-repo-vui--detail-line (item &optional leading trailing)
+  "Return a second row line for ITEM, or \"\" when there is nothing to show.
+The line starts with a newline and is indented to sit under the title.
+It holds the strings in LEADING (e.g. a branch name), then the coloured
+label chips of ITEM, then the strings in TRAILING (e.g. CI status).  Nil
+and empty strings are skipped."
+  (let* ((chips (octocat--format-labels (gethash "labels" item)))
+         (parts (seq-remove (lambda (s) (or (null s) (string-empty-p s)))
+                            (append leading (list chips) trailing)))
+         (indent octocat-repo-vui--detail-indent))
+    (if (null parts)
+        ""
+      (concat "\n"
+              (make-string indent ?\s)
+              (mapconcat #'identity parts "  ")))))
+
 (defun octocat-repo-vui--pr-row (repo pr current-branch)
   "Return a row vnode for PR in REPO.
 CURRENT-BRANCH, when non-nil, is the local HEAD branch name; a matching
 PR branch is highlighted with `octocat-branch-current'."
-  (let* ((number  (format "%11s" (format "#%d" (gethash "number" pr))))
+  (let* ((number  (format (format "%%%ds" octocat-repo-vui--number-width)
+                          (format "#%d" (gethash "number" pr))))
          (title   (or (gethash "title" pr) ""))
          (branch  (or (gethash "headRefName" pr) ""))
          (activep (and current-branch (string= branch current-branch)))
          (b-face  (if activep 'octocat-branch-current 'octocat-branch))
          (author  (octocat--author-login pr))
-         (state   (downcase (or (gethash "state" pr) "open")))
-         (state-face (cond ((equal state "merged") 'octocat-pr-state-merged)
-                           ((equal state "closed") 'octocat-pr-state-closed)
-                           (t                      'octocat-pr-state-open)))
          (ci      (octocat--ci-label pr))
+         (has-checks (let ((c (gethash "statusCheckRollup" pr)))
+                       (and c (not (eq c :null)) (> (length c) 0))))
          (line
           (concat
            "  "
-           (let* ((name (truncate-string-to-width branch octocat-branch-max-width nil nil "…"))
-                  (pad  (make-string (- octocat-branch-max-width (string-width name)) ?\s)))
-             (concat (propertize name 'face b-face) pad))
-           "  "
+           (octocat-repo-vui--state-glyph (gethash "state" pr))
+           " "
            (propertize number 'face 'octocat-pr-number)
            "  "
            (octocat--format-title title)
            "  "
-           (propertize (format "%-16s" author) 'face 'octocat-pr-author)
-           "  "
-           (propertize (format "%-6s" state) 'face state-face)
-           "  "
-           ci)))
+           (propertize author 'face 'octocat-pr-author)
+           (octocat-repo-vui--detail-line
+            pr
+            (list (and (not (string-empty-p branch))
+                       (propertize branch 'face b-face)))
+            (list (and has-checks ci))))))
     (octocat-vui-row line
                      (lambda () (octocat-repo-vui--open-pr repo pr))
                      "RET: viewpull request")))
 
 (defun octocat-repo-vui--issue-row (repo issue)
   "Return a row vnode for ISSUE in REPO."
-  (let* ((number (format "%11s" (format "#%d" (gethash "number" issue))))
+  (let* ((number (format (format "%%%ds" octocat-repo-vui--number-width)
+                         (format "#%d" (gethash "number" issue))))
          (title  (or (gethash "title"  issue) ""))
          (author (octocat--author-login issue))
-         (state  (downcase (or (gethash "state" issue) "open")))
-         (state-face (if (equal state "open")
-                         'octocat-pr-state-open
-                       'octocat-pr-state-closed))
          (line
           (concat
            "  "
-           (make-string octocat-branch-max-width ?\s)
-           "  "
+           (octocat-repo-vui--state-glyph (gethash "state" issue))
+           " "
            (propertize number 'face 'octocat-pr-number)
            "  "
            (octocat--format-title title)
            "  "
-           (propertize (format "%-16s" author) 'face 'octocat-pr-author)
-           "  "
-           (propertize (format "%-6s" state) 'face state-face))))
+           (propertize author 'face 'octocat-pr-author)
+           (octocat-repo-vui--detail-line issue))))
     (octocat-vui-row line
                      (lambda () (octocat-repo-vui--open-issue repo issue))
                      "RET: viewissue")))
@@ -763,8 +789,7 @@ info, then the five sections."
                   (concat "  " (propertize (plist-get head-info :hash) 'face 'octocat-commit-sha)))
                 (when (and (plist-get head-info :subject)
                           (not (string-empty-p (plist-get head-info :subject))))
-                  (concat "  " (plist-get head-info :subject)))
-                "\n")))
+                  (concat "  " (plist-get head-info :subject))))))
      (when fork-parent
        (octocat-vui-row
         (concat "Forked from  " (propertize fork-parent 'face 'octocat-repo) "\n")

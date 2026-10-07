@@ -157,6 +157,35 @@ Strings shorter than the width are space-padded; longer ones are
 truncated with a trailing ellipsis (…)."
   (truncate-string-to-width title octocat-title-width nil ?\s "…"))
 
+(defun octocat--label-foreground (hex)
+  "Return \"black\" or \"white\", whichever is more readable on HEX (\"rrggbb\")."
+  (let* ((r (string-to-number (substring hex 0 2) 16))
+         (g (string-to-number (substring hex 2 4) 16))
+         (b (string-to-number (substring hex 4 6) 16)))
+    ;; Perceived luminance (ITU-R BT.601), 0-255.
+    (if (> (+ (* 0.299 r) (* 0.587 g) (* 0.114 b)) 150) "black" "white")))
+
+(defun octocat--format-label (label)
+  "Return a propertized chip string for GitHub LABEL hash-table.
+The chip is coloured with the label's own GitHub colour, with a black or
+white foreground chosen for contrast.  Without a valid colour it falls
+back to the `octocat-branch' face."
+  (let* ((name  (or (gethash "name" label) ""))
+         (color (let ((c (gethash "color" label)))
+                  (and (stringp c) (string-match-p "\\`[0-9a-fA-F]\\{6\\}\\'" c) c))))
+    (if color
+        (propertize (concat " " name " ")
+                    'face `(:background ,(concat "#" color)
+                            :foreground ,(octocat--label-foreground color)))
+      (propertize name 'face 'octocat-branch))))
+
+(defun octocat--format-labels (labels)
+  "Return LABELS (vector of label hash-tables) as space-separated chips.
+Returns the empty string when LABELS is nil, `:null' or empty."
+  (if (or (null labels) (eq labels :null) (zerop (length labels)))
+      ""
+    (mapconcat #'octocat--format-label labels " ")))
+
 (defun octocat--format-branch (branch width)
   "Return BRANCH truncated to WIDTH characters and styled with `octocat-branch'.
 WIDTH should be at most `octocat-branch-max-width'.  Shorter names are

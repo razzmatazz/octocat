@@ -120,5 +120,28 @@ no gh call is made."
         (should (< (string-match "src" text)
                    (string-match "README.md" text)))))))
 
+(ert-deftest octocat-test-format-label-colour ()
+  (let* ((label (make-hash-table :test 'equal)))
+    (puthash "name" "bug" label)
+    (puthash "color" "d73a4a" label)
+    (let* ((s (octocat--format-label label))
+           (face (get-text-property 1 'face s)))
+      (should (equal s " bug "))
+      (should (equal (plist-get face :background) "#d73a4a"))
+      (should (equal (plist-get face :foreground) "white")))
+    (puthash "color" "fef2c0" label)
+    (should (equal (plist-get (get-text-property 1 'face (octocat--format-label label))
+                              :foreground)
+                   "black"))))
+
+(ert-deftest octocat-test-format-label-fallback ()
+  (let ((label (make-hash-table :test 'equal)))
+    (puthash "name" "x" label)
+    (should (eq (get-text-property 0 'face (octocat--format-label label))
+                'octocat-branch))
+    (should (equal (octocat--format-labels nil) ""))
+    (should (equal (octocat--format-labels :null) ""))
+    (should (equal (octocat--format-labels []) ""))))
+
 (provide 'octocat-tests)
 ;;; octocat-tests.el ends here
