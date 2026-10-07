@@ -13,6 +13,7 @@ A GitHub client for Emacs, powered by the [`gh`](https://cli.github.com/) comman
 
 - [Emacs](https://www.gnu.org/software/emacs/) 29.1 or later
 - [GitHub CLI (`gh`)](https://cli.github.com/) — must be installed and authenticated
+- [vui.el](https://github.com/d12frosted/vui.el) — declarative UI library used by the repo view.  It is not yet on MELPA or GNU ELPA, so install it from GitHub first (e.g. with `straight.el`: `(straight-use-package '(vui :type git :host github :repo "d12frosted/vui.el"))`, or `package-vc-install`)
 
 ### Installing `gh`
 

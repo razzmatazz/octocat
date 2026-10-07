@@ -5,7 +5,7 @@
 ;; Author: octocat.el contributors
 ;; Assisted-by: Claude:claude-sonnet-4-6
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "29.1") (magit-section "3.0") (markdown-mode "2.0") (consult "1.0"))
+;; Package-Requires: ((emacs "29.1") (magit-section "3.0") (markdown-mode "2.0") (consult "1.0") (vui "0.1"))
 ;; Keywords: tools, vc, github
 ;; URL: https://github.com/octocat.el/octocat.el
 
@@ -376,11 +376,11 @@
                (setq octocat-repo--repo      full-name
                      octocat-repo--local-dir (octocat-repo--local-dir-for full-name))
                (octocat-repo-refresh)))))))
-      ;; RET on a "load more" row fetches the next page of that list.
-      ;; This case is handled by octocat-repo-mode's RET binding which
-      ;; calls octocat-visit; dispatch to octocat-repo-load-more here.
-      ('load-more
-       (octocat-repo-load-more))
+      ;; NOTE: the repo view's own "load more" rows are no longer magit
+      ;; sections dispatched through here -- octocat-repo-mode is rendered
+      ;; with vui.el now (see octocat-repo.el's Commentary) and each
+      ;; pageable section owns its own "Load more" vui-button directly.
+      ;;
       ;; RET on the feed "[+] Load more…" row fetches more feed events.
       ('load-more-feed
        (octocat-feed-load-more))
