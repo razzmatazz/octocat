@@ -30,21 +30,25 @@
 ;;   `octocat-tree-open'     — open the tree browser (bound to T in repo mode)
 ;;   `octocat-file-log-open' — open the file commit log (C-c C-l in file mode)
 ;;
-;; octocat-tree-mode and octocat-file-mode derive from `special-mode'.
+;; octocat-file-mode derives from `special-mode'.
 ;; octocat-file-log-mode derives from `magit-section-mode' and renders
 ;; one magit-section per commit so RET can navigate to the commit detail view.
+;; octocat-tree-mode derives from `vui-mode' and is rendered with vui.el:
+;; `octocat-tree--dir' (lazy, cached child fetch) and `octocat-tree--node'
+;; (one line; directories own their expanded state) recurse from
+;; `octocat-tree--root'.  Each line carries text properties so commands
+;; work regardless of keymap precedence (e.g. under Evil):
 ;;
-;; octocat-tree-mode buffer rendering uses plain text and text properties:
-;;
-;;   octocat-tree--type   \\='dir | \\='file  — kind of entry
-;;   octocat-tree--entry  <hash-table>    — the GitHub API entry object
-;;
-;; Expand/collapse state is tracked in `octocat-tree--expanded-shas'.
+;;   octocat-tree--type      \\='dir | \\='file  — kind of entry
+;;   octocat-tree--entry     <hash-table>    — the GitHub API entry object
+;;   octocat-tree--activate  <function>      — what RET does on the line
 
 ;;; Code:
 
 (require 'cl-lib)
 (require 'octocat-core)
+(require 'vui)
+(require 'vui-components)
 
 ;; octocat-repo buffer-locals accessed from octocat-tree-open.
 (defvar octocat-repo--repo)
@@ -68,17 +72,12 @@
 (defvar-local octocat-tree--root-sha nil
   "SHA of the root git tree object for the current branch.")
 
-(defvar-local octocat-tree--entries nil
-  "Root-level entries vector fetched from the GitHub API.")
-
 (defvar-local octocat-tree--subtree-cache nil
   "Alist mapping directory SHA string to fetched entries vector.
-Populated by `octocat-tree--fetch-dir' callbacks; consulted by
-`octocat-tree--render' to decide whether to show children or not.
-Cleared on full refresh (gr).")
-
-(defvar-local octocat-tree--expanded-shas nil
-  "List of tree-entry SHA strings that are currently expanded.")
+Populated when a directory's children are fetched; consulted by
+`octocat-tree--dir' so collapsing and re-expanding a directory does not
+refetch it.  Cleared on full refresh (gr).  Expanded/collapsed state is
+not kept here: it lives in each `octocat-tree--node' as vui state.")
 
 (defvar-local octocat-tree--all-files nil
   "Cached result of the recursive tree fetch used by `octocat-tree-find-file'.
@@ -105,7 +104,7 @@ Populated on first call and reused until `octocat-tree-refresh' clears it.")
 
 (defvar octocat-tree-mode-map
   (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map special-mode-map)
+    (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-tree-mode'.")
 (define-key octocat-tree-mode-map (kbd "RET")     #'octocat-tree-visit)
@@ -118,14 +117,15 @@ Populated on first call and reused until `octocat-tree-refresh' clears it.")
 (define-key octocat-tree-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 (define-key octocat-tree-mode-map (kbd "gr")      #'octocat-tree-refresh)
 
-(define-derived-mode octocat-tree-mode special-mode "Octocat-Tree"
+(define-derived-mode octocat-tree-mode vui-mode "Octocat-Tree"
   "Major mode for browsing a GitHub repository file tree.
+The buffer is rendered by vui.el; see `octocat-tree--root'.
 
 \\{octocat-tree-mode-map}"
   :group 'octocat
+  (setq-local buffer-read-only t)
   (setq-local truncate-lines t)
-  (setq-local revert-buffer-function #'octocat-tree-refresh)
-  (font-lock-mode -1))
+  (setq-local revert-buffer-function #'octocat-tree-refresh))
 
 
 ;;;; Mode: octocat-file-mode
@@ -280,50 +280,73 @@ PATH is used only to select the mode via `auto-mode-alist'."
 
 ;;;; Rendering helpers
 
-(defun octocat-tree--propertize-line (str props)
-  "Return STR with PROPS applied over its whole length, plus a trailing newline.
-The newline does not carry PROPS."
-  (concat (apply #'propertize str props) "\n"))
-
-(defun octocat-tree--insert-entry-line (indent glyph name face type entry)
-  "Insert one tree line with text properties.
+(defun octocat-tree--entry-line (indent glyph name face type entry path activate)
+  "Return one tree line (a propertized string, no trailing newline).
 INDENT is a string of leading spaces.  GLYPH is a 1-2 char icon.
 NAME is the file/dir name.  FACE is applied to the icon+name.
-TYPE is \\='dir or \\='file.  ENTRY is the API hash-table stored as a property.
+TYPE is \\='dir or \\='file.  ENTRY is the API hash-table.  PATH is the
+entry's full repository path: the API's own \"path\" field is only the
+name within its directory, so it is wrong below the root.  ACTIVATE is a
+zero-argument function run by RET (`octocat-tree-visit') on the line;
+for a directory it is also what TAB (`octocat-tree-expand') runs.
 
-The type/entry/mouse-face/help-echo properties span the entire line
-including the indent, so `get-text-property' at `line-beginning-position'
-works regardless of nesting depth."
+The type/entry/path/activate/mouse-face/help-echo properties span the entire
+line including the indent, so `get-text-property' at
+`line-beginning-position' works regardless of nesting depth.  Commands
+read them rather than relying on a keymap, so they keep working under
+Evil, whose state keymaps outrank text-property keymaps."
   (let* ((label (propertize (concat glyph " " name) 'face face))
          (line  (concat indent label))
          (help  (if (eq type 'dir)
                     "RET/TAB: expand  o: browse on GitHub"
                   "RET: view file  o: browse on GitHub")))
     (add-text-properties 0 (length line)
-                         (list 'octocat-tree--type  type
-                               'octocat-tree--entry entry
-                               'mouse-face          'highlight
-                               'help-echo           help)
+                         (list 'octocat-tree--type     type
+                               'octocat-tree--entry    entry
+                               'octocat-tree--path     path
+                               'octocat-tree--activate activate
+                               'mouse-face             'highlight
+                               'help-echo              help)
                          line)
-    (insert line "\n")))
+    line))
 
 
 ;;;; Rendering — tree mode
 
+(defun octocat-tree--header-line (repo branch &optional browse-token)
+  "Return the tree header line for REPO on BRANCH (no trailing newline).
+With BROWSE-TOKEN, append the dimmed \"[Browse files]\" token."
+  (propertize
+   (concat
+    (propertize (or repo "") 'face 'octocat-repo)
+    "  "
+    (octocat-tree--branch-glyph)
+    "  "
+    (propertize (or branch "") 'face 'octocat-branch)
+    (when browse-token
+      (concat "  "
+              (propertize "[Browse files]"
+                          'face            'octocat-dimmed
+                          'mouse-face      'highlight
+                          'help-echo       "RET: browse file tree"
+                          'octocat-action  'browse-files))))
+   'octocat-tree--type 'header))
+
+(vui-defcomponent octocat-tree--message (repo branch text face)
+  "Header plus a single TEXT line in FACE (used for loading and errors)."
+  :render
+  (vui-vstack
+   (vui-text (octocat-tree--header-line repo branch))
+   (vui-text (propertize (concat "  " text) 'face face))))
+
 (defun octocat-tree--render-loading ()
   "Render a loading skeleton in the current tree buffer."
-  (let ((inhibit-read-only t))
-    (erase-buffer)
-    (insert (propertize
-             (concat
-              (propertize (or octocat-tree--repo "") 'face 'octocat-repo)
-              "  "
-              (octocat-tree--branch-glyph)
-              "  "
-              (propertize (or octocat-tree--branch "") 'face 'octocat-branch))
-             'octocat-tree--type 'header)
-            "\n"
-            (propertize "  Loading…\n" 'face 'octocat-dimmed))))
+  (vui-mount (vui-component 'octocat-tree--message
+                            :repo octocat-tree--repo
+                            :branch octocat-tree--branch
+                            :text "Loading…"
+                            :face 'octocat-dimmed)
+             (buffer-name)))
 
 (defun octocat-tree--sorted-entries (entries)
   "Return ENTRIES (a vector) as a list sorted dirs-first then alphabetically."
@@ -337,70 +360,98 @@ works regardless of nesting depth."
                 (t (string< (gethash "path" a "")
                             (gethash "path" b ""))))))))
 
-(defun octocat-tree--render-entries (entries depth)
-  "Insert plain-text lines for ENTRIES (a vector) at nesting DEPTH.
-Dirs whose SHA is in `octocat-tree--expanded-shas' are recursively
-expanded (using cached children from `octocat-tree--subtree-cache')."
-  (let ((indent (make-string (* depth 2) ?\s)))
-    (dolist (entry (octocat-tree--sorted-entries entries))
-      (let* ((name      (or (gethash "path" entry) ""))
-             (type      (or (gethash "type" entry) ""))
-             (sha       (or (gethash "sha"  entry) ""))
-             (expandedp (member sha octocat-tree--expanded-shas))
-             (cached    (cdr (assoc sha octocat-tree--subtree-cache))))
-        (if (equal type "tree")
-            (progn
-              (octocat-tree--insert-entry-line
-               indent
-               (if expandedp "▾" "▸")
-               (concat name "/")
-               'octocat-branch
-               'dir
-               entry)
-              (when (and expandedp cached)
-                (octocat-tree--render-entries cached (1+ depth)))
-              (when (and expandedp (not cached))
-                ;; Fetch in flight — show loading placeholder at child indent,
-                ;; so it aligns with the entries that will replace it.
-                (let ((child-indent (make-string (* (1+ depth) 2) ?\s)))
-                  (insert (propertize
-                           (concat child-indent "  "
-                                   (propertize "Loading…" 'face 'octocat-dimmed))
-                           'octocat-tree--type 'loading)
-                          "\n"))))
-          ;; Blob — leaf node.  Single-space glyph matches the width of "▸"/"▾"
-          ;; so that file names align with directory names at the same depth.
-          (octocat-tree--insert-entry-line
-           indent " " name 'default 'file entry))))))
+;; The tree is a recursion of two components:
+;;
+;;   `octocat-tree--dir'   fetches (or reads from the buffer-local
+;;                         `octocat-tree--subtree-cache') the children of
+;;                         one directory SHA and lists them as nodes.
+;;   `octocat-tree--node'  one entry's line; a directory node owns its
+;;                         expanded/collapsed state and, when expanded,
+;;                         nests another `octocat-tree--dir'.
+;;
+;; Lines carry no trailing newline: `vui-list' separates siblings, and a
+;; node's children follow it after one `vui-newline'.
 
-(defun octocat-tree--render (entries)
-  "Erase the buffer and render the full tree from root ENTRIES vector.
-Point is restored to the same line and column after re-rendering."
-  (let ((saved-line (line-number-at-pos))
-        (saved-col  (current-column))
-        (inhibit-read-only t))
-    (erase-buffer)
-    ;; Header line.
-    (insert (propertize
-             (concat
-              (propertize (or octocat-tree--repo "") 'face 'octocat-repo)
-              "  "
-              (octocat-tree--branch-glyph)
-              "  "
-              (propertize (or octocat-tree--branch "") 'face 'octocat-branch)
-              "  "
-              (propertize "[Browse files]"
-                          'face            'octocat-dimmed
-                          'mouse-face      'highlight
-                          'help-echo       "RET: browse file tree"
-                          'octocat-action  'browse-files))
-             'octocat-tree--type 'header)
-            "\n")
-    (octocat-tree--render-entries entries 0)
-    ;; Restore point to the same line and column.
-    (goto-char (point-min))
-    (forward-line (1- saved-line))
-    (move-to-column saved-col)))
+(vui-defcomponent octocat-tree--dir (repo branch sha depth path)
+  "Children of the directory with tree SHA, at nesting DEPTH.
+PATH is this directory's full repository path (\"\" for the root)."
+  :render
+  (let* ((buf    (current-buffer))
+         (indent (make-string (* depth 2) ?\s))
+         (result (vui-use-async (list 'dir repo sha)
+                   (lambda (resolve reject)
+                     (let ((cached (cdr (assoc sha (buffer-local-value
+                                                    'octocat-tree--subtree-cache buf)))))
+                       (if cached
+                           (funcall resolve cached)
+                         (octocat-tree--fetch-dir
+                          repo sha
+                          (lambda (r)
+                            (if (eq (car-safe r) 'error)
+                                (funcall reject (cdr r))
+                              (when (buffer-live-p buf)
+                                (with-current-buffer buf
+                                  (push (cons sha r) octocat-tree--subtree-cache)))
+                              (funcall resolve r))))))))))
+    (pcase (plist-get result :status)
+      ('error
+       (vui-text (propertize (format "%s  Error: %s" indent (plist-get result :error))
+                             'face 'error)))
+      ('ready
+       (let ((entries (octocat-tree--sorted-entries (plist-get result :data))))
+         (if (null entries)
+             (vui-text (propertize (concat indent "  (empty)") 'face 'octocat-dimmed))
+           (vui-list entries
+                     (lambda (entry)
+                       (vui-component 'octocat-tree--node
+                                      :repo repo :branch branch
+                                      :entry entry :depth depth :parent path))
+                     (lambda (entry) (gethash "sha" entry))))))
+      (_
+       ;; Same indent as the entries that will replace it.
+       (vui-text (propertize (concat indent "  "
+                                     (propertize "Loading…" 'face 'octocat-dimmed))
+                             'octocat-tree--type 'loading))))))
+
+(vui-defcomponent octocat-tree--node (repo branch entry depth parent)
+  "One tree ENTRY (hash-table) at nesting DEPTH, inside directory PARENT.
+PARENT is the containing directory's full path (\"\" at the root)."
+  :state ((expanded nil))
+  :render
+  (let* ((name   (or (gethash "path" entry) ""))
+         (path   (if (string-empty-p parent) name (concat parent "/" name)))
+         (type   (or (gethash "type" entry) ""))
+         (sha    (or (gethash "sha"  entry) ""))
+         (indent (make-string (* depth 2) ?\s)))
+    (if (equal type "tree")
+        (let* ((toggle (vui-with-async-context
+                         (vui-set-state :expanded (lambda (old) (not old)))))
+               (line   (octocat-tree--entry-line
+                        indent (if expanded "▾" "▸") (concat name "/")
+                        'octocat-branch 'dir entry path toggle)))
+          (vui-fragment
+           (vui-text line)
+           (when expanded
+             (vui-fragment
+              (vui-newline)
+              (vui-component 'octocat-tree--dir
+                             :repo repo :branch branch
+                             :sha sha :depth (1+ depth) :path path)))))
+      ;; Blob — leaf node.  Single-space glyph matches the width of "▸"/"▾"
+      ;; so that file names align with directory names at the same depth.
+      (vui-text (octocat-tree--entry-line
+                 indent " " name 'default 'file entry path
+                 (lambda ()
+                   (octocat-tree--open-file-by-path
+                    repo branch path sha)))))))
+
+(vui-defcomponent octocat-tree--root (repo branch root-sha)
+  "Root component of the tree buffer: header, then the root directory."
+  :render
+  (vui-vstack
+   (vui-text (octocat-tree--header-line repo branch t))
+   (vui-component 'octocat-tree--dir
+                  :repo repo :branch branch :sha root-sha :depth 0 :path "")))
 
 
 ;;;; Rendering — file mode
@@ -442,13 +493,17 @@ Point is restored to the same line and column after re-rendering."
 
 ;;;; Point navigation helpers
 
-(defun octocat-tree--entry-at-point ()
-  "Return the entry hash-table on the current line, or nil."
-  (get-text-property (line-beginning-position) 'octocat-tree--entry))
-
 (defun octocat-tree--type-at-point ()
   "Return the \\='octocat-tree--type symbol on the current line, or nil."
   (get-text-property (line-beginning-position) 'octocat-tree--type))
+
+(defun octocat-tree--path-at-point ()
+  "Return the full repository path of the entry on the current line, or nil."
+  (get-text-property (line-beginning-position) 'octocat-tree--path))
+
+(defun octocat-tree--activate-at-point ()
+  "Return the RET action closure stored on the current line, or nil."
+  (get-text-property (line-beginning-position) 'octocat-tree--activate))
 
 
 ;;;; Interactive commands — tree mode
@@ -481,7 +536,6 @@ Clears the subtree cache and re-fetches the root tree."
   (unless octocat-tree--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
   (setq octocat-tree--subtree-cache nil
-        octocat-tree--expanded-shas nil
         octocat-tree--all-files     nil)
   (let ((buf    (current-buffer))
         (repo   octocat-tree--repo)
@@ -494,96 +548,39 @@ Clears the subtree cache and re-fetches the root tree."
          (with-current-buffer buf
            (setq mode-line-process nil)
            (if (eq (car-safe result) 'error)
-               (let ((inhibit-read-only t))
-                 (erase-buffer)
-                 (insert (propertize (format "Error: %s\n" (cdr result))
-                                     'face 'error)))
+               (vui-mount (vui-component 'octocat-tree--message
+                                         :repo repo :branch branch
+                                         :text (format "Error: %s" (cdr result))
+                                         :face 'error)
+                          (buffer-name))
+             ;; The root directory is itself the tree with this SHA, so
+             ;; `octocat-tree--dir' fetches the root entries; everything
+             ;; below it is fetched lazily as directories are expanded.
              (setq octocat-tree--root-sha result)
-             (octocat-tree--fetch-dir
-              repo result
-              (lambda (entries-result)
-                (when (buffer-live-p buf)
-                  (with-current-buffer buf
-                    (if (eq (car-safe entries-result) 'error)
-                        (let ((inhibit-read-only t))
-                          (erase-buffer)
-                          (insert (propertize
-                                   (format "Error: %s\n" (cdr entries-result))
-                                   'face 'error)))
-                      (setq octocat-tree--entries entries-result)
-                      (octocat-tree--render entries-result)))))))))))))
+             (vui-mount (vui-component 'octocat-tree--root
+                                       :repo repo :branch branch
+                                       :root-sha result)
+                        (buffer-name)))))))))
 
 (defun octocat-tree-expand ()
   "Toggle expansion of the directory entry at point.
-On a collapsed dir: marks it expanded and re-renders; fetches children
-if not yet cached.  On an expanded dir: collapses it and re-renders."
+The directory's expanded state lives in its `octocat-tree--node'
+component; the line carries a closure (the `octocat-tree--activate'
+property) that flips it.  Children are fetched on first expansion and
+come from `octocat-tree--subtree-cache' afterwards."
   (interactive)
-  (let ((type  (octocat-tree--type-at-point))
-        (entry (octocat-tree--entry-at-point)))
-    (unless (eq type 'dir)
-      (user-error "Octocat: No directory at point"))
-    (let* ((sha       (gethash "sha" entry))
-           (expandedp (member sha octocat-tree--expanded-shas))
-           (cached    (cdr (assoc sha octocat-tree--subtree-cache))))
-      (if expandedp
-          ;; Already expanded — collapse it.
-          (progn
-            (setq octocat-tree--expanded-shas
-                  (delete sha octocat-tree--expanded-shas))
-            (octocat-tree--render octocat-tree--entries))
-        ;; Collapsed — expand it.
-        (push sha octocat-tree--expanded-shas)
-        (if cached
-            ;; Already cached: re-render immediately.
-            (octocat-tree--render octocat-tree--entries)
-          ;; Not yet fetched: show expanded glyph with loading placeholder,
-          ;; then fetch asynchronously.
-          (octocat-tree--render octocat-tree--entries)
-          (let ((buf  (current-buffer))
-                (repo octocat-tree--repo))
-            (setq mode-line-process " [loading…]")
-            (octocat-tree--fetch-dir
-             repo sha
-             (lambda (result)
-               (when (buffer-live-p buf)
-                 (with-current-buffer buf
-                   (setq mode-line-process nil)
-                   (if (eq (car-safe result) 'error)
-                       (progn
-                         (setq octocat-tree--expanded-shas
-                               (delete sha octocat-tree--expanded-shas))
-                         (message "Octocat: Error loading dir: %s" (cdr result))
-                         (octocat-tree--render octocat-tree--entries))
-                     (push (cons sha result) octocat-tree--subtree-cache)
-                     (octocat-tree--render octocat-tree--entries))))))))))))
+  (unless (eq (octocat-tree--type-at-point) 'dir)
+    (user-error "Octocat: No directory at point"))
+  (funcall (octocat-tree--activate-at-point)))
 
 (defun octocat-tree-visit ()
   "Open the file at point in `octocat-file-mode', or toggle a directory."
   (interactive)
   ;; Header line may carry an octocat-action property for the Browse-files token.
-  (if (eq (get-text-property (point) 'octocat-action) 'browse-files)
-      nil  ; no-op here; browser shortcut is on o/C-c C-o
-    (let ((type  (octocat-tree--type-at-point))
-          (entry (octocat-tree--entry-at-point)))
-      (pcase type
-        ('dir  (octocat-tree-expand))
-        ('file
-         (let* ((path     (gethash "path" entry))
-                (sha      (gethash "sha"  entry))
-                (repo     octocat-tree--repo)
-                (branch   octocat-tree--branch)
-                (buf-name (format "*octocat-file: %s %s*" repo path))
-                (buf      (get-buffer-create buf-name)))
-           (pop-to-buffer buf)
-           (unless (derived-mode-p 'octocat-file-mode)
-             (octocat-file-mode))
-           (setq octocat-tree--file-repo   repo
-                 octocat-tree--file-path   path
-                 octocat-tree--file-sha    sha
-                 octocat-tree--file-branch branch)
-           (octocat-tree--render-file-loading path)
-           (octocat-file-refresh)))
-        (_ nil)))))
+  (unless (eq (get-text-property (point) 'octocat-action) 'browse-files)
+    ;; no-op on the header; browser shortcut is on o/C-c C-o
+    (when-let* ((activate (octocat-tree--activate-at-point)))
+      (funcall activate))))
 
 (defun octocat-tree--open-file-by-path (repo branch path sha)
   "Open the file viewer buffer for PATH (blob SHA) in REPO on BRANCH."
@@ -738,19 +735,17 @@ all file paths via `completing-read', and opens the selected file in
   (let* ((repo   octocat-tree--repo)
          (branch octocat-tree--branch)
          (type   (octocat-tree--type-at-point))
-         (entry  (octocat-tree--entry-at-point)))
+         (path   (octocat-tree--path-at-point)))
     (unless (and repo branch)
       (user-error "Octocat: Buffer has no repo or branch context"))
     (pcase type
       ('file
-       (let* ((path (gethash "path" entry))
-              (url  (format "https://github.com/%s/blob/%s/%s"
-                            repo branch path)))
+       (let ((url (format "https://github.com/%s/blob/%s/%s"
+                          repo branch path)))
          (message "Octocat: Opening %s in browser…" path)
          (browse-url url)))
       ('dir
-       (let* ((path (gethash "path" entry))
-              (url  (format "https://github.com/%s/tree/%s/%s"
+       (let ((url (format "https://github.com/%s/tree/%s/%s"
                             repo branch path)))
          (message "Octocat: Opening %s/ in browser…" path)
          (browse-url url)))

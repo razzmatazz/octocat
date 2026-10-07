@@ -78,24 +78,29 @@
     (should (string-match-p "owner/repo" (buffer-string)))
     (should (string-match-p "Loading" (buffer-string)))))
 
+(defun octocat-tests--mount-tree (entries)
+  "Mount `octocat-tree--root' in the current buffer with root ENTRIES.
+The root directory's children are pre-seeded in the subtree cache, so
+no gh call is made."
+  (octocat-tree-mode)
+  (setq octocat-tree--repo "owner/repo"
+        octocat-tree--branch "main"
+        octocat-tree--subtree-cache (list (cons "rootsha" entries)))
+  (vui-mount (vui-component 'octocat-tree--root
+                            :repo "owner/repo" :branch "main"
+                            :root-sha "rootsha")
+             (buffer-name)))
+
 (ert-deftest octocat-tree-test-render-entries-empty ()
-  "octocat-tree--render with an empty entries vector produces a valid buffer."
+  "Mounting the tree with an empty entries vector produces a valid buffer."
   (with-temp-buffer
-    (octocat-tree-mode)
-    (setq octocat-tree--repo "owner/repo"
-          octocat-tree--branch "main")
-    (octocat-tree--render [])
+    (octocat-tests--mount-tree [])
     (should (> (buffer-size) 0))
     (should (string-match-p "owner/repo" (buffer-string)))))
 
 (ert-deftest octocat-tree-test-render-entries-mixed ()
-  "octocat-tree--render shows dirs before files and uses correct labels."
+  "The tree shows dirs before files and uses correct labels."
   (with-temp-buffer
-    (octocat-tree-mode)
-    (setq octocat-tree--repo "owner/repo"
-          octocat-tree--branch "main"
-          octocat-tree--subtree-cache nil
-          octocat-tree--expanded-shas nil)
     (let* ((dir-entry  (let ((h (make-hash-table :test #'equal)))
                          (puthash "path" "src"       h)
                          (puthash "type" "tree"      h)
@@ -107,7 +112,7 @@
                          (puthash "sha"  "def456"    h)
                          h))
            (entries    (vector dir-entry file-entry)))
-      (octocat-tree--render entries)
+      (octocat-tests--mount-tree entries)
       (let ((text (buffer-string)))
         (should (string-match-p "src" text))
         (should (string-match-p "README.md" text))
