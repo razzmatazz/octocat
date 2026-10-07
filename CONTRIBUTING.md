@@ -74,11 +74,56 @@ they can be inspected directly.  Do **not** hardcode
 `(locate-user-emacs-file "octocat/cache/")` as the default, exposed via
 `defcustom octocat-cache-directory`.
 
-### magit-section
+### UI frameworks: vui.el and magit-section
 
-See [docs/magit-section.md](docs/magit-section.md) for the section tree
-structure, hiding/collapsing gotchas, and the correct patterns for preserving
-collapse state across refreshes.
+octocat uses two UI frameworks, split by buffer type:
+
+- **vui.el** — the repo overview buffer (`octocat-repo.el`,
+  `octocat-repo-mode`).  It is a dashboard of independent async sections, each
+  with its own fetch (`vui-use-async`), pagination counter (`:state`) and
+  collapse state (`vui-collapsible`).  `octocat-repo-mode` does **not** derive
+  from `magit-section-mode`.
+- **magit-section** — every other view (PR, issue, commit, diff, workflow,
+  run, job, checks).  These are document-style buffers (markdown bodies,
+  diffs, comments) where the section tree fits well.  See
+  [docs/magit-section.md](docs/magit-section.md) for the section tree
+  structure, hiding/collapsing gotchas, and the correct patterns for
+  preserving collapse state across refreshes.
+
+Do not convert other views to vui.el without a concrete reason; the split is
+deliberate.  New dashboard-style buffers (independent async sections) should
+use vui.el; new document-style buffers should use magit-section.  Never mix
+the two in one buffer.
+
+vui.el gotchas:
+
+- `vui-collapsible` indents only the **first** body line (default `:indent
+  2`).  Rows here carry their own two-space prefix, so every collapsible
+  passes `:indent 0`; otherwise the first row is indented by four spaces.
+- Rows use `vui-text` inside a `vui-region` (not `vui-button`) so per-segment
+  faces are preserved; see "Row rendering" in `octocat-repo.el`.
+
+### Dependencies
+
+Runtime dependencies are exactly those in the `Package-Requires` header of
+`octocat.el`, and the `Eask` file must list the same set.  Only call functions
+from declared dependencies.
+
+`vui` is a deliberate dependency that is **not yet on MELPA or GNU ELPA**.
+`Eask` fetches it from GitHub (`d12frosted/vui.el`, with `:files '("*.el")`
+so `vui.el`, `vui-components.el` and `vui-layout.el` install as one package),
+and `Package-Requires` declares `(vui "0.1")`.  We accept this: the repo view
+is the main entry point and vui removes a large amount of hand-written state
+bookkeeping from it.  Consequences to keep in mind:
+
+- Users must be able to install `vui` before octocat (e.g. via `straight`,
+  `elpaca`, or `package-vc`) until it is published to an archive.  Document
+  this in the README install instructions.
+- Treat vui as a young, fast-moving library: pin or re-test when bumping it,
+  and keep vui usage confined to `octocat-repo.el` so a breaking change or a
+  future removal has a small blast radius.
+- If vui is published to MELPA/GNU ELPA, drop the `:repo`/`:fetcher` options
+  from `Eask`.
 
 ### Indicating interactivity in the UI
 

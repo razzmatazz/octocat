@@ -61,9 +61,16 @@ path) is subsequently loaded, `octocat-repo' becomes defined and RET in
   ;; Phase 2: after loading the real (only) entry path.
   (require 'octocat)
   (should (fboundp 'octocat-repo))
+  ;; octocat-repo-mode no longer derives from magit-section-mode (it is
+  ;; rendered with vui.el, see octocat-repo.el's Commentary) and no longer
+  ;; has a single RET-dispatches-on-section-at-point binding to check here
+  ;; -- see octocat-evil.el's "octocat-repo-mode" section for the known gap
+  ;; around per-row RET bindings under Evil.  Check a binding that *is*
+  ;; still installed globally by `octocat-evil-setup' instead, as the
+  ;; canary that evil setup ran for this mode at all.
   (let* ((aux (evil-get-auxiliary-keymap octocat-repo-mode-map 'normal nil t))
-         (binding (and aux (lookup-key aux (kbd "RET")))))
-    (should (eq binding #'octocat-visit))))
+         (binding (and aux (lookup-key aux (kbd "C-c C-r")))))
+    (should (eq binding #'octocat-switch-repo))))
 
 (provide 'octocat-evil-repo-tests)
 ;;; octocat-evil-repo-tests.el ends here

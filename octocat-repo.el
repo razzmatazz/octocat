@@ -24,6 +24,55 @@
 ;; The `M-x octocat-repo' entry point is defined in octocat.el (see
 ;; CONTRIBUTING.md, "Entry points"); this file defines `octocat-repo-mode'
 ;; and all of its supporting logic.
+;;
+;; Rendered with vui.el (https://github.com/d12frosted/vui.el) instead of
+;; magit-section.  This replaces:
+;;   - octocat-repo--save-section-state / octocat-repo--hide-if-saved
+;;     (collapse state had to be snapshotted before every erase and
+;;     re-applied during construction) with vui-collapsible's own
+;;     component state, which vui's reconciliation preserves automatically
+;;     across re-renders.
+;;   - octocat--save-point / octocat--restore-point + the
+;;     magit-section-ident-value override on hash-tables (cursor identity
+;;     across a full erase-and-rebuild) with vui's own path-based cursor
+;;     tracking.
+;;   - the buffer-local `octocat-repo--counts' alist + a global
+;;     `octocat-repo-load-more' command that had to locate the pageable
+;;     section at point, with a per-section `:limit' state var and a
+;;     "Load more" button local to that section.
+;;   - the hand-rolled `pending' sentinel + `cl-labels' `maybe-render'
+;;     fan-in across 7 async gh calls with `vui-use-async', called once
+;;     per section (and twice in the root, for default-branch and
+;;     fork-parent); each section/hook manages its own pending/ready/error
+;;     state independently.
+;; See docs/magit-section.md for what the replaced machinery looked like.
+;;
+;; Known regressions / gaps in this first pass (see AGENTS.md's note on
+;; this migration for context -- deliberately accepted for now):
+;;   - No disk cache / stale-while-revalidate: every `octocat-repo-refresh'
+;;     fully remounts the component tree via `vui-mount', so there is no
+;;     "render stale cache instantly, then replace with live data" step,
+;;     and no `mode-line-process' indicator (each section's own
+;;     "Loading…" placeholder signals progress instead).
+;;   - Because every refresh remounts, collapse state and "load more"
+;;     limits reset to their defaults on each *explicit* refresh
+;;     (`revert-buffer', reopening via `octocat-visit-repo', etc.).  They
+;;     are preserved correctly for interactions *within* one mount
+;;     (collapsing a section, clicking "load more", navigating away and
+;;     back via `switch-to-buffer') since those go through vui's
+;;     reconciliation, not a remount.
+;;   - No Evil integration attempted.  Row navigation uses a `keymap' text
+;;     property per row (via `vui-region'), which is not necessarily
+;;     higher priority than Evil's normal/motion state keymaps (installed
+;;     via `emulation-mode-map-alists'); RET may or may not reach the row
+;;     handler under `evil-mode' and needs real investigation, unlike the
+;;     aux-keymap-divergence fix documented in AGENTS.md for the
+;;     magit-section-derived modes, which does not apply here since
+;;     `octocat-repo-mode' no longer derives from `magit-section-mode'.
+;;   - Per-row "open in browser" (what `octocat-browse' used to do for a
+;;     `pr'/`issue'/`octocat-commit'/`workflow'/`workflow-run' section at
+;;     point) is not implemented; `C-c C-o' opens the repository's GitHub
+;;     page unconditionally instead.
 
 ;;; Code:
 
@@ -37,22 +86,35 @@
 (require 'octocat-job)
 (require 'octocat-checks)
 (require 'octocat-tree)
+(require 'vui)
+(require 'vui-components) ; vui-collapsible, vui-heading-*, etc.
 
-;; octocat-visit and octocat-browse live in octocat.el; we cannot require
-;; that file here (circular dependency), so declare them for the compiler.
-(declare-function octocat-visit    "octocat"      ())
-(declare-function octocat-browse   "octocat"      ())
-(declare-function octocat-tree-open      "octocat-tree" ())
-(declare-function octocat-tree-find-file "octocat-tree" ())
-(declare-function octocat-file-log-open  "octocat-tree" ())
+;; Cross-file calls: declared per AGENTS.md's "Byte-compiler warnings about
+;; functions not known to be defined" -- `make ci' compiles all files in
+;; parallel, so a plain `require' does not guarantee the callee is already
+;; compiled when this file is.
+(declare-function octocat-pr-mode                  "octocat-pr"       ())
+(declare-function octocat--render-pr-loading       "octocat-pr"       (number title state))
+(declare-function octocat-pr-refresh               "octocat-pr"       (&optional _ignore-auto _noconfirm))
+(declare-function octocat-issue-mode               "octocat-issue"    ())
+(declare-function octocat--render-issue-loading    "octocat-issue"    (number title state))
+(declare-function octocat-issue-refresh            "octocat-issue"    (&optional _ignore-auto _noconfirm))
+(declare-function octocat-workflow-mode            "octocat-workflow" ())
+(declare-function octocat--render-workflow-loading "octocat-workflow" (name))
+(declare-function octocat-workflow-refresh         "octocat-workflow" (&optional _ignore-auto _noconfirm))
+(declare-function octocat-run-mode                 "octocat-run"      ())
+(declare-function octocat--render-run-loading      "octocat-run"      (run-id))
+(declare-function octocat-run-refresh              "octocat-run"      (&optional _ignore-auto _noconfirm))
+(declare-function octocat-commit-mode              "octocat-commit"   ())
+(declare-function octocat--render-commit-loading   "octocat-commit"   (sha))
+(declare-function octocat-commit-refresh           "octocat-commit"   (&optional _ignore-auto _noconfirm))
+(declare-function octocat-tree-open                "octocat-tree"     ())
+(declare-function octocat-tree-find-file           "octocat-tree"     ())
 
-;; Forward declarations for sub-module buffer-locals referenced by
-;; octocat-visit (defined in octocat.el) but used here via the shared
-;; keymap / mode.  These silence the byte-compiler.
+;; Buffer-locals this file `setq's in a *different* buffer (the target
+;; detail buffer, after `pop-to-buffer') than the one that defines them.
 (defvar octocat--pr-repo)        ; defined as buffer-local in octocat-pr.el
 (defvar octocat--pr-number)      ; defined as buffer-local in octocat-pr.el
-(defvar octocat--pr-diff-repo)   ; defined as buffer-local in octocat-pr-diff.el
-(defvar octocat--pr-diff-number) ; defined as buffer-local in octocat-pr-diff.el
 (defvar octocat--issue-repo)     ; defined as buffer-local in octocat-issue.el
 (defvar octocat--issue-number)   ; defined as buffer-local in octocat-issue.el
 (defvar octocat--workflow-repo)  ; defined as buffer-local in octocat-workflow.el
@@ -60,28 +122,8 @@
 (defvar octocat--workflow-name)  ; defined as buffer-local in octocat-workflow.el
 (defvar octocat--run-repo)       ; defined as buffer-local in octocat-run.el
 (defvar octocat--run-id)         ; defined as buffer-local in octocat-run.el
-(defvar octocat--job-repo)       ; defined as buffer-local in octocat-job.el
-(defvar octocat--job-run-id)     ; defined as buffer-local in octocat-job.el
-(defvar octocat--job-id)         ; defined as buffer-local in octocat-job.el
-(defvar octocat--job-name)       ; defined as buffer-local in octocat-job.el
-(defvar octocat--checks-repo)    ; defined as buffer-local in octocat-checks.el
-(defvar octocat--checks-sha)     ; defined as buffer-local in octocat-checks.el
-(defvar octocat--checks-ref)     ; defined as buffer-local in octocat-checks.el
-
-;; declare-function stubs for functions called from octocat-visit (defined
-;; in octocat.el) that live in sub-modules.
-(declare-function octocat-pr-edit-body            "octocat-pr"      ())
-(declare-function octocat-pr-edit-title           "octocat-pr"      ())
-(declare-function octocat-issue-edit-body         "octocat-issue"   ())
-(declare-function octocat-issue-edit-title        "octocat-issue"   ())
-(declare-function octocat--render-pr-diff-loading "octocat-pr-diff" (number))
-(declare-function octocat-pr-diff-refresh         "octocat-pr-diff" (&optional _ignore-auto _noconfirm))
-(declare-function octocat--render-checks-loading  "octocat-checks"  (sha))
-(declare-function octocat-checks-refresh          "octocat-checks"  (&optional _ignore-auto _noconfirm))
-(declare-function octocat-checks-mode             "octocat-checks"  ())
-(declare-function octocat-commit-mode             "octocat-commit"  ())
-(declare-function octocat-commit-refresh          "octocat-commit"  (&optional _ignore-auto _noconfirm))
-(declare-function octocat--render-commit-loading  "octocat-commit"  (sha))
+(defvar octocat--commit-repo)    ; defined as buffer-local in octocat-commit.el
+(defvar octocat--commit-sha)     ; defined as buffer-local in octocat-commit.el
 
 
 ;;;; User options
@@ -90,12 +132,18 @@
   "Default number of items to display per section in the repo buffer.
 Used as the initial page size for Pull Requests, Issues, Workflow Runs,
 and Commits.  Each section starts with this many items and increments
-by this amount on each `octocat-repo-load-more'."
+by this amount every time its \"Load more\" button is used."
   :type 'integer
   :group 'octocat)
 
 
 ;;;; Buffer-local state
+;;
+;; Only the two identifying values survive as plain buffer-locals: they
+;; are set directly by external callers (`octocat.el', `octocat-visit-repo'
+;; in octocat-core.el) before `octocat-repo-refresh' is invoked.  Collapse
+;; state, per-section pagination limits, and fetched data all live as vui
+;; component state/hook results instead -- see the Commentary above.
 
 (defvar-local octocat-repo--repo nil
   "The \"owner/repo\" string this buffer is tracking.")
@@ -107,30 +155,9 @@ opened from inside a git working tree.  Nil means the buffer was opened
 in detached mode — tracking a remote repository without a local clone.")
 
 (defvar-local octocat-repo--current-branch nil
-  "The local git branch checked out when this buffer last refreshed.
-Used to highlight matching PR and workflow-run rows.  Nil when HEAD is
-detached or the directory is not a git repository.")
-
-(defvar-local octocat-repo--head-info nil
-  "Plist describing the local HEAD when this buffer last refreshed.
-Keys: :branch (string or nil), :hash (short hash string), :subject
-\(one-line commit message).  Nil when not in a git repository or the
-buffer was opened in detached mode.")
-
-(defvar-local octocat-repo--section-hidden nil
-  "List of section type symbols that were hidden before the last render.
-Used to restore collapse state across buffer refreshes.")
-
-(defvar-local octocat-repo--counts nil
-  "Alist mapping section-type symbol to current item count.
-Keys: prs, issues, commits, recent-runs.
-Nil until first refresh; each key is then initialised from
-`octocat-section-limit' and incremented by `octocat-repo-load-more'.")
-
-(defvar-local octocat-repo--fork-parent nil
-  "\"owner/repo\" string of the upstream repository when this repo is a fork.
-Nil when the repo is not a fork or when the information has not yet been
-fetched.  Set by `octocat-repo-refresh' after the async API call returns.")
+  "Name of the local HEAD branch, or nil when detached or unknown.
+Set by `octocat-repo-refresh'.  Read by `octocat-tree.el' (`C-c C-t',
+`C-c C-f') to pick the branch whose tree to browse.")
 
 
 ;;;; Repo detection
@@ -181,6 +208,19 @@ Matches messages like \"X has disabled issues\" / \"disabled pull requests\" /
 turned off, so callers can treat them as empty lists rather than real errors."
   (and (eq (car-safe result) 'error)
        (string-match-p "disabled" (cdr result))))
+
+(defun octocat-repo-vui--resolve-or-reject (result resolve reject)
+  "Route RESULT from an octocat gh-fetch callback to RESOLVE or REJECT.
+RESULT is whatever an octocat `octocat--run-gh'-based fetch function
+passes to its callback: either the parsed data, or a cons
+\\=(error . MSG).  A disabled-feature error (see
+`octocat-repo--disabled-feature-p') resolves to nil (an empty list)
+rather than rejecting, matching the previous magit-section
+rendering's \"(no pull requests)\" treatment of disabled features."
+  (cond
+   ((not (eq (car-safe result) 'error)) (funcall resolve result))
+   ((octocat-repo--disabled-feature-p result) (funcall resolve nil))
+   (t (funcall reject (cdr result)))))
 
 (defun octocat-repo--list-workflows (repo callback)
   "Fetch workflows for REPO asynchronously and call CALLBACK with results.
@@ -265,657 +305,571 @@ when it is not a fork.  Uses the GitHub REST API via `gh api'."
    callback))
 
 
-;;;; Buffer rendering
+;;;; Row rendering
+;;
+;; A "row" is a `vui-region' wrapping a single already-propertized `vui-text'
+;; line, with a tiny keymap binding RET to the row's navigation.  vui-text
+;; inserts its CONTENT string as-is (preserving whatever per-segment `face'
+;; properties the octocat-core.el formatting helpers already put on it,
+;; e.g. a different face for the branch column vs. the title vs. the
+;; state); it is deliberately not a `vui-button', since a button applies a
+;; single `face' across the whole label, which would clobber that
+;; per-segment styling.
 
-(defmacro octocat-repo--hide-if-saved (type section)
-  "Hide SECTION at creation time if TYPE is in `octocat-repo--section-hidden'.
-SECTION must be an expression that returns a `magit-section' object
-\(typically a `magit-insert-section' call).  When TYPE is present in
-`octocat-repo--section-hidden', wraps the section with `magit-section-hide'
-so the overlay is applied immediately, as required by magit-section."
-  `(let ((s ,section))
-     (when (memq ,type (buffer-local-value 'octocat-repo--section-hidden
-                                           (current-buffer)))
-       (magit-section-hide s))
-     s))
+(defun octocat-repo-vui--row (line on-visit &optional help-echo)
+  "Build a RET-able row vnode from already-propertized LINE.
+ON-VISIT is a zero-argument function invoked when RET is pressed on the
+row.  HELP-ECHO defaults to a generic hint.
 
-(defun octocat-repo--render-prs (prs &optional current-branch)
-  "Insert the collapsible Pull Requests section for PRS.
-PRS may be a list of pull-request hash-tables or a cons (error . MSG).
-CURRENT-BRANCH, when non-nil, is the local HEAD branch name; the
-matching PR row's branch column is highlighted with `octocat-branch-current'."
-  (magit-insert-section (pull-requests)
-    (magit-insert-heading
-      (propertize "Pull Requests" 'face 'octocat-section-heading))
-    (cond
-     ((eq (car-safe prs) 'error)
-      (if (octocat-repo--disabled-feature-p prs)
-          (insert "  (no pull requests)\n")
-        (insert (propertize (format "  %s\n" (cdr prs)) 'face 'octocat-dimmed))))
-     ((null prs)
-      (insert "  (no pull requests)\n"))
-     (t
-      (dolist (pr prs)
-        (let* ((number  (format "%11s" (format "#%d" (gethash "number" pr))))
-               (title   (or (gethash "title"  pr) ""))
-               (branch  (or (gethash "headRefName" pr) ""))
-               (activep (and current-branch (string= branch current-branch)))
-               (b-face  (if activep 'octocat-branch-current 'octocat-branch))
-               (author  (octocat--author-login pr))
-               (state   (downcase (or (gethash "state" pr) "open")))
-               (state-face (cond ((equal state "merged") 'octocat-pr-state-merged)
-                                 ((equal state "closed") 'octocat-pr-state-closed)
-                                 (t                      'octocat-pr-state-open)))
-               (ci      (octocat--ci-label pr)))
-          (magit-insert-section (pr pr)
-            (magit-insert-heading
-              (concat
-               "  "
-               (let* ((name (truncate-string-to-width branch octocat-branch-max-width nil nil "…"))
-                      (pad  (make-string (- octocat-branch-max-width (string-width name)) ?\s)))
-                 (concat (propertize name 'face b-face) pad))
-               "  "
-               (propertize number 'face 'octocat-pr-number)
-               "  "
-               (octocat--format-title title)
-               "  "
-               (propertize (format "%-16s" author) 'face 'octocat-pr-author)
-               "  "
-               (propertize (format "%-6s" state) 'face state-face)
-               "  "
-               ci
-               "\n")))))
-      (when (>= (length prs) (alist-get 'prs octocat-repo--counts))
-          (let ((hint '(mouse-face magit-section-highlight
-                        help-echo  "RET / +: load more pull requests")))
-            (magit-insert-section (load-more 'prs)
-              (magit-insert-heading
-                (concat (apply #'propertize
-                               (format "  [+] Load %d more…" octocat-section-limit)
-                               'face 'octocat-dimmed hint)
-                        "\n")))))))))
+The keymap binds RET to a wrapper command, not ON-VISIT directly:
+`command-execute' (what a real keypress dispatches through) requires
+`commandp', which a plain lambda without `(interactive)' does not
+satisfy -- binding ON-VISIT itself would look right but signal
+`wrong-type-argument commandp' the moment RET is actually pressed."
+  (let ((map (let ((m (make-sparse-keymap)))
+               (define-key m (kbd "RET") (lambda () (interactive) (funcall on-visit)))
+               m)))
+    (vui-region :keymap map
+      (vui-text line 'mouse-face 'highlight
+                'help-echo (or help-echo "RET: view details")))))
 
-(defun octocat-repo--render-issues (issues)
-  "Insert the collapsible Issues section for ISSUES.
-ISSUES may be a list of issue hash-tables or a cons (error . MSG)."
-  (magit-insert-section (issues)
-    (magit-insert-heading
-      (propertize "Issues" 'face 'octocat-section-heading))
-    (cond
-     ((eq (car-safe issues) 'error)
-      (if (octocat-repo--disabled-feature-p issues)
-          (insert "  (no issues)\n")
-        (insert (propertize (format "  %s\n" (cdr issues)) 'face 'octocat-dimmed))))
-     ((null issues)
-      (insert "  (no issues)\n"))
-     (t
-      (dolist (issue issues)
-        (let* ((number (format "%11s" (format "#%d" (gethash "number" issue))))
-               (title  (or (gethash "title"  issue) ""))
-               (author (octocat--author-login issue))
-               (state  (downcase (or (gethash "state" issue) "open")))
-               (state-face (if (equal state "open")
-                               'octocat-pr-state-open
-                             'octocat-pr-state-closed)))
-          (magit-insert-section (issue issue)
-            (magit-insert-heading
-              (concat
-               "  "
-               (make-string octocat-branch-max-width ?\s)
-               "  "
-               (propertize number 'face 'octocat-pr-number)
-               "  "
-               (octocat--format-title title)
-               "  "
-               (propertize (format "%-16s" author) 'face 'octocat-pr-author)
-               "  "
-               (propertize (format "%-6s" state) 'face state-face)
-               "\n")))))
-      (when (>= (length issues) (alist-get 'issues octocat-repo--counts))
-        (let ((hint '(mouse-face magit-section-highlight
-                      help-echo  "RET / +: load more issues")))
-          (magit-insert-section (load-more 'issues)
-            (magit-insert-heading
-              (concat (apply #'propertize
-                             (format "  [+] Load %d more…" octocat-section-limit)
-                             'face 'octocat-dimmed hint)
-                      "\n")))))))))
+(defun octocat-repo-vui--load-more-button (key help-echo on-click)
+  "Return a \"Load more\" vui-button with HELP-ECHO, invoking ON-CLICK.
+KEY is a per-section symbol: it is the button's cursor identity, so point
+stays on this section's button when growing the list re-renders it
+instead of drifting to a neighbouring section's button.
+Rows carry no trailing newline (`vui-list' only separates them), so the
+button starts on a fresh line and carries the same two-space indent."
+  (vui-fragment
+   (vui-newline)
+   (vui-text "  ")
+   (vui-button (format "[+] Load %d more…" octocat-section-limit)
+               :no-decoration t
+               :face 'octocat-dimmed
+               :key key
+               :help-echo help-echo
+               :on-click on-click)))
 
-(defun octocat-repo--render-workflows (workflows)
-  "Insert the collapsible Workflows section for WORKFLOWS.
-WORKFLOWS may be a list of workflow hash-tables or a cons (error . MSG).
-Each workflow is shown as a single flat row (name + state); run history
-is displayed in the separate Workflow Runs section."
-  (magit-insert-section (workflows)
-    (magit-insert-heading
-      (propertize "Workflows" 'face 'octocat-section-heading))
-    (cond
-     ((eq (car-safe workflows) 'error)
-      (if (octocat-repo--disabled-feature-p workflows)
-          (insert "  (no workflows)\n")
-        (insert (propertize (format "  %s\n" (cdr workflows)) 'face 'octocat-dimmed))))
-     ((null workflows)
-      (insert "  (no workflows)\n"))
-     (t
-      (dolist (workflow workflows)
-        (let* ((name       (or (gethash "name"  workflow) ""))
-               (state      (downcase (or (gethash "state" workflow) "")))
-               (state-face (if (equal state "active") 'success 'octocat-dimmed)))
-          (magit-insert-section (workflow workflow)
-            (magit-insert-heading
-              (concat
-               "  "
-               (truncate-string-to-width name 40 nil nil "…")
-               "  "
-               (propertize state 'face state-face)
-               "\n")))))))))
 
-(defun octocat-repo--render-workflow-runs (recent-runs &optional current-branch)
-  "Insert the collapsible Workflow Run history section for RECENT-RUNS.
-RECENT-RUNS is a flat list of run hash-tables (each with a
-\\='workflowName\\=' key) or a cons (error . MSG).
-CURRENT-BRANCH, when non-nil, is the local HEAD branch name; the
-matching run row's branch column is highlighted with `octocat-branch-current'.
-Show up to 20 most recent workflow entries across all workflows."
-  (magit-insert-section (workflow-runs)
-    (magit-insert-heading
-      (propertize "Workflow Runs" 'face 'octocat-section-heading))
-    (cond
-     ((eq (car-safe recent-runs) 'error)
-      (if (octocat-repo--disabled-feature-p recent-runs)
-          (insert "  (no workflow runs)\n")
-        (insert (propertize (format "  %s\n" (cdr recent-runs)) 'face 'octocat-dimmed))))
-     ((null recent-runs)
-      (insert "  (no workflow runs)\n"))
-     (t
-      (let ((wf-w (min 25 (apply #'max 1
-                                (mapcar (lambda (r)
-                                          (length (or (gethash "workflowName" r) "")))
-                                        recent-runs)))))
-        (dolist (run recent-runs)
-          (let* ((run-id     (or (gethash "databaseId"   run) 0))
-                 (title      (or (gethash "displayTitle" run) ""))
-                 (status     (downcase (or (gethash "status" run) "")))
-                 (conclusion (let ((c (gethash "conclusion" run)))
-                               (and (octocat--nonempty c) (downcase c))))
-                 (branch     (or (gethash "headBranch"   run) ""))
-                 (activep    (and current-branch (string= branch current-branch)))
-                 (b-face     (if activep 'octocat-branch-current 'octocat-branch))
-                 (wf-name    (or (gethash "workflowName" run) ""))
-                 (created    (or (gethash "createdAt"    run) ""))
-                 (date       (octocat--relative-ts created))
-                 (icon       (octocat--workflow-run-icon status conclusion)))
-            (magit-insert-section (workflow-run run)
-              (magit-insert-heading
-                (concat
-                 "  "
-                 (let* ((name (truncate-string-to-width branch octocat-branch-max-width nil nil "…"))
-                        (pad  (make-string (- octocat-branch-max-width (string-width name)) ?\s)))
-                   (concat (propertize name 'face b-face) pad))
-                 "  "
-                 (propertize (format "%-11s" (number-to-string run-id))
-                             'face 'octocat-pr-number)
-                 "  "
-                 (propertize (truncate-string-to-width wf-name wf-w nil ?\s "…")
-                             'face 'octocat-dimmed)
-                 "  "
-                 icon
-                 "  "
-                 (octocat--format-title title)
-                 "  "
-                 (propertize date 'face 'octocat-dimmed)
-                 "\n")))))
-        (when (>= (length recent-runs) (alist-get 'recent-runs octocat-repo--counts))
-          (let ((hint '(mouse-face magit-section-highlight
-                        help-echo  "RET / +: load more runs")))
-            (magit-insert-section (load-more 'recent-runs)
-              (magit-insert-heading
-                (concat (apply #'propertize
-                               (format "  [+] Load %d more…" octocat-section-limit)
-                               'face 'octocat-dimmed hint)
-                        "\n"))))))))))
+;;;; Navigation
+;;
+;; Each of these opens (or switches to) the corresponding detail buffer.
+;; This is the same buffer-setup sequence `octocat-visit' uses for these
+;; section types in every other (magit-section-based) view, just called
+;; directly from a row's `:on-click'/RET handler instead of being reached
+;; through a shared "inspect the section at point" dispatcher -- there is
+;; no section at point to inspect here.
 
-(defun octocat-repo--render-commits (commits &optional default-branch current-branch
-                                             head-info)
-  "Insert the collapsible Commits section for COMMITS.
-COMMITS is a list of commit hash-tables as returned by the GitHub REST
-API \\='repos/{owner}/{repo}/commits\\=' endpoint, or a cons (error . MSG).
-DEFAULT-BRANCH is an optional string such as \"main\" shown on each commit row.
-CURRENT-BRANCH, when non-nil, is the local HEAD branch name; when it
-matches DEFAULT-BRANCH the label is highlighted with `octocat-branch-current'.
-HEAD-INFO is an optional plist (:branch :hash :subject) from
-`octocat--head-info'.  When a row's SHA starts with HEAD-INFO's :hash the
-row is marked with a `*' indicator and its SHA is highlighted with
-`octocat-commit-sha', signalling that this commit is the local HEAD.
-Each row shows the short SHA, branch, subject, author, and date.  RET on a row
-navigates to the commit detail view via `octocat-visit'."
+(defun octocat-repo-vui--open-pr (repo pr)
+  "Open the PR detail buffer for PR (a hash-table) in REPO."
+  (let* ((number   (gethash "number" pr))
+         (title    (or (gethash "title" pr) ""))
+         (state    (or (gethash "state" pr) "OPEN"))
+         (buf-name (format "*octocat-pr: %s#%d*" repo number))
+         (buf      (get-buffer-create buf-name)))
+    (pop-to-buffer buf)
+    (unless (derived-mode-p 'octocat-pr-mode)
+      (octocat-pr-mode))
+    (setq octocat--pr-repo repo
+          octocat--pr-number number)
+    (octocat--render-pr-loading number title state)
+    (octocat-pr-refresh)))
+
+(defun octocat-repo-vui--open-issue (repo issue)
+  "Open the issue detail buffer for ISSUE (a hash-table) in REPO."
+  (let* ((number   (gethash "number" issue))
+         (title    (or (gethash "title" issue) ""))
+         (state    (or (gethash "state" issue) "OPEN"))
+         (buf-name (format "*octocat-issue: %s#%d*" repo number))
+         (buf      (get-buffer-create buf-name)))
+    (pop-to-buffer buf)
+    (unless (derived-mode-p 'octocat-issue-mode)
+      (octocat-issue-mode))
+    (setq octocat--issue-repo repo
+          octocat--issue-number number)
+    (octocat--render-issue-loading number title state)
+    (octocat-issue-refresh)))
+
+(defun octocat-repo-vui--open-commit (repo commit)
+  "Open the commit detail buffer for COMMIT (a hash-table) in REPO."
+  (let* ((oid      (or (gethash "sha" commit) (gethash "oid" commit) ""))
+         (short    (substring oid 0 (min 7 (length oid))))
+         (buf-name (format "*octocat-commit: %s@%s*" repo short))
+         (buf      (get-buffer-create buf-name)))
+    (pop-to-buffer buf)
+    (unless (derived-mode-p 'octocat-commit-mode)
+      (octocat-commit-mode))
+    (setq octocat--commit-repo repo
+          octocat--commit-sha  oid)
+    (octocat--render-commit-loading oid)
+    (octocat-commit-refresh)))
+
+(defun octocat-repo-vui--open-workflow (repo workflow)
+  "Open the workflow detail buffer for WORKFLOW (a hash-table) in REPO."
+  (let* ((id       (gethash "id" workflow))
+         (name     (or (gethash "name" workflow) ""))
+         (buf-name (format "*octocat-workflow: %s/%s*" repo name))
+         (buf      (get-buffer-create buf-name)))
+    (pop-to-buffer buf)
+    (unless (derived-mode-p 'octocat-workflow-mode)
+      (octocat-workflow-mode))
+    (setq octocat--workflow-repo repo
+          octocat--workflow-id   id
+          octocat--workflow-name name)
+    (octocat--render-workflow-loading name)
+    (octocat-workflow-refresh)))
+
+(defun octocat-repo-vui--open-workflow-run (repo run)
+  "Open the workflow-run detail buffer for RUN (a hash-table) in REPO."
+  (let* ((run-id   (gethash "databaseId" run))
+         (buf-name (format "*octocat-run: %s#%d*" repo run-id))
+         (buf      (get-buffer-create buf-name)))
+    (pop-to-buffer buf)
+    (unless (derived-mode-p 'octocat-run-mode)
+      (octocat-run-mode))
+    (setq octocat--run-repo repo
+          octocat--run-id   run-id)
+    (octocat--render-run-loading run-id)
+    (octocat-run-refresh)))
+
+
+;;;; Row builders
+
+(defun octocat-repo-vui--pr-row (repo pr current-branch)
+  "Return a row vnode for PR in REPO.
+CURRENT-BRANCH, when non-nil, is the local HEAD branch name; a matching
+PR branch is highlighted with `octocat-branch-current'."
+  (let* ((number  (format "%11s" (format "#%d" (gethash "number" pr))))
+         (title   (or (gethash "title" pr) ""))
+         (branch  (or (gethash "headRefName" pr) ""))
+         (activep (and current-branch (string= branch current-branch)))
+         (b-face  (if activep 'octocat-branch-current 'octocat-branch))
+         (author  (octocat--author-login pr))
+         (state   (downcase (or (gethash "state" pr) "open")))
+         (state-face (cond ((equal state "merged") 'octocat-pr-state-merged)
+                           ((equal state "closed") 'octocat-pr-state-closed)
+                           (t                      'octocat-pr-state-open)))
+         (ci      (octocat--ci-label pr))
+         (line
+          (concat
+           "  "
+           (let* ((name (truncate-string-to-width branch octocat-branch-max-width nil nil "…"))
+                  (pad  (make-string (- octocat-branch-max-width (string-width name)) ?\s)))
+             (concat (propertize name 'face b-face) pad))
+           "  "
+           (propertize number 'face 'octocat-pr-number)
+           "  "
+           (octocat--format-title title)
+           "  "
+           (propertize (format "%-16s" author) 'face 'octocat-pr-author)
+           "  "
+           (propertize (format "%-6s" state) 'face state-face)
+           "  "
+           ci)))
+    (octocat-repo-vui--row line
+                          (lambda () (octocat-repo-vui--open-pr repo pr))
+                          "RET: view pull request")))
+
+(defun octocat-repo-vui--issue-row (repo issue)
+  "Return a row vnode for ISSUE in REPO."
+  (let* ((number (format "%11s" (format "#%d" (gethash "number" issue))))
+         (title  (or (gethash "title"  issue) ""))
+         (author (octocat--author-login issue))
+         (state  (downcase (or (gethash "state" issue) "open")))
+         (state-face (if (equal state "open")
+                         'octocat-pr-state-open
+                       'octocat-pr-state-closed))
+         (line
+          (concat
+           "  "
+           (make-string octocat-branch-max-width ?\s)
+           "  "
+           (propertize number 'face 'octocat-pr-number)
+           "  "
+           (octocat--format-title title)
+           "  "
+           (propertize (format "%-16s" author) 'face 'octocat-pr-author)
+           "  "
+           (propertize (format "%-6s" state) 'face state-face))))
+    (octocat-repo-vui--row line
+                          (lambda () (octocat-repo-vui--open-issue repo issue))
+                          "RET: view issue")))
+
+(defun octocat-repo-vui--workflow-row (repo workflow)
+  "Return a row vnode for WORKFLOW in REPO."
+  (let* ((name       (or (gethash "name"  workflow) ""))
+         (state      (downcase (or (gethash "state" workflow) "")))
+         (state-face (if (equal state "active") 'success 'octocat-dimmed))
+         (line
+          (concat
+           "  "
+           (truncate-string-to-width name 40 nil nil "…")
+           "  "
+           (propertize state 'face state-face))))
+    (octocat-repo-vui--row line
+                          (lambda () (octocat-repo-vui--open-workflow repo workflow))
+                          "RET: view workflow")))
+
+(defun octocat-repo-vui--workflow-run-row (repo run current-branch wf-w)
+  "Return a row vnode for RUN in REPO.
+CURRENT-BRANCH, when non-nil, highlights a matching run branch.
+WF-W is the column width to truncate/pad the workflow name to."
+  (let* ((run-id     (or (gethash "databaseId"   run) 0))
+         (title      (or (gethash "displayTitle" run) ""))
+         (status     (downcase (or (gethash "status" run) "")))
+         (conclusion (let ((c (gethash "conclusion" run)))
+                       (and (octocat--nonempty c) (downcase c))))
+         (branch     (or (gethash "headBranch"   run) ""))
+         (activep    (and current-branch (string= branch current-branch)))
+         (b-face     (if activep 'octocat-branch-current 'octocat-branch))
+         (wf-name    (or (gethash "workflowName" run) ""))
+         (created    (or (gethash "createdAt"    run) ""))
+         (date       (octocat--relative-ts created))
+         (icon       (octocat--workflow-run-icon status conclusion))
+         (line
+          (concat
+           "  "
+           (let* ((name (truncate-string-to-width branch octocat-branch-max-width nil nil "…"))
+                  (pad  (make-string (- octocat-branch-max-width (string-width name)) ?\s)))
+             (concat (propertize name 'face b-face) pad))
+           "  "
+           (propertize (format "%-11s" (number-to-string run-id))
+                       'face 'octocat-pr-number)
+           "  "
+           (propertize (truncate-string-to-width wf-name wf-w nil ?\s "…")
+                       'face 'octocat-dimmed)
+           "  "
+           icon
+           "  "
+           (octocat--format-title title)
+           "  "
+           (propertize date 'face 'octocat-dimmed))))
+    (octocat-repo-vui--row line
+                          (lambda () (octocat-repo-vui--open-workflow-run repo run))
+                          "RET: view workflow run")))
+
+(defun octocat-repo-vui--commit-row (repo commit default-branch current-branch head-info)
+  "Return a row vnode for COMMIT in REPO.
+DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
+`octocat-repo-vui--commits-section'."
   (let* ((branch-label (and (stringp default-branch)
-                             (not (string-empty-p (or default-branch "")))
-                             default-branch))
+                            (not (string-empty-p (or default-branch "")))
+                            default-branch))
          (label-face   (if (and branch-label current-branch
                                 (string= branch-label current-branch))
                            'octocat-branch-current
                          'octocat-branch))
-         (head-hash    (and head-info (plist-get head-info :hash))))
-    (magit-insert-section (commits)
-      (magit-insert-heading
-        (propertize "Commits" 'face 'octocat-section-heading))
-      (cond
-       ((eq (car-safe commits) 'error)
-        (insert (propertize (format "  %s\n" (cdr commits)) 'face 'octocat-dimmed)))
-       ((null commits)
-        (insert "  (no commits)\n"))
-       (t
-        (dolist (commit commits)
-          (let* ((sha       (or (gethash "sha" commit) ""))
-                 (short     (substring sha 0 (min 11 (length sha))))
-                 (is-head   (and head-hash
-                                 (>= (length sha) (length head-hash))
-                                 (string-prefix-p head-hash sha)))
-                 (c         (gethash "commit" commit))
-                 (message   (or (and c (gethash "message" c)) ""))
-                 (subject   (car (split-string message "\n")))
-                 (ca        (and c (gethash "author" c))) ; git author (date)
-                 (author    (octocat--commit-author commit))
-                 (date      (octocat--relative-ts
-                             (or (and ca (gethash "date" ca)) ""))))
-            (magit-insert-section (octocat-commit commit)
-              (magit-insert-heading
-                (concat
-                 "  "
-                 (if branch-label
-                     (let* ((name (truncate-string-to-width branch-label octocat-branch-max-width nil nil "…"))
-                            (pad  (make-string (- octocat-branch-max-width (string-width name)) ?\s)))
-                       (concat (propertize name 'face label-face) pad))
-                   (make-string octocat-branch-max-width ?\s))
-                 "  "
-                 (propertize (format "%-11s" short)
-                             'face (if is-head 'octocat-branch-current 'octocat-commit-sha))
-                 "  "
-                 (if is-head
-                     (let* ((text (truncate-string-to-width subject octocat-title-width nil nil "…"))
-                            (pad  (make-string (- octocat-title-width (string-width text)) ?\s)))
-                       (concat (propertize text 'face 'octocat-branch-current) pad))
-                   (octocat--format-title subject))
-                 "  "
-                 (propertize (format "%-16s" author) 'face 'octocat-pr-author)
-                 "  "
-                 (propertize date 'face 'octocat-dimmed)
-                 "\n")))))
-        (when (>= (length commits) (alist-get 'commits octocat-repo--counts))
-          (let ((hint '(mouse-face magit-section-highlight
-                        help-echo  "RET / +: load more commits")))
-            (magit-insert-section (load-more 'commits)
-              (magit-insert-heading
-                (concat (apply #'propertize
-                               (format "  [+] Load %d more…" octocat-section-limit)
-                               'face 'octocat-dimmed hint)
-                        "\n"))))))))))
+         (head-hash (and head-info (plist-get head-info :hash)))
+         (sha       (or (gethash "sha" commit) ""))
+         (short     (substring sha 0 (min 11 (length sha))))
+         (is-head   (and head-hash
+                        (>= (length sha) (length head-hash))
+                        (string-prefix-p head-hash sha)))
+         (c         (gethash "commit" commit))
+         (message   (or (and c (gethash "message" c)) ""))
+         (subject   (car (split-string message "\n")))
+         (ca        (and c (gethash "author" c)))
+         (author    (octocat--commit-author commit))
+         (date      (octocat--relative-ts
+                     (or (and ca (gethash "date" ca)) "")))
+         (line
+          (concat
+           "  "
+           (if branch-label
+               (let* ((name (truncate-string-to-width branch-label octocat-branch-max-width nil nil "…"))
+                      (pad  (make-string (- octocat-branch-max-width (string-width name)) ?\s)))
+                 (concat (propertize name 'face label-face) pad))
+             (make-string octocat-branch-max-width ?\s))
+           "  "
+           (propertize (format "%-11s" short)
+                       'face (if is-head 'octocat-branch-current 'octocat-commit-sha))
+           "  "
+           (if is-head
+               (let* ((text (truncate-string-to-width subject octocat-title-width nil nil "…"))
+                      (pad  (make-string (- octocat-title-width (string-width text)) ?\s)))
+                 (concat (propertize text 'face 'octocat-branch-current) pad))
+             (octocat--format-title subject))
+           "  "
+           (propertize (format "%-16s" author) 'face 'octocat-pr-author)
+           "  "
+           (propertize date 'face 'octocat-dimmed))))
+    (octocat-repo-vui--row line
+                          (lambda () (octocat-repo-vui--open-commit repo commit))
+                          "RET: view commit")))
 
-(defun octocat-repo--render-loading (repo)
-  "Render a skeleton repo view for REPO while data is still loading.
-Shows the repo header and collapsed section expanders for Pull Requests,
-Issues, and Workflows, each with a dimmed \\='Loading…\\=' placeholder."
-  (octocat-repo--save-section-state)
-  (let ((inhibit-read-only t))
-    (erase-buffer)
-    (magit-insert-section (octocat-root)
-      (magit-insert-heading
-        (concat
-         (propertize repo 'face 'octocat-repo)
-         "  "
-         (propertize "[Browse files]"
-                     'face       'octocat-dimmed
-                     'mouse-face 'magit-section-highlight
-                     'help-echo  "RET: browse file tree"
-                     'octocat-action 'browse-files)))
-      (when octocat-repo--local-dir
-        (let* ((hi      octocat-repo--head-info)
-               (branch  (and hi (plist-get hi :branch)))
-               (hash    (and hi (plist-get hi :hash)))
-               (subject (and hi (plist-get hi :subject))))
-          (insert (concat (propertize "Local Head:" 'face 'octocat-dimmed)
-                          "  "
-                          (propertize octocat-repo--local-dir 'face 'octocat-branch)
-                          (when branch
-                            (concat "  " (octocat-tree--branch-glyph) "  "
-                                    (propertize branch 'face 'octocat-branch-current)))
-                          (when hash
-                            (concat "  " (propertize hash 'face 'octocat-commit-sha)))
-                          (when (and subject (not (string-empty-p subject)))
-                            (concat "  " subject))
-                          "\n"))))
-      (when octocat-repo--fork-parent
-        (let ((hint (list 'mouse-face 'magit-section-highlight
-                          'help-echo  "RET: open parent repo view")))
-          (magit-insert-section (fork-parent octocat-repo--fork-parent)
-            (magit-insert-heading
-              (concat (apply #'propertize "Forked from  " hint)
-                      (apply #'propertize octocat-repo--fork-parent
-                             'face 'octocat-repo hint)
-                      (apply #'propertize "\n" hint))))))
-      (insert "\n")
-      (octocat-repo--hide-if-saved 'issues
-        (magit-insert-section (issues)
-          (magit-insert-heading
-            (propertize "Issues" 'face 'octocat-section-heading))
-          (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))
-      (insert "\n")
-      (octocat-repo--hide-if-saved 'pull-requests
-        (magit-insert-section (pull-requests)
-          (magit-insert-heading
-            (propertize "Pull Requests" 'face 'octocat-section-heading))
-          (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))
-      (insert "\n")
-      (octocat-repo--hide-if-saved 'commits
-        (magit-insert-section (commits)
-          (magit-insert-heading
-            (propertize "Commits" 'face 'octocat-section-heading))
-          (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))
-      (insert "\n")
-      (octocat-repo--hide-if-saved 'workflow-runs
-        (magit-insert-section (workflow-runs)
-          (magit-insert-heading
-            (propertize "Workflow Runs" 'face 'octocat-section-heading))
-          (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))
-      (insert "\n")
-      (octocat-repo--hide-if-saved 'workflows
-        (magit-insert-section (workflows)
-          (magit-insert-heading
-            (propertize "Workflows" 'face 'octocat-section-heading))
-          (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))))))
 
-(defun octocat-repo--render (prs issues workflows repo
-                             &optional recent-runs commits default-branch current-branch
-                             head-info fork-parent)
-  "Erase the buffer and render repo sections for REPO.
-PRS, ISSUES, WORKFLOWS may each be a list of hash-tables or a cons
-\(error . MSG) when the corresponding feature is disabled or unavailable.
-RECENT-RUNS is an optional flat list of run hash-tables (each with a
-\\='workflowName\\=' key) representing the last N workflow runs.
-COMMITS is an optional list of commit hash-tables from the REST API.
-DEFAULT-BRANCH is an optional string such as \"main\" shown in the Commits
-section heading.
-CURRENT-BRANCH is an optional string naming the local HEAD branch; when
-non-nil the matching branch column in the PR and Workflow Runs lists is
-highlighted with `octocat-branch-current'.
-HEAD-INFO is an optional plist (:branch :hash :subject) from
-`octocat--head-info', used to render the Local Head line.
-FORK-PARENT is an optional \"owner/repo\" string; when non-nil a RET-able
-\\='Forked from\\=' line is shown below the Local Head line.
-Render collapsible sections; delegate to the individual render helpers."
-  (octocat-repo--save-section-state)
-  (let ((inhibit-read-only t))
-    (erase-buffer)
-    (magit-insert-section (octocat-root)
-      (magit-insert-heading
-        (concat (propertize repo 'face 'octocat-repo)
-                (propertize
-                 (format "  %s  %s  %s"
-                         (cond ((octocat-repo--disabled-feature-p prs)    "0 open PR(s)")
-                               ((eq (car-safe prs) 'error)                "PRs: n/a")
-                               (t (format "%d open PR(s)" (length prs))))
-                         (cond ((octocat-repo--disabled-feature-p issues)  "0 open issue(s)")
-                               ((eq (car-safe issues) 'error)              "issues: n/a")
-                               (t (format "%d open issue(s)" (length issues))))
-                         (cond ((octocat-repo--disabled-feature-p workflows) "0 workflow(s)")
-                               ((eq (car-safe workflows) 'error)             "workflows: n/a")
-                               (t (format "%d workflow(s)" (length workflows)))))
-                 'face 'octocat-dimmed)
+;;;; Sections
+;;
+;; Each section owns its async fetch (`vui-use-async') and, for the
+;; pageable ones, its "load more" limit (`:state').  Compare to
+;; `octocat-repo--render-prs' et al. plus `octocat-repo-refresh's fan-in
+;; and `octocat-repo-load-more's "find the pageable section at point"
+;; walk in the previous magit-section implementation.
+
+(vui-defcomponent octocat-repo-vui--issues-section (repo)
+  "Issues section for REPO."
+  :state ((limit octocat-section-limit))
+  :render
+  (let ((result (vui-use-async (list 'issues repo limit)
+                  (lambda (resolve reject)
+                    (octocat--list-issues
+                     repo limit
+                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
+    (vui-collapsible
+     :title "Issues" :key 'issues :initially-expanded t :indent 0
+     (pcase (plist-get result :status)
+       ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
+       ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
+       ('ready
+        (let ((issues (plist-get result :data)))
+          (vui-fragment
+           (if (null issues)
+               (vui-text "  (no issues)\n" :face 'octocat-dimmed)
+             (vui-list issues
+                       (lambda (issue) (octocat-repo-vui--issue-row repo issue))
+                       (lambda (issue) (gethash "number" issue))))
+           (when (and issues (>= (length issues) limit))
+             (octocat-repo-vui--load-more-button
+              'load-more-issues
+              "RET: load more issues"
+              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))))))))
+     )))
+
+(vui-defcomponent octocat-repo-vui--prs-section (repo current-branch)
+  "Pull Requests section for REPO."
+  :state ((limit octocat-section-limit))
+  :render
+  (let ((result (vui-use-async (list 'prs repo limit)
+                  (lambda (resolve reject)
+                    (octocat--list-prs
+                     repo limit
+                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
+    (vui-collapsible
+     :title "Pull Requests" :key 'prs :initially-expanded t :indent 0
+     (pcase (plist-get result :status)
+       ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
+       ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
+       ('ready
+        (let ((prs (plist-get result :data)))
+          (vui-fragment
+           (if (null prs)
+               (vui-text "  (no pull requests)\n" :face 'octocat-dimmed)
+             (vui-list prs
+                       (lambda (pr) (octocat-repo-vui--pr-row repo pr current-branch))
+                       (lambda (pr) (gethash "number" pr))))
+           (when (and prs (>= (length prs) limit))
+             (octocat-repo-vui--load-more-button
+              'load-more-prs
+              "RET: load more pull requests"
+              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))))))))
+     )))
+
+(vui-defcomponent octocat-repo-vui--commits-section (repo default-branch current-branch head-info)
+  "Commits section for REPO."
+  :state ((limit octocat-section-limit))
+  :render
+  (let ((result (vui-use-async (list 'commits repo limit)
+                  (lambda (resolve reject)
+                    (octocat-repo--list-commits
+                     repo limit
+                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
+    (vui-collapsible
+     :title "Commits" :key 'commits :initially-expanded t :indent 0
+     (pcase (plist-get result :status)
+       ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
+       ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
+       ('ready
+        (let ((commits (plist-get result :data)))
+          (vui-fragment
+           (if (null commits)
+               (vui-text "  (no commits)\n" :face 'octocat-dimmed)
+             (vui-list commits
+                       (lambda (c)
+                         (octocat-repo-vui--commit-row repo c default-branch current-branch head-info))
+                       (lambda (c) (gethash "sha" c))))
+           (when (and commits (>= (length commits) limit))
+             (octocat-repo-vui--load-more-button
+              'load-more-commits
+              "RET: load more commits"
+              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))))))))
+     )))
+
+(vui-defcomponent octocat-repo-vui--workflow-runs-section (repo current-branch)
+  "Workflow Runs section for REPO."
+  :state ((limit octocat-section-limit))
+  :render
+  (let ((result (vui-use-async (list 'recent-runs repo limit)
+                  (lambda (resolve reject)
+                    (octocat-repo--list-recent-runs
+                     repo limit
+                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
+    (vui-collapsible
+     :title "Workflow Runs" :key 'workflow-runs :initially-expanded t :indent 0
+     (pcase (plist-get result :status)
+       ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
+       ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
+       ('ready
+        (let* ((runs (plist-get result :data))
+               (wf-w (if runs
+                        (min 25 (apply #'max 1
+                                      (mapcar (lambda (r) (length (or (gethash "workflowName" r) "")))
+                                              runs)))
+                      1)))
+          (vui-fragment
+           (if (null runs)
+               (vui-text "  (no workflow runs)\n" :face 'octocat-dimmed)
+             (vui-list runs
+                       (lambda (r) (octocat-repo-vui--workflow-run-row repo r current-branch wf-w))
+                       (lambda (r) (gethash "databaseId" r))))
+           (when (and runs (>= (length runs) limit))
+             (octocat-repo-vui--load-more-button
+              'load-more-runs
+              "RET: load more runs"
+              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))))))))
+     )))
+
+(vui-defcomponent octocat-repo-vui--workflows-section (repo)
+  "Workflows section for REPO (no pagination: run history lives in
+`octocat-repo-vui--workflow-runs-section' instead)."
+  :render
+  (let ((result (vui-use-async (list 'workflows repo)
+                  (lambda (resolve reject)
+                    (octocat-repo--list-workflows
+                     repo
+                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
+    (vui-collapsible
+     :title "Workflows" :key 'workflows :initially-expanded t :indent 0
+     (pcase (plist-get result :status)
+       ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
+       ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
+       ('ready
+        (let ((workflows (plist-get result :data)))
+          (if (null workflows)
+              (vui-text "  (no workflows)\n" :face 'octocat-dimmed)
+            (vui-list workflows
+                      (lambda (wf) (octocat-repo-vui--workflow-row repo wf))
+                      (lambda (wf) (gethash "id" wf)))))))
+     )))
+
+
+;;;; Root
+
+(vui-defcomponent octocat-repo-vui--root (repo local-dir)
+  "Root component for the repo buffer: header, local-head/fork-parent
+info, then the five sections."
+  :render
+  (let* ((head-info      (octocat--head-info))
+         (current-branch (plist-get head-info :branch))
+         (branch-result  (vui-use-async (list 'default-branch repo)
+                           (lambda (resolve reject)
+                             (octocat-repo--fetch-default-branch
+                              repo
+                              (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
+         (fork-result    (vui-use-async (list 'fork-parent repo)
+                           (lambda (resolve reject)
+                             (octocat-repo--fetch-fork-parent
+                              repo
+                              (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
+         (default-branch (and (eq (plist-get branch-result :status) 'ready)
+                              (plist-get branch-result :data)))
+         (fork-parent    (and (eq (plist-get fork-result :status) 'ready)
+                              (plist-get fork-result :data))))
+    (vui-vstack
+     (vui-hstack :spacing 2
+       (vui-text repo :face 'octocat-repo)
+       (vui-button "Browse files"
+                   :face 'octocat-dimmed
+                   :help-echo "RET: browse file tree"
+                   :on-click (lambda () (octocat-tree-open))))
+     (when local-dir
+       (vui-text
+        (concat (propertize "Local Head:" 'face 'octocat-dimmed)
                 "  "
-                (propertize "[Browse files]"
-                            'face       'octocat-dimmed
-                            'mouse-face 'magit-section-highlight
-                            'help-echo  "RET: browse file tree"
-                            'octocat-action 'browse-files)))
-      (when octocat-repo--local-dir
-        (let* ((hi      head-info)
-               (branch  (and hi (plist-get hi :branch)))
-               (hash    (and hi (plist-get hi :hash)))
-               (subject (and hi (plist-get hi :subject))))
-          (insert (concat (propertize "Local Head:" 'face 'octocat-dimmed)
-                          "  "
-                          (propertize octocat-repo--local-dir 'face 'octocat-branch)
-                          (when branch
-                            (concat "  " (octocat-tree--branch-glyph) "  "
-                                    (propertize branch 'face 'octocat-branch-current)))
-                          (when hash
-                            (concat "  " (propertize hash 'face 'octocat-commit-sha)))
-                          (when (and subject (not (string-empty-p subject)))
-                            (concat "  " subject))
-                          "\n"))))
-      (when (and fork-parent (stringp fork-parent) (not (string-empty-p fork-parent)))
-        (let ((hint (list 'mouse-face 'magit-section-highlight
-                          'help-echo  "RET: open parent repo view")))
-          (magit-insert-section (fork-parent fork-parent)
-            (magit-insert-heading
-              (concat (apply #'propertize "Forked from  " hint)
-                      (apply #'propertize fork-parent
-                             'face 'octocat-repo hint)
-                      (apply #'propertize "\n" hint))))))
-      (insert "\n")
-      (octocat-repo--hide-if-saved 'issues        (octocat-repo--render-issues issues))
-      (insert "\n")
-      (octocat-repo--hide-if-saved 'pull-requests (octocat-repo--render-prs prs current-branch))
-      (insert "\n")
-      (octocat-repo--hide-if-saved 'commits       (octocat-repo--render-commits commits default-branch current-branch head-info))
-      (insert "\n")
-      (octocat-repo--hide-if-saved 'workflow-runs (octocat-repo--render-workflow-runs recent-runs current-branch))
-      (insert "\n")
-      (octocat-repo--hide-if-saved 'workflows     (octocat-repo--render-workflows workflows)))))
+                (propertize local-dir 'face 'octocat-branch)
+                (when current-branch
+                  (concat "  " (octocat-tree--branch-glyph) "  "
+                          (propertize current-branch 'face 'octocat-branch-current)))
+                (when (plist-get head-info :hash)
+                  (concat "  " (propertize (plist-get head-info :hash) 'face 'octocat-commit-sha)))
+                (when (and (plist-get head-info :subject)
+                          (not (string-empty-p (plist-get head-info :subject))))
+                  (concat "  " (plist-get head-info :subject)))
+                "\n")))
+     (when fork-parent
+       (octocat-repo-vui--row
+        (concat "Forked from  " (propertize fork-parent 'face 'octocat-repo) "\n")
+        (lambda () (octocat-visit-repo fork-parent))
+        "RET: open parent repo view"))
+     (vui-newline)
+     (vui-component 'octocat-repo-vui--issues-section :repo repo)
+     (vui-newline)
+     (vui-component 'octocat-repo-vui--prs-section :repo repo :current-branch current-branch)
+     (vui-newline)
+     (vui-component 'octocat-repo-vui--commits-section
+                    :repo repo :default-branch default-branch
+                    :current-branch current-branch :head-info head-info)
+     (vui-newline)
+     (vui-component 'octocat-repo-vui--workflow-runs-section
+                    :repo repo :current-branch current-branch)
+     (vui-newline)
+     (vui-component 'octocat-repo-vui--workflows-section :repo repo))))
 
 
 ;;;; Major mode
 
+(defun octocat-repo-browse ()
+  "Open the current repository's GitHub page in a browser.
+Unlike the shared `octocat-browse' (used by every magit-section-based
+view to dispatch on the section at point), this always opens the
+whole-repository page: `octocat-repo-mode' has no section at point to
+dispatch on, so per-row \"open in browser\" is not implemented yet (see
+octocat-repo.el's Commentary)."
+  (interactive)
+  (unless octocat-repo--repo
+    (user-error "Octocat: Buffer is not associated with a repository"))
+  (message "Octocat: Opening %s in browser…" octocat-repo--repo)
+  (browse-url (format "https://github.com/%s" octocat-repo--repo)))
+
 (defvar octocat-repo-mode-map
   (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map magit-section-mode-map)
+    (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-repo-mode'.")
-(define-key octocat-repo-mode-map (kbd "q")       #'quit-window)
-(define-key octocat-repo-mode-map (kbd "RET")     #'octocat-visit)
-(define-key octocat-repo-mode-map (kbd "+")       #'octocat-repo-load-more)
+(define-key octocat-repo-mode-map (kbd "q") #'quit-window)
+(define-key octocat-repo-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-repo-mode-map (kbd "C-c C-t") #'octocat-tree-open)
 (define-key octocat-repo-mode-map (kbd "C-c C-f") #'octocat-tree-find-file)
-
-(define-key octocat-repo-mode-map (kbd "C-c C-o") #'octocat-browse)
+(define-key octocat-repo-mode-map (kbd "C-c C-o") #'octocat-repo-browse)
 (define-key octocat-repo-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
 (define-key octocat-repo-mode-map (kbd "C-c C-s") #'octocat-search-repo)
-(define-derived-mode octocat-repo-mode magit-section-mode "Octocat-Repo"
+
+(define-derived-mode octocat-repo-mode vui-mode "Octocat-Repo"
   "Major mode for browsing a GitHub repository.
 
 \\{octocat-repo-mode-map}"
   :group 'octocat
   (setq-local buffer-read-only t)
   (setq-local truncate-lines t)
-  (setq-local revert-buffer-function #'octocat-repo-refresh)
-  (font-lock-mode -1))
-
-
-;;;; Section state
-
-(defun octocat-repo--save-section-state ()
-  "Save the hidden/collapsed state of root-level repo sections.
-Records which direct children of `magit-root-section' are currently
-hidden into `octocat-repo--section-hidden'.
-`magit-root-section' is the `octocat-root' section itself; its direct
-children are the `pull-requests', `issues', and `workflows' sections."
-  (setq octocat-repo--section-hidden
-        (when (and (boundp 'magit-root-section) magit-root-section)
-          (delq nil
-                (mapcar (lambda (s)
-                          (when (oref s hidden) (oref s type)))
-                        (oref magit-root-section children))))))
+  (setq-local revert-buffer-function #'octocat-repo-refresh))
 
 
 ;;;; Async refresh
 
 (defun octocat-repo-refresh (&optional _ignore-auto _noconfirm)
-  "Refresh the current octocat-repo buffer asynchronously.
-Loads a disk cache (if present) and renders it immediately, then always
-fetches fresh data in the background and re-renders when it arrives.
-Issues 6 parallel API requests: PRs, issues, workflow list, the most
-recent workflow runs across all workflows, the last N commits on the
-default branch (where N is the current per-session limit), and the
-default branch name itself."
+  "Refresh the current octocat-repo buffer.
+Mounts the vui.el component tree for `octocat-repo--repo' via
+`vui-mount'.  Every section fetches its own data independently (see
+the Commentary at the top of this file for what that changes, and what
+it gives up, versus the previous magit-section-based implementation)."
   (interactive)
   (unless octocat-repo--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
-  ;; Initialise per-session limits from the defcustom default on the
-  ;; first call (nil → default).  Subsequent calls preserve whatever the
-  ;; user may have increased via "load more".
-  (dolist (key '(prs issues commits recent-runs))
-    (unless (alist-get key octocat-repo--counts)
-      (setf (alist-get key octocat-repo--counts) octocat-section-limit)))
-  (let* ((buf           (current-buffer))
-         (repo          octocat-repo--repo)
-         (cache         (octocat--cache-load repo))
-         ;; Snapshot limits now so all six fetch closures and maybe-render
-         ;; use the same values, even if the user triggers "load more"
-         ;; while a refresh is in flight.
-         (prs-count     (alist-get 'prs     octocat-repo--counts))
-         (issues-count  (alist-get 'issues  octocat-repo--counts))
-         (commits-count (alist-get 'commits octocat-repo--counts))
-         (runs-count    (alist-get 'recent-runs octocat-repo--counts))
-         ;; Capture the local HEAD branch and full head info once; the branch
-         ;; is used to highlight matching rows in the PR and Workflow Runs
-         ;; lists; head-info is used to render the Local Head line.
-         (_ (setq octocat-repo--head-info    (octocat--head-info)
-                  octocat-repo--current-branch (plist-get octocat-repo--head-info :branch)))
-         (current-branch octocat-repo--current-branch)
-         (head-info      octocat-repo--head-info)
-         ;; Capture point position before any render so both the cache
-         ;; render and the live render can restore it afterwards.
-         (saved-point   (octocat--save-point)))
-    ;; Render cache immediately if available — but only when every limit is
-    ;; at its default.  If the user has loaded more items than the cache
-    ;; holds, rendering the cache would briefly shrink the list back to its
-    ;; default size and then snap back when the live fetch arrives (jitter).
-    ;; In that case keep whatever is currently in the buffer; the live fetch
-    ;; will update it.  On a genuine first open with no cache and an empty
-    ;; buffer, show the loading skeleton so the user sees something.
-    (let ((at-defaults (seq-every-p (lambda (pair) (= (cdr pair) octocat-section-limit))
-                                    octocat-repo--counts)))
-      (cond
-       ((and cache at-defaults)
-        (octocat-repo--render (plist-get cache :prs)
-                              (plist-get cache :issues)
-                              (plist-get cache :workflows)
-                              repo
-                              (plist-get cache :recent-runs)
-                              (plist-get cache :commits)
-                              (plist-get cache :default-branch)
-                              current-branch
-                              head-info
-                              octocat-repo--fork-parent)
-        (octocat--restore-point saved-point))
-       ((zerop (buffer-size))
-        (octocat-repo--render-loading repo))))
-    ;; Always fetch fresh data in the background.
-    ;; All 7 requests fire in parallel; render once all have returned.
-    (setq mode-line-process " [refreshing…]")
-    (let ((pr-result       'pending)
-          (issue-result    'pending)
-          (workflow-result 'pending)
-          (runs-result     'pending)
-          (commits-result  'pending)
-          (branch-result   'pending)
-          (fork-result     'pending))
-      (cl-labels
-          ((maybe-render ()
-             (unless (or (eq pr-result       'pending)
-                         (eq issue-result    'pending)
-                         (eq workflow-result 'pending)
-                         (eq runs-result     'pending)
-                         (eq commits-result  'pending)
-                         (eq branch-result   'pending)
-                         (eq fork-result     'pending))
-               (when (buffer-live-p buf)
-                 (with-current-buffer buf
-                   (setq mode-line-process nil)
-                   (let ((branch      (and (stringp branch-result) branch-result))
-                         (fork-parent (and (stringp fork-result) fork-result)))
-                     ;; Store fork-parent in the buffer-local var so it
-                     ;; survives to the next loading-skeleton render.
-                     (setq octocat-repo--fork-parent fork-parent)
-                     ;; Only persist to cache when every limit is at its
-                     ;; default, so "load more" results never corrupt the
-                     ;; stale-while-revalidate snapshot.
-                     (when (seq-every-p (lambda (pair)
-                                          (= (cdr pair) octocat-section-limit))
-                                        octocat-repo--counts)
-                       (octocat--cache-save repo pr-result issue-result
-                                            workflow-result runs-result
-                                            commits-result branch))
-                     (octocat-repo--render pr-result issue-result workflow-result
-                                           repo runs-result commits-result branch
-                                           current-branch head-info fork-parent))
-                   (octocat--restore-point saved-point))))))
-        (octocat--list-prs repo prs-count
-                           (lambda (result)
-                             (setq pr-result result)
-                             (maybe-render)))
-        (octocat--list-issues repo issues-count
-                              (lambda (result)
-                                (setq issue-result result)
-                                (maybe-render)))
-        (octocat-repo--list-workflows repo
-                                      (lambda (result)
-                                        (setq workflow-result result)
-                                        (maybe-render)))
-        (octocat-repo--list-recent-runs repo runs-count
-                                        (lambda (result)
-                                          (setq runs-result result)
-                                          (maybe-render)))
-        (octocat-repo--list-commits repo commits-count
-                                    (lambda (result)
-                                      (setq commits-result result)
-                                      (maybe-render)))
-        (octocat-repo--fetch-default-branch repo
-                                            (lambda (result)
-                                              (setq branch-result result)
-                                              (maybe-render)))
-        (octocat-repo--fetch-fork-parent repo
-                                         (lambda (result)
-                                           (setq fork-result result)
-                                           (maybe-render)))))))
-
-
-;;;; Load-more command
-
-(defun octocat-repo--pageable-section-at-point ()
-  "Return the pageable section type symbol at or above point, or nil.
-Walks up the section tree from `magit-current-section' until it finds
-a section whose type is one of `pull-requests', `issues', `commits', or
-`workflow-runs', and returns that type symbol.  Returns nil when point
-is not inside any pageable section."
-  (let ((s (magit-current-section)))
-    (while (and s (not (memq (oref s type)
-                             '(pull-requests issues commits workflow-runs))))
-      (setq s (oref s parent)))
-    (and s (oref s type))))
-
-(defun octocat-repo-load-more ()
-  "Load more items in the pageable list section at point.
-Increments the per-session fetch limit for whichever of the Pull
-Requests, Issues, Commits, or Workflow Runs sections contains point,
-then re-runs `octocat-repo-refresh'.  Signals an error when point is not
-inside a pageable section."
-  (interactive)
-  (pcase (octocat-repo--pageable-section-at-point)
-    ('pull-requests
-     (cl-incf (alist-get 'prs octocat-repo--counts) octocat-section-limit)
-     (octocat-repo-refresh))
-    ('issues
-     (cl-incf (alist-get 'issues octocat-repo--counts) octocat-section-limit)
-     (octocat-repo-refresh))
-    ('commits
-     (cl-incf (alist-get 'commits octocat-repo--counts) octocat-section-limit)
-     (octocat-repo-refresh))
-    ('workflow-runs
-     (cl-incf (alist-get 'recent-runs octocat-repo--counts) octocat-section-limit)
-     (octocat-repo-refresh))
-    (_ (user-error "Octocat: No pageable section at point"))))
+  (setq octocat-repo--current-branch
+        (plist-get (octocat--head-info) :branch))
+  (vui-mount (vui-component 'octocat-repo-vui--root
+                            :repo octocat-repo--repo
+                            :local-dir octocat-repo--local-dir)
+             (buffer-name)))
 
 ;; NOTE: the `M-x octocat-repo' entry point itself (the `;;;###autoload'
 ;; command) is defined in `octocat.el', not here -- see CONTRIBUTING.md,

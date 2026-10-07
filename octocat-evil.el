@@ -72,7 +72,7 @@
 (declare-function octocat-issue-edit-body    "octocat-issue"     ())
 (declare-function octocat-issue-edit         "octocat-issue"     ())
 (declare-function octocat-feed-load-more     "octocat"           ())
-(declare-function octocat-repo-load-more     "octocat-repo"      ())
+(declare-function octocat-repo-browse        "octocat-repo"      ())
 (declare-function octocat-workflow-load-more "octocat-workflow"  ())
 (declare-function octocat-workflow-refresh   "octocat-workflow"  (&optional _ignore-auto _noconfirm))
 (declare-function octocat-workflow-visit     "octocat-workflow"  ())
@@ -104,15 +104,21 @@
     (kbd "RET")     #'octocat-visit)
 
   ;; ── octocat-repo-mode ─────────────────────────────────────────────────
+  ;; octocat-repo-mode is rendered with vui.el now (see octocat-repo.el's
+  ;; Commentary), not magit-section, so it no longer has a single
+  ;; RET-dispatches-on-section-at-point command: each row's RET action is
+  ;; bound directly via a per-row `keymap' text property.  Whether that
+  ;; text-property keymap wins over these `emulation-mode-map-alists'
+  ;; bindings under Evil is NOT verified -- this is a known gap (see
+  ;; octocat-repo.el's Commentary).  Only bind what still applies globally.
   (evil-define-key* 'normal octocat-repo-mode-map
-    (kbd "RET")     #'octocat-visit
-    (kbd "+")       #'octocat-repo-load-more
-    (kbd "C-c C-o") #'octocat-browse
+    (kbd "C-c C-o") #'octocat-repo-browse
     (kbd "C-c C-f") #'octocat-tree-find-file
     (kbd "C-c C-r") #'octocat-switch-repo
+    (kbd "C-c C-s") #'octocat-search-repo
+    (kbd "gs")      #'octocat-search-repo
+    (kbd "gr")      #'revert-buffer
     (kbd "q")       #'quit-window)
-  (evil-define-key* 'motion octocat-repo-mode-map
-    (kbd "RET")     #'octocat-visit)
 
   ;; ── octocat-pr-mode ───────────────────────────────────────────────────
   ;; Use define-key directly so all bindings (including RET) land in the
