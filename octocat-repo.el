@@ -86,6 +86,7 @@
 (require 'octocat-job)
 (require 'octocat-checks)
 (require 'octocat-tree)
+(require 'octocat-vui)
 (require 'vui)
 (require 'vui-components) ; vui-collapsible, vui-heading-*, etc.
 
@@ -307,48 +308,9 @@ when it is not a fork.  Uses the GitHub REST API via `gh api'."
 
 ;;;; Row rendering
 ;;
-;; A "row" is a `vui-region' wrapping a single already-propertized `vui-text'
-;; line, with a tiny keymap binding RET to the row's navigation.  vui-text
-;; inserts its CONTENT string as-is (preserving whatever per-segment `face'
-;; properties the octocat-core.el formatting helpers already put on it,
-;; e.g. a different face for the branch column vs. the title vs. the
-;; state); it is deliberately not a `vui-button', since a button applies a
-;; single `face' across the whole label, which would clobber that
-;; per-segment styling.
-
-(defun octocat-repo-vui--row (line on-visit &optional help-echo)
-  "Build a RET-able row vnode from already-propertized LINE.
-ON-VISIT is a zero-argument function invoked when RET is pressed on the
-row.  HELP-ECHO defaults to a generic hint.
-
-The keymap binds RET to a wrapper command, not ON-VISIT directly:
-`command-execute' (what a real keypress dispatches through) requires
-`commandp', which a plain lambda without `(interactive)' does not
-satisfy -- binding ON-VISIT itself would look right but signal
-`wrong-type-argument commandp' the moment RET is actually pressed."
-  (let ((map (let ((m (make-sparse-keymap)))
-               (define-key m (kbd "RET") (lambda () (interactive) (funcall on-visit)))
-               m)))
-    (vui-region :keymap map
-      (vui-text line 'mouse-face 'highlight
-                'help-echo (or help-echo "RET: view details")))))
-
-(defun octocat-repo-vui--load-more-button (key help-echo on-click)
-  "Return a \"Load more\" vui-button with HELP-ECHO, invoking ON-CLICK.
-KEY is a per-section symbol: it is the button's cursor identity, so point
-stays on this section's button when growing the list re-renders it
-instead of drifting to a neighbouring section's button.
-Rows carry no trailing newline (`vui-list' only separates them), so the
-button starts on a fresh line and carries the same two-space indent."
-  (vui-fragment
-   (vui-newline)
-   (vui-text "  ")
-   (vui-button (format "[+] Load %d more…" octocat-section-limit)
-               :no-decoration t
-               :face 'octocat-dimmed
-               :key key
-               :help-echo help-echo
-               :on-click on-click)))
+;; The generic row / sticky-async / load-more helpers live in
+;; `octocat-vui.el'; only the per-entity row builders are here (see
+;; "Row builders" below).
 
 
 ;;;; Navigation
@@ -466,9 +428,9 @@ PR branch is highlighted with `octocat-branch-current'."
            (propertize (format "%-6s" state) 'face state-face)
            "  "
            ci)))
-    (octocat-repo-vui--row line
-                          (lambda () (octocat-repo-vui--open-pr repo pr))
-                          "RET: view pull request")))
+    (octocat-vui-row line
+                     (lambda () (octocat-repo-vui--open-pr repo pr))
+                     "RET: viewpull request")))
 
 (defun octocat-repo-vui--issue-row (repo issue)
   "Return a row vnode for ISSUE in REPO."
@@ -491,9 +453,9 @@ PR branch is highlighted with `octocat-branch-current'."
            (propertize (format "%-16s" author) 'face 'octocat-pr-author)
            "  "
            (propertize (format "%-6s" state) 'face state-face))))
-    (octocat-repo-vui--row line
-                          (lambda () (octocat-repo-vui--open-issue repo issue))
-                          "RET: view issue")))
+    (octocat-vui-row line
+                     (lambda () (octocat-repo-vui--open-issue repo issue))
+                     "RET: viewissue")))
 
 (defun octocat-repo-vui--workflow-row (repo workflow)
   "Return a row vnode for WORKFLOW in REPO."
@@ -506,9 +468,9 @@ PR branch is highlighted with `octocat-branch-current'."
            (truncate-string-to-width name 40 nil nil "…")
            "  "
            (propertize state 'face state-face))))
-    (octocat-repo-vui--row line
-                          (lambda () (octocat-repo-vui--open-workflow repo workflow))
-                          "RET: view workflow")))
+    (octocat-vui-row line
+                     (lambda () (octocat-repo-vui--open-workflow repo workflow))
+                     "RET: viewworkflow")))
 
 (defun octocat-repo-vui--workflow-run-row (repo run current-branch wf-w)
   "Return a row vnode for RUN in REPO.
@@ -544,9 +506,9 @@ WF-W is the column width to truncate/pad the workflow name to."
            (octocat--format-title title)
            "  "
            (propertize date 'face 'octocat-dimmed))))
-    (octocat-repo-vui--row line
-                          (lambda () (octocat-repo-vui--open-workflow-run repo run))
-                          "RET: view workflow run")))
+    (octocat-vui-row line
+                     (lambda () (octocat-repo-vui--open-workflow-run repo run))
+                     "RET: viewworkflow run")))
 
 (defun octocat-repo-vui--commit-row (repo commit default-branch current-branch head-info)
   "Return a row vnode for COMMIT in REPO.
@@ -593,9 +555,9 @@ DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
            (propertize (format "%-16s" author) 'face 'octocat-pr-author)
            "  "
            (propertize date 'face 'octocat-dimmed))))
-    (octocat-repo-vui--row line
-                          (lambda () (octocat-repo-vui--open-commit repo commit))
-                          "RET: view commit")))
+    (octocat-vui-row line
+                     (lambda () (octocat-repo-vui--open-commit repo commit))
+                     "RET: viewcommit")))
 
 
 ;;;; Sections
@@ -610,7 +572,7 @@ DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
   "Issues section for REPO."
   :state ((limit octocat-section-limit))
   :render
-  (let ((result (vui-use-async (list 'issues repo limit)
+  (let ((result (octocat-vui-use-async-sticky (list 'issues repo limit)
                   (lambda (resolve reject)
                     (octocat--list-issues
                      repo limit
@@ -628,9 +590,10 @@ DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
              (vui-list issues
                        (lambda (issue) (octocat-repo-vui--issue-row repo issue))
                        (lambda (issue) (gethash "number" issue))))
-           (when (and issues (>= (length issues) limit))
-             (octocat-repo-vui--load-more-button
-              'load-more-issues
+           (when (and issues (or (plist-get result :refreshing)
+                                 (>= (length issues) limit)))
+             (octocat-vui-load-more-button
+              'load-more-issues octocat-section-limit
               "RET: load more issues"
               (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))))))))
      )))
@@ -639,7 +602,7 @@ DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
   "Pull Requests section for REPO."
   :state ((limit octocat-section-limit))
   :render
-  (let ((result (vui-use-async (list 'prs repo limit)
+  (let ((result (octocat-vui-use-async-sticky (list 'prs repo limit)
                   (lambda (resolve reject)
                     (octocat--list-prs
                      repo limit
@@ -657,9 +620,10 @@ DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
              (vui-list prs
                        (lambda (pr) (octocat-repo-vui--pr-row repo pr current-branch))
                        (lambda (pr) (gethash "number" pr))))
-           (when (and prs (>= (length prs) limit))
-             (octocat-repo-vui--load-more-button
-              'load-more-prs
+           (when (and prs (or (plist-get result :refreshing)
+                              (>= (length prs) limit)))
+             (octocat-vui-load-more-button
+              'load-more-prs octocat-section-limit
               "RET: load more pull requests"
               (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))))))))
      )))
@@ -668,7 +632,7 @@ DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
   "Commits section for REPO."
   :state ((limit octocat-section-limit))
   :render
-  (let ((result (vui-use-async (list 'commits repo limit)
+  (let ((result (octocat-vui-use-async-sticky (list 'commits repo limit)
                   (lambda (resolve reject)
                     (octocat-repo--list-commits
                      repo limit
@@ -687,9 +651,10 @@ DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
                        (lambda (c)
                          (octocat-repo-vui--commit-row repo c default-branch current-branch head-info))
                        (lambda (c) (gethash "sha" c))))
-           (when (and commits (>= (length commits) limit))
-             (octocat-repo-vui--load-more-button
-              'load-more-commits
+           (when (and commits (or (plist-get result :refreshing)
+                                 (>= (length commits) limit)))
+             (octocat-vui-load-more-button
+              'load-more-commits octocat-section-limit
               "RET: load more commits"
               (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))))))))
      )))
@@ -698,7 +663,7 @@ DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
   "Workflow Runs section for REPO."
   :state ((limit octocat-section-limit))
   :render
-  (let ((result (vui-use-async (list 'recent-runs repo limit)
+  (let ((result (octocat-vui-use-async-sticky (list 'recent-runs repo limit)
                   (lambda (resolve reject)
                     (octocat-repo--list-recent-runs
                      repo limit
@@ -721,9 +686,10 @@ DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
              (vui-list runs
                        (lambda (r) (octocat-repo-vui--workflow-run-row repo r current-branch wf-w))
                        (lambda (r) (gethash "databaseId" r))))
-           (when (and runs (>= (length runs) limit))
-             (octocat-repo-vui--load-more-button
-              'load-more-runs
+           (when (and runs (or (plist-get result :refreshing)
+                              (>= (length runs) limit)))
+             (octocat-vui-load-more-button
+              'load-more-runs octocat-section-limit
               "RET: load more runs"
               (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))))))))
      )))
@@ -796,7 +762,7 @@ info, then the five sections."
                   (concat "  " (plist-get head-info :subject)))
                 "\n")))
      (when fork-parent
-       (octocat-repo-vui--row
+       (octocat-vui-row
         (concat "Forked from  " (propertize fork-parent 'face 'octocat-repo) "\n")
         (lambda () (octocat-visit-repo fork-parent))
         "RET: open parent repo view"))

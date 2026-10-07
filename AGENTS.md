@@ -129,7 +129,7 @@ string rather than `ok` is an error — fix it before proceeding):
   (dolist (f (list "octocat-core.el" "octocat-edit.el" "octocat-commit.el"
                    "octocat-job.el" "octocat-run.el" "octocat-workflow.el"
                    "octocat-pr-diff.el" "octocat-pr.el" "octocat-issue.el"
-                   "octocat-checks.el" "octocat-tree.el" "octocat-repo.el"
+                   "octocat-checks.el" "octocat-tree.el" "octocat-vui.el" "octocat-repo.el"
                    "octocat-evil.el" "octocat.el"))
     (condition-case err
         (with-temp-buffer
