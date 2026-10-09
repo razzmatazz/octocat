@@ -404,76 +404,139 @@ DRAFT is the JSON isDraft value; t shows an open pull request as \"draft\"."
     (propertize (format (format "%%-%ds" octocat-repo-vui--state-width) text)
                 'face face)))
 
-(defun octocat-repo-vui--detail-line (item &optional leading trailing)
-  "Return a second row line for ITEM, or \"\" when there is nothing to show.
-The line starts with a newline and is indented to sit under the title.
-It holds the strings in LEADING (e.g. a branch name), then the coloured
-label chips of ITEM, then the strings in TRAILING (e.g. CI status).  Nil
-and empty strings are skipped."
-  (let* ((chips (octocat--format-labels (gethash "labels" item)))
-         (parts (seq-remove (lambda (s) (or (null s) (string-empty-p s)))
-                            (append leading (list chips) trailing)))
-         (indent octocat-repo-vui--detail-indent))
-    (if (null parts)
-        ""
-      (concat "\n"
-              (make-string indent ?\s)
-              (mapconcat #'identity parts "  ")))))
+;; PR and issue rows come in the two shapes GitHub's lists have.  When the
+;; window is wide enough, the compact one: a single line whose columns line
+;; up down the page.
+;;
+;;   open  #5  Another dummy PR   duplicate  some-pr  CI: ●  @me  #12  ✉ 3
+;;
+;; Otherwise the regular one: the title with its labels right after it,
+;; then a dimmed line with where the item lives and who opened it.
+;;
+;;   open  Another dummy PR  duplicate  enhancement
+;;         owner/repo#5 · @me · 3 days ago · some-pr · CI: ●
 
-(defun octocat-repo-vui--pr-row (repo pr current-branch)
-  "Return a row vnode for PR in REPO.
-CURRENT-BRANCH, when non-nil, is the local HEAD branch name; a matching
-PR branch is highlighted with `octocat-branch-current'."
-  (let* ((number  (format (format "%%%ds" octocat-repo-vui--number-width)
-                          (format "#%d" (gethash "number" pr))))
-         (title   (or (gethash "title" pr) ""))
-         (branch  (or (gethash "headRefName" pr) ""))
-         (activep (and current-branch (string= branch current-branch)))
-         (b-face  (if activep 'octocat-branch-current 'octocat-branch))
-         (author  (octocat--author-login pr))
-         (ci      (octocat--ci-label pr))
-         (has-checks (let ((c (gethash "statusCheckRollup" pr)))
-                       (and c (not (eq c :null)) (> (length c) 0))))
-         (line
-          (concat
-           "  "
-           (octocat-repo-vui--state-label (gethash "state" pr)
-                                          (gethash "isDraft" pr))
-           " "
-           (propertize number 'face 'octocat-pr-number)
-           "  "
-           (octocat--format-title title)
-           "  "
-           (propertize author 'face 'octocat-pr-author)
-           (octocat-repo-vui--detail-line
-            pr
-            (list (and (not (string-empty-p branch))
-                       (propertize branch 'face b-face)))
-            (list (and has-checks ci))))))
-    (octocat-vui-row line
-                     (lambda () (octocat-repo-vui--open-pr repo pr))
-                     "RET: viewpull request")))
+(defun octocat-repo-vui--cells (item current-branch repo)
+  "Return the display cells of the PR or issue ITEM of REPO as a plist.
+The keys are :title, :chips (label chips), :branch, :ci, :author, :prs
+\(the PRs that close an issue), :comments, :date and :ref (\"owner/repo#N\");
+a cell that ITEM does not have is nil or empty.  CURRENT-BRANCH, when
+non-nil, is the local HEAD branch name; a matching PR branch is
+highlighted with `octocat-branch-current'."
+  (let* ((branch   (octocat--nonempty (gethash "headRefName" item)))
+         (checks   (gethash "statusCheckRollup" item))
+         (closers  (gethash "closedByPullRequestsReferences" item))
+         (comments (gethash "comments" item)))
+    (list :title  (or (gethash "title" item) "")
+          :ref    (propertize (format "%s#%d" repo (gethash "number" item))
+                              'face 'octocat-dimmed)
+          :date   (propertize (octocat--relative-ts
+                               (or (gethash "createdAt" item) ""))
+                              'face 'octocat-dimmed)
+          :prs    (and (vectorp closers) (> (length closers) 0)
+                       (propertize
+                        (mapconcat (lambda (pr) (format "#%d" (gethash "number" pr)))
+                                   closers " ")
+                        'face 'octocat-pr-number))
+          :comments (and (vectorp comments) (> (length comments) 0)
+                         (propertize (format "✉ %d" (length comments))
+                                     'face 'octocat-dimmed))
+          :chips  (octocat--format-labels (gethash "labels" item))
+          :branch (and branch
+                       (propertize branch 'face
+                                   (if (equal branch current-branch)
+                                       'octocat-branch-current
+                                     'octocat-branch)))
+          :ci     (and checks (not (eq checks :null)) (> (length checks) 0)
+                       (octocat--ci-label item))
+          :author (propertize (octocat--author-login item)
+                              'face 'octocat-pr-author))))
 
-(defun octocat-repo-vui--issue-row (repo issue)
-  "Return a row vnode for ISSUE in REPO."
-  (let* ((number (format (format "%%%ds" octocat-repo-vui--number-width)
-                         (format "#%d" (gethash "number" issue))))
-         (title  (or (gethash "title"  issue) ""))
-         (author (octocat--author-login issue))
-         (line
-          (concat
-           "  "
-           (octocat-repo-vui--state-label (gethash "state" issue))
-           " "
-           (propertize number 'face 'octocat-pr-number)
-           "  "
-           (octocat--format-title title)
-           "  "
-           (propertize author 'face 'octocat-pr-author)
-           (octocat-repo-vui--detail-line issue))))
-    (octocat-vui-row line
-                     (lambda () (octocat-repo-vui--open-issue repo issue))
-                     "RET: viewissue")))
+(defun octocat-repo-vui--layout (cells width)
+  "Return the column layout for the list of row CELLS in a WIDTH-wide window.
+CELLS are plists as made by `octocat-repo-vui--cells'.  The result has
+:single, non-nil for the compact shape (one line per row), :width, and
+the width of each column, as :title :chips :branch :ci :author :prs
+:comments.  In the compact shape the title column takes what the other
+columns leave, and is truncated to it."
+  (cl-flet ((col (key)
+              (apply #'max 0 (mapcar (lambda (c)
+                                       (string-width (or (plist-get c key) "")))
+                                     cells)))
+            (extra (w) (if (> w 0) (+ 2 w) 0)))
+    (let* ((title    (col :title))
+           (chips    (col :chips))
+           (branch   (col :branch))
+           (ci       (col :ci))
+           (author   (col :author))
+           (prs      (col :prs))
+           (comments (col :comments))
+           (inline (+ (extra chips) (extra branch) (extra ci) (extra author)
+                      (extra prs) (extra comments)))
+           (room   (- width octocat-repo-vui--detail-indent inline 1))
+           (single (>= room (min title 60))))
+      (list :single single :width width
+            :title (min title (max room 10))
+            :chips chips :branch branch :ci ci :author author
+            :prs prs :comments comments))))
+
+(defun octocat-repo-vui--item-row (state number cells layout on-visit help)
+  "Return the row vnode for an item with STATE text and NUMBER text.
+CELLS and LAYOUT are as for `octocat-repo-vui--layout'.  ON-VISIT and
+HELP are as for `octocat-vui-row'."
+  (cl-flet ((pad (key)
+              (truncate-string-to-width (or (plist-get cells key) "")
+                                        (plist-get layout key) nil ?\s "…"))
+            (wide (key) (> (plist-get layout key) 0)))
+    (let ((dot (propertize " · " 'face 'octocat-dimmed)))
+      (octocat-vui-row
+       (if (plist-get layout :single)
+           ;; Compact: every column padded, so they line up.
+           (concat "  " state " "
+                   (propertize number 'face 'octocat-pr-number)
+                   "  " (pad :title)
+                   (mapconcat (lambda (key) (if (wide key) (concat "  " (pad key)) ""))
+                              '(:chips :branch :ci :author :prs :comments) ""))
+         ;; Regular: title and labels, then a line about where it lives.
+         (let* ((chips (or (plist-get cells :chips) ""))
+                (room  (max 10 (- (plist-get layout :width) 4 (length state)
+                                  (if (string-empty-p chips) 0 (+ 2 (string-width chips))))))
+                (title (truncate-string-to-width (plist-get cells :title) room nil nil "…"))
+                (more  (seq-remove (lambda (s) (or (null s) (string-empty-p s)))
+                                   (mapcar (lambda (key) (plist-get cells key))
+                                           '(:ref :author :date :branch :ci :prs :comments)))))
+           (concat "  " state "  " title
+                   (if (string-empty-p chips) "" (concat "  " chips))
+                   "\n"
+                   (make-string (+ 2 octocat-repo-vui--state-width 2) ?\s)
+                   (mapconcat #'identity more dot))))
+       on-visit help))))
+
+(defun octocat-repo-vui--pr-row (repo pr current-branch layout)
+  "Return a row vnode for PR in REPO, laid out as LAYOUT.
+LAYOUT comes from `octocat-repo-vui--layout' over the cells of all the
+rows.  CURRENT-BRANCH is as for `octocat-repo-vui--cells'."
+  (octocat-repo-vui--item-row
+   (octocat-repo-vui--state-label (gethash "state" pr) (gethash "isDraft" pr))
+   (format (format "%%%ds" octocat-repo-vui--number-width)
+           (format "#%d" (gethash "number" pr)))
+   (octocat-repo-vui--cells pr current-branch repo)
+   layout
+   (lambda () (octocat-repo-vui--open-pr repo pr))
+   "RET: view pull request"))
+
+(defun octocat-repo-vui--issue-row (repo issue layout)
+  "Return a row vnode for ISSUE in REPO, laid out as LAYOUT.
+LAYOUT comes from `octocat-repo-vui--layout' over the cells of all the
+rows."
+  (octocat-repo-vui--item-row
+   (octocat-repo-vui--state-label (gethash "state" issue))
+   (format (format "%%%ds" octocat-repo-vui--number-width)
+           (format "#%d" (gethash "number" issue)))
+   (octocat-repo-vui--cells issue nil repo)
+   layout
+   (lambda () (octocat-repo-vui--open-issue repo issue))
+   "RET: view issue"))
 
 (defun octocat-repo-vui--workflow-row (repo workflow)
   "Return a row vnode for WORKFLOW in REPO."

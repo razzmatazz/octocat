@@ -41,7 +41,9 @@
 ;; plumbing from octocat-repo.el, which requires this file (so cannot be
 ;; required here).
 (defvar octocat-section-limit)
-(declare-function octocat-repo-vui--pr-row "octocat-repo" (repo pr current-branch))
+(declare-function octocat-repo-vui--pr-row "octocat-repo" (repo pr current-branch layout))
+(declare-function octocat-repo-vui--cells "octocat-repo" (item current-branch repo))
+(declare-function octocat-repo-vui--layout "octocat-repo" (cells width))
 (declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
 
 ;; The views the PR page opens; octocat.el loads them all.
@@ -233,7 +235,7 @@ CALLBACK is called with a list of PR hash-tables, or a cons \\=(error . MSG)."
                                  "--repo" repo)
                            (octocat--filter-args query)
                            (list "--limit" (number-to-string limit)
-                                 "--json" "number,title,author,state,isDraft,statusCheckRollup,headRefName,labels"))
+                                 "--json" "number,title,author,state,isDraft,statusCheckRollup,headRefName,labels,createdAt,comments"))
                    #'octocat--parse-json-list
                    callback))
 
@@ -513,9 +515,10 @@ background."
 
 (vui-defcomponent octocat-pr--list-page (repo current-branch query)
   "Pull request list page for REPO, narrowed by the search QUERY."
-  :state ((limit octocat-section-limit))
+  :state ((limit octocat-section-limit) (win-width nil))
   :render
-  (let* ((id     (octocat--query-cache-id query))
+  (let* ((width  (octocat-vui-use-window-width))
+         (id     (octocat--query-cache-id query))
          (cached (vui-use-memo (repo id) (octocat--items-cache-load repo "prs" id)))
          ;; Only the first page is cached; it shows until the fetch lands.
          (stale  (and (= limit octocat-section-limit) (plist-get cached :items)))
@@ -549,9 +552,15 @@ background."
                              "  (no pull requests match the filters)\n"
                            "  (no pull requests)\n")
                          :face 'octocat-dimmed)
-             (vui-list prs
-                       (lambda (pr) (octocat-repo-vui--pr-row repo pr current-branch))
-                       (lambda (pr) (gethash "number" pr))))
+             (let ((layout (octocat-repo-vui--layout
+                            (mapcar (lambda (pr)
+                                      (octocat-repo-vui--cells pr current-branch repo))
+                                    prs)
+                            width)))
+               (vui-list prs
+                         (lambda (pr)
+                           (octocat-repo-vui--pr-row repo pr current-branch layout))
+                         (lambda (pr) (gethash "number" pr)))))
            (when (and prs
                       (or (>= (length prs) limit)
                           ;; Keep the button in place while a further page

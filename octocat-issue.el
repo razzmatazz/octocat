@@ -40,7 +40,9 @@
 ;; from octocat-repo.el, which requires this file (so cannot be required
 ;; here).
 (defvar octocat-section-limit)
-(declare-function octocat-repo-vui--issue-row "octocat-repo" (repo issue))
+(declare-function octocat-repo-vui--issue-row "octocat-repo" (repo issue layout))
+(declare-function octocat-repo-vui--cells "octocat-repo" (item current-branch repo))
+(declare-function octocat-repo-vui--layout "octocat-repo" (cells width))
 (declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
 
 
@@ -232,7 +234,7 @@ CALLBACK is called with a list of issue hash-tables, or a cons \\=(error . MSG).
                                  "--repo" repo)
                            (octocat--filter-args query)
                            (list "--limit" (number-to-string limit)
-                                 "--json" "number,title,author,state,labels"))
+                                 "--json" "number,title,author,state,labels,createdAt,comments,closedByPullRequestsReferences"))
                    #'octocat--parse-json-list
                    callback))
 
@@ -388,9 +390,10 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
 
 (vui-defcomponent octocat-issue--list-page (repo query)
   "Issue list page for REPO, narrowed by the search QUERY."
-  :state ((limit octocat-section-limit))
+  :state ((limit octocat-section-limit) (win-width nil))
   :render
-  (let* ((id     (octocat--query-cache-id query))
+  (let* ((width  (octocat-vui-use-window-width))
+         (id     (octocat--query-cache-id query))
          (cached (vui-use-memo (repo id) (octocat--items-cache-load repo "issues" id)))
          ;; Only the first page is cached; it shows until the fetch lands.
          (stale  (and (= limit octocat-section-limit) (plist-get cached :items)))
@@ -424,9 +427,15 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
                              "  (no issues match the filters)\n"
                            "  (no issues)\n")
                          :face 'octocat-dimmed)
-             (vui-list issues
-                       (lambda (issue) (octocat-repo-vui--issue-row repo issue))
-                       (lambda (issue) (gethash "number" issue))))
+             (let ((layout (octocat-repo-vui--layout
+                            (mapcar (lambda (issue)
+                                      (octocat-repo-vui--cells issue nil repo))
+                                    issues)
+                            width)))
+               (vui-list issues
+                         (lambda (issue)
+                           (octocat-repo-vui--issue-row repo issue layout))
+                         (lambda (issue) (gethash "number" issue)))))
            (when (and issues
                       (or (>= (length issues) limit)
                           ;; Keep the button in place while a further page

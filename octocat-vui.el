@@ -141,6 +141,32 @@ component unmounts."
                                       (vui-set-state :spin #'1+)))))
          (lambda () (cancel-timer timer))))))
 
+(defun octocat-vui-window-width ()
+  "Return the body width of the window showing the current buffer, or 80."
+  (let ((win (get-buffer-window (current-buffer) t)))
+    (if win (window-body-width win) 80)))
+
+(defmacro octocat-vui-use-window-width ()
+  "Return the width of the buffer's window, re-rendering when it changes.
+The component must declare a `(win-width nil)' entry in its `:state'.
+The size-change hook only exists while the component is mounted."
+  `(progn
+     (vui-use-effect ()
+       (let* ((buf  (current-buffer))
+              (last (octocat-vui-window-width))
+              (set  (vui-with-async-context
+                      (vui-set-state :win-width (octocat-vui-window-width))))
+              (hook (lambda (_frame)
+                      (when (buffer-live-p buf)
+                        (let ((w (with-current-buffer buf
+                                   (octocat-vui-window-width))))
+                          (unless (eql w last)
+                            (setq last w)
+                            (funcall set)))))))
+         (add-hook 'window-size-change-functions hook)
+         (lambda () (remove-hook 'window-size-change-functions hook))))
+     (or win-width (octocat-vui-window-width))))
+
 (defun octocat-vui-loading-suffix (result &optional spin)
   "Return a dimmed \"(loading…)\" marker for a section heading, or \"\".
 It is shown while RESULT (see `octocat-vui-use-async-sticky') displays
