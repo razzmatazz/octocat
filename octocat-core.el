@@ -594,6 +594,29 @@ Skips silently when DATA is an error cons."
             (insert (json-serialize data)))
         (error nil)))))
 
+(defun octocat--items-cache-load (repo type id)
+  "Load the cached item list of TYPE and ID for REPO.
+Returns a plist (:items LIST :branch BRANCH-OR-NIL), or nil when absent.
+Used by the list views to paint the last known page while a fresh one is
+fetched."
+  (when-let* ((data  (octocat--detail-cache-load repo type id))
+              (items (cl-coerce (gethash "items" data) 'list)))
+    (list :items  items
+          :branch (let ((b (gethash "branch" data))) (and (stringp b) b)))))
+
+(defun octocat--query-cache-id (query)
+  "Return a cache id for the list search QUERY (nil means the default)."
+  (secure-hash 'md5 (string-trim (or query octocat--default-list-query))))
+
+(defun octocat--items-cache-save (repo type id items &optional branch)
+  "Persist ITEMS (a list of hash-tables) of TYPE and ID for REPO.
+BRANCH, when a string, is stored beside them so a cache made for another
+branch can be told apart."
+  (let ((data (make-hash-table :test #'equal)))
+    (puthash "items" (vconcat items) data)
+    (puthash "branch" (or branch :null) data)
+    (octocat--detail-cache-save repo type id data)))
+
 (defun octocat--search-cache-file (query)
   "Return the cache file path for repo search results for QUERY."
   (expand-file-name
@@ -1321,6 +1344,23 @@ Keys: :open, :closed and, for pull requests, :merged."
                      (let ((entry (gethash (substring (symbol-name key) 1) repo)))
                        (and entry (list key (gethash "totalCount" entry)))))
                    '(:open :closed :merged)))))
+
+(defun octocat--counts-cache-load (repo kind)
+  "Load the cached counts plist of KIND (`issues' or `pulls') for REPO, or nil."
+  (when-let* ((data (octocat--detail-cache-load repo "counts" (symbol-name kind))))
+    (let (plist)
+      (dolist (key '(:open :closed :merged))
+        (when-let* ((n (gethash (substring (symbol-name key) 1) data)))
+          (when (integerp n) (setq plist (append plist (list key n))))))
+      plist)))
+
+(defun octocat--counts-cache-save (repo kind counts)
+  "Persist the COUNTS plist of KIND (`issues' or `pulls') for REPO."
+  (let ((data (make-hash-table :test #'equal)))
+    (dolist (key '(:open :closed :merged))
+      (when (plist-get counts key)
+        (puthash (substring (symbol-name key) 1) (plist-get counts key) data)))
+    (octocat--detail-cache-save repo "counts" (symbol-name kind) data)))
 
 (defun octocat--fetch-counts (repo kind callback)
   "Fetch the open/closed(/merged) counts of KIND in REPO asynchronously.

@@ -314,6 +314,26 @@ issue/PR-count lookups."
      callback)))
 
 
+(defun octocat-repo--summary-cache-load (repo)
+  "Load the cached summary plist of REPO (see `octocat-repo--parse-summary')."
+  (when-let* ((data (octocat--detail-cache-load repo "summary" "repo")))
+    (let ((str (lambda (k) (let ((v (gethash k data))) (and (stringp v) v))))
+          (num (lambda (k) (let ((v (gethash k data))) (and (integerp v) v)))))
+      (list :default-branch (funcall str "default-branch")
+            :fork-parent    (funcall str "fork-parent")
+            :open-issues    (funcall num "open-issues")
+            :open-prs       (funcall num "open-prs")))))
+
+(defun octocat-repo--summary-cache-save (repo summary)
+  "Persist the SUMMARY plist of REPO (see `octocat-repo--parse-summary')."
+  (let ((data (make-hash-table :test #'equal)))
+    (puthash "default-branch" (or (plist-get summary :default-branch) :null) data)
+    (puthash "fork-parent"    (or (plist-get summary :fork-parent) :null) data)
+    (puthash "open-issues"    (or (plist-get summary :open-issues) :null) data)
+    (puthash "open-prs"       (or (plist-get summary :open-prs) :null) data)
+    (octocat--detail-cache-save repo "summary" "repo" data)))
+
+
 ;;;; Row rendering
 ;;
 ;; The generic row / sticky-async / load-more helpers live in
@@ -608,19 +628,35 @@ highlighted when it is also the local CURRENT-BRANCH.  HEAD-INFO is the
 plist from `octocat--head-info', used to highlight the local HEAD commit."
   :state ((limit octocat-section-limit))
   :render
-  (let ((result (octocat-vui-use-async-sticky (list 'commits repo limit)
-                  (lambda (resolve reject)
-                    (octocat-repo--list-commits
-                     repo limit
-                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
+  (let* ((cached (vui-use-memo (repo)
+                   (octocat--items-cache-load repo "commits" "default")))
+         ;; Only the first page is cached; it shows until the fetch lands.
+         (stale  (and (= limit octocat-section-limit) (plist-get cached :items)))
+         (sticky (octocat-vui-use-async-sticky (list 'commits repo limit)
+                   (lambda (resolve reject)
+                     (octocat-repo--list-commits
+                      repo limit
+                      (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
+         (fresh  (and (eq (plist-get sticky :status) 'ready)
+                      (not (plist-get sticky :refreshing))
+                      (plist-get sticky :data)))
+         (result (octocat-vui-with-stale sticky stale))
+         ;; The cached list is labelled with the branch it was fetched for.
+         (branch (if (eq result sticky) default-branch (plist-get cached :branch))))
+    (vui-use-effect (fresh default-branch)
+      (when (and fresh default-branch (= limit octocat-section-limit))
+        (octocat--items-cache-save repo "commits" "default" fresh default-branch))
+      nil)
     (vui-collapsible
-     :title (if (and (stringp default-branch) (not (string-empty-p default-branch)))
-                (concat "Commits on "
-                        (propertize default-branch 'face
-                                    (if (equal default-branch current-branch)
-                                        'octocat-branch-current
-                                      'octocat-branch)))
-              "Commits")
+     :title (concat
+             (if (and (stringp branch) (not (string-empty-p branch)))
+                 (concat "Commits on "
+                         (propertize branch 'face
+                                     (if (equal branch current-branch)
+                                         'octocat-branch-current
+                                       'octocat-branch)))
+               "Commits")
+             (octocat-vui-loading-suffix result))
      :key 'commits :initially-expanded t :indent 0
      (pcase (plist-get result :status)
        ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
@@ -634,8 +670,12 @@ plist from `octocat--head-info', used to highlight the local HEAD commit."
                        (lambda (c)
                          (octocat-repo-vui--commit-row repo c head-info))
                        (lambda (c) (gethash "sha" c))))
-           (when (and commits (or (plist-get result :refreshing)
-                                 (>= (length commits) limit)))
+           (when (and commits
+                      (or (>= (length commits) limit)
+                          ;; Keep the button in place while a further page
+                          ;; loads, but not for the first, cached paint.
+                          (and (plist-get result :refreshing)
+                               (> limit octocat-section-limit))))
              (octocat-vui-load-more-button
               'load-more-commits octocat-section-limit
               "RET: load more commits"
@@ -672,15 +712,22 @@ Everything but the commits comes from a single summary API call."
   :render
   (let* ((head-info      (octocat--head-info))
          (current-branch (plist-get head-info :branch))
+         (cached         (vui-use-memo (repo) (octocat-repo--summary-cache-load repo)))
          (summary-result (vui-use-async (list 'summary repo)
                            (lambda (resolve reject)
                              (octocat-repo--fetch-summary
                               repo
                               (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
-         (summary        (and (eq (plist-get summary-result :status) 'ready)
+         (fresh          (and (eq (plist-get summary-result :status) 'ready)
                               (plist-get summary-result :data)))
+         ;; The cached summary shows until the fresh one arrives, so the
+         ;; counts and the branch don't pop in.
+         (summary        (or fresh cached))
          (default-branch (plist-get summary :default-branch))
          (fork-parent    (plist-get summary :fork-parent)))
+    (vui-use-effect (fresh)
+      (when fresh (octocat-repo--summary-cache-save repo fresh))
+      nil)
     (vui-vstack
      (apply #'vui-hstack :spacing 2
             (vui-text repo :face 'octocat-repo)

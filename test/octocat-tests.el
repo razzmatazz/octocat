@@ -222,6 +222,54 @@ no gh call is made."
     (should (equal (get-text-property (point-min) 'wrap-prefix) octocat--quote-prefix))
     (should (equal (get-text-property (1- (point-max)) 'wrap-prefix) octocat--quote-prefix))))
 
+;;; Stale-while-revalidate caches
+
+(defmacro octocat-tests--with-cache-dir (&rest body)
+  "Evaluate BODY with `octocat-cache-directory' pointing at a temp directory."
+  (declare (indent 0))
+  `(let ((octocat-cache-directory (make-temp-file "octocat-cache" t)))
+     (unwind-protect (progn ,@body)
+       (delete-directory octocat-cache-directory t))))
+
+(ert-deftest octocat-test-items-cache-roundtrip ()
+  "A saved item list loads back with its branch; a missing one is nil."
+  (octocat-tests--with-cache-dir
+    (should-not (octocat--items-cache-load "o/r" "commits" "default"))
+    (let ((item (make-hash-table :test #'equal)))
+      (puthash "sha" "abc" item)
+      (octocat--items-cache-save "o/r" "commits" "default" (list item) "main"))
+    (let ((loaded (octocat--items-cache-load "o/r" "commits" "default")))
+      (should (equal (plist-get loaded :branch) "main"))
+      (should (equal (gethash "sha" (car (plist-get loaded :items))) "abc")))
+    ;; Branch is optional.
+    (octocat--items-cache-save "o/r" "prs" "id" nil)
+    (should-not (octocat--items-cache-load "o/r" "prs" "id"))))
+
+(ert-deftest octocat-test-counts-and-summary-cache-roundtrip ()
+  "Counts and the repo summary survive a save/load, nils included."
+  (octocat-tests--with-cache-dir
+    (octocat--counts-cache-save "o/r" 'pulls '(:open 1 :closed 0 :merged 9))
+    (should (equal (octocat--counts-cache-load "o/r" 'pulls)
+                   '(:open 1 :closed 0 :merged 9)))
+    (octocat--counts-cache-save "o/r" 'issues '(:open 3 :closed 4))
+    (should (equal (octocat--counts-cache-load "o/r" 'issues) '(:open 3 :closed 4)))
+    (octocat-repo--summary-cache-save
+     "o/r" '(:default-branch "main" :fork-parent nil :open-issues 2 :open-prs 1))
+    (should (equal (octocat-repo--summary-cache-load "o/r")
+                   '(:default-branch "main" :fork-parent nil :open-issues 2 :open-prs 1)))))
+
+(ert-deftest octocat-test-with-stale-and-loading-suffix ()
+  "Stale data stands in for a pending result and is marked as refreshing."
+  (let ((pending '(:status pending)))
+    (should (equal (octocat-vui-with-stale pending '(1 2))
+                   '(:status ready :data (1 2) :refreshing t)))
+    (should (eq (octocat-vui-with-stale pending nil) pending))
+    (let ((ready '(:status ready :data (3))))
+      (should (eq (octocat-vui-with-stale ready '(1 2)) ready))))
+  (should (equal (octocat-vui-loading-suffix '(:refreshing t))
+                 "  loading…"))
+  (should (equal (octocat-vui-loading-suffix '(:status ready)) "")))
+
 (ert-deftest octocat-test-state-label ()
   "State labels are fixed-width words; only open PRs can be drafts."
   (should (equal (substring-no-properties (octocat-repo-vui--state-label "OPEN")) "open  "))

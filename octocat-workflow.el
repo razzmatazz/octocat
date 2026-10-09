@@ -396,7 +396,8 @@ then always fetches fresh data in the background."
                      repo limit
                      (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
     (vui-collapsible
-     :title "Workflow Runs" :key 'workflow-runs :initially-expanded t :indent 0
+     :title (concat "Workflow Runs" (octocat-vui-loading-suffix result))
+     :key 'workflow-runs :initially-expanded t :indent 0
      (pcase (plist-get result :status)
        ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
        ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))

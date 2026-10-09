@@ -90,28 +90,46 @@ Must be called during render, like any hook."
                   result))
       (_ result))))
 
+(defun octocat-vui-with-stale (result stale)
+  "Return RESULT, or STALE shown as `ready' while RESULT is still pending.
+RESULT is a `vui-use-async' (or `octocat-vui-use-async-sticky') result
+plist and STALE is data remembered from an earlier session, or nil.  The
+stale data comes back with :refreshing t, like the sticky hook's old
+data, so the view paints at once and is replaced in place when the
+fresh data arrives, instead of flashing a \"Loading…\" placeholder."
+  (if (and stale (eq (plist-get result :status) 'pending))
+      (list :status 'ready :data stale :refreshing t)
+    result))
+
 (defun octocat-vui-load-more-button (key count help-echo on-click &optional loading)
   "Return a \"Load COUNT more…\" vui-button with HELP-ECHO, invoking ON-CLICK.
 KEY is a per-section symbol: it is the button's cursor identity, so point
 stays on this section's button when growing the list re-renders it
 instead of drifting to a neighbouring section's button.
-When LOADING is non-nil (the next page is being fetched, see
-`octocat-vui-use-async-sticky'), the label reads \"Loading…\" and the
-button is disabled so it cannot be triggered twice.
+When LOADING is non-nil (a page is being fetched, see
+`octocat-vui-use-async-sticky') the button is disabled so it cannot be
+triggered twice; its label stays put, since the section heading shows
+the activity (see `octocat-vui-loading-suffix').
 Rows carry no trailing newline (`vui-list' only separates them), so the
 button starts on a fresh line and carries the same two-space indent."
   (vui-fragment
    (vui-newline)
    (vui-text "  ")
-   (vui-button (if loading
-                   "[…] Loading…"
-                 (format "[+] Load %d more…" count))
+   (vui-button (format "[+] Load %d more…" count)
                :no-decoration t
                :face 'octocat-dimmed
                :key key
                :disabled loading
                :help-echo (if loading nil help-echo)
                :on-click on-click)))
+
+(defun octocat-vui-loading-suffix (result)
+  "Return a dimmed \"loading…\" marker for a section heading, or \"\".
+It is shown while RESULT (see `octocat-vui-use-async-sticky') displays
+earlier or cached data that a fetch is about to replace."
+  (if (plist-get result :refreshing)
+      (propertize "  loading…" 'face 'octocat-dimmed)
+    ""))
 
 
 ;;;; List-page base mode
@@ -124,6 +142,8 @@ button starts on a fresh line and carries the same two-space indent."
 ;; (octocat.el).
 
 (declare-function octocat--fetch-counts "octocat-core" (repo kind callback))
+(declare-function octocat--counts-cache-load "octocat-core" (repo kind))
+(declare-function octocat--counts-cache-save "octocat-core" (repo kind counts))
 (declare-function octocat--list-labels "octocat-core" (repo callback))
 (declare-function octocat--list-people "octocat-core" (repo callback))
 (declare-function octocat-switch-repo "octocat-core" ())
@@ -163,12 +183,15 @@ button starts on a fresh line and carries the same two-space indent."
   (setq-local buffer-read-only t)
   (setq-local truncate-lines t))
 
-(vui-defcomponent octocat-vui-list-header (repo title kind)
+(vui-defcomponent octocat-vui-list-header (repo title kind loading)
   "Header line for a list page: REPO, TITLE and, for KIND, item counts.
 KIND is `issues' or `pulls' to show \"N open · M closed\" (plus merged
-for pulls) from one API call, or nil for no counts."
+for pulls) from one API call, or nil for no counts.  A non-nil LOADING
+adds a \"loading…\" marker: the list below is stale data being refreshed."
   :render
-  (let* ((result (vui-use-async (list 'counts kind repo)
+  (let* ((cached (vui-use-memo (repo kind)
+                   (and kind (octocat--counts-cache-load repo kind))))
+         (result (vui-use-async (list 'counts kind repo)
                    (lambda (resolve _reject)
                      (if (null kind)
                          (funcall resolve nil)
@@ -176,8 +199,14 @@ for pulls) from one API call, or nil for no counts."
                         repo kind
                         (lambda (r)
                           (funcall resolve (unless (eq (car-safe r) 'error) r))))))))
-         (counts (and (eq (plist-get result :status) 'ready)
-                      (plist-get result :data))))
+         (fresh  (and (eq (plist-get result :status) 'ready)
+                      (plist-get result :data)))
+         ;; The cached counts show until the fresh ones arrive.
+         (counts (or fresh cached)))
+    (vui-use-effect (fresh)
+      (when (and kind fresh)
+        (octocat--counts-cache-save repo kind fresh))
+      nil)
     (vui-fragment
      (vui-hstack :spacing 2
        (vui-text repo :face 'octocat-repo)
@@ -190,7 +219,9 @@ for pulls) from one API call, or nil for no counts."
                                 (and (plist-get counts :merged)
                                      (format "%d merged" (plist-get counts :merged)))))
                     " · ")
-                   :face 'octocat-dimmed)))
+                   :face 'octocat-dimmed))
+       (when loading
+         (vui-text "loading…" :face 'octocat-dimmed)))
      (vui-newline))))
 
 

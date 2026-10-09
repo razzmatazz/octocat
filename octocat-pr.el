@@ -557,15 +557,28 @@ then always fetches fresh data in the background."
   "Pull request list page for REPO, narrowed by the search QUERY."
   :state ((limit octocat-section-limit))
   :render
-  (let ((result (octocat-vui-use-async-sticky (list 'prs repo limit query)
-                  (lambda (resolve reject)
-                    (octocat--list-prs
-                     repo limit
-                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))
-                     query)))))
+  (let* ((id     (octocat--query-cache-id query))
+         (cached (vui-use-memo (repo id) (octocat--items-cache-load repo "prs" id)))
+         ;; Only the first page is cached; it shows until the fetch lands.
+         (stale  (and (= limit octocat-section-limit) (plist-get cached :items)))
+         (sticky (octocat-vui-use-async-sticky (list 'prs repo limit query)
+                   (lambda (resolve reject)
+                     (octocat--list-prs
+                      repo limit
+                      (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))
+                      query))))
+         (fresh  (and (eq (plist-get sticky :status) 'ready)
+                      (not (plist-get sticky :refreshing))
+                      (plist-get sticky :data)))
+         (result (octocat-vui-with-stale sticky stale)))
+    (vui-use-effect (fresh)
+      (when (and fresh (= limit octocat-section-limit))
+        (octocat--items-cache-save repo "prs" id fresh))
+      nil)
     (vui-vstack
      (vui-component 'octocat-vui-list-header
-                    :repo repo :title "Pull Requests" :kind 'pulls)
+                    :repo repo :title "Pull Requests" :kind 'pulls
+                    :loading (and (plist-get result :refreshing) t))
      (octocat-vui-list-filter-bar query)
      (pcase (plist-get result :status)
        ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
@@ -581,8 +594,12 @@ then always fetches fresh data in the background."
              (vui-list prs
                        (lambda (pr) (octocat-repo-vui--pr-row repo pr current-branch))
                        (lambda (pr) (gethash "number" pr))))
-           (when (and prs (or (plist-get result :refreshing)
-                              (>= (length prs) limit)))
+           (when (and prs
+                      (or (>= (length prs) limit)
+                          ;; Keep the button in place while a further page
+                          ;; loads, but not for the first, cached paint.
+                          (and (plist-get result :refreshing)
+                               (> limit octocat-section-limit))))
              (octocat-vui-load-more-button
               'load-more-prs octocat-section-limit
               "RET: load more pull requests"
