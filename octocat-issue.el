@@ -28,6 +28,16 @@
 
 (require 'octocat-core)
 (require 'octocat-edit)
+(require 'octocat-vui)
+(require 'vui)
+(require 'vui-components) ; vui-list, vui-vstack, etc.
+
+;; The issue list page below reuses the row builder and fetch plumbing
+;; from octocat-repo.el, which requires this file (so cannot be required
+;; here).
+(defvar octocat-section-limit)
+(declare-function octocat-repo-vui--issue-row "octocat-repo" (repo issue))
+(declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
 
 ;; These commands are defined in octocat.el which loads this file, so we
 ;; cannot require it here.  Declare them to silence the byte-compiler.
@@ -390,6 +400,59 @@ then always fetches fresh data in the background."
                                   (octocat--detail-cache-save repo "issue" num result)
                                   (octocat--render-issue result)
                                   (octocat--restore-point saved-point))))))))
+
+
+
+;;;; Issue list page
+;;
+;; Opened by `M-x octocat-issues' (octocat.el).  vui.el-rendered, unlike
+;; the magit-section issue detail buffer above; see "UI frameworks" in
+;; CONTRIBUTING.md.
+
+(vui-defcomponent octocat-issue--list-page (repo)
+  "Issue list page for REPO."
+  :state ((limit octocat-section-limit))
+  :render
+  (let ((result (octocat-vui-use-async-sticky (list 'issues repo limit)
+                  (lambda (resolve reject)
+                    (octocat--list-issues
+                     repo limit
+                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
+    (vui-vstack
+     (octocat-vui-list-header repo "Issues")
+     (pcase (plist-get result :status)
+       ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
+       ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
+       ('ready
+        (let ((issues (plist-get result :data)))
+          (vui-fragment
+           (if (null issues)
+               (vui-text "  (no issues)\n" :face 'octocat-dimmed)
+             (vui-list issues
+                       (lambda (issue) (octocat-repo-vui--issue-row repo issue))
+                       (lambda (issue) (gethash "number" issue))))
+           (when (and issues (or (plist-get result :refreshing)
+                                 (>= (length issues) limit)))
+             (octocat-vui-load-more-button
+              'load-more-issues octocat-section-limit
+              "RET: load more issues"
+              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
+              (plist-get result :refreshing))))))))))
+
+(defun octocat-issue-list-refresh (&optional _ignore-auto _noconfirm)
+  "Refresh the current issue list buffer."
+  (interactive)
+  (unless octocat-vui-list--repo
+    (user-error "Octocat: Buffer is not associated with a repository"))
+  (vui-mount (vui-component 'octocat-issue--list-page :repo octocat-vui-list--repo)
+             (buffer-name)))
+
+(define-derived-mode octocat-issue-list-mode octocat-vui-list-mode "Octocat-Issues"
+  "Major mode for the issue list of a repository.
+
+\\{octocat-issue-list-mode-map}"
+  :group 'octocat
+  (setq-local revert-buffer-function #'octocat-issue-list-refresh))
 
 (provide 'octocat-issue)
 ;;; octocat-issue.el ends here

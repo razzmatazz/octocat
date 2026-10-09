@@ -20,7 +20,10 @@
 
 ;;; Commentary:
 
-;; Per-repository buffer: Pull Requests, Issues, Workflow Runs, Commits.
+;; Per-repository overview buffer: a one-call summary (open issue/PR
+;; counts, with buttons into the list pages in octocat-pr.el, octocat-issue.el, octocat-workflow.el) and the
+;; recent Commits.  The PR, issue and workflow/run lists live on their own
+;; pages; this file still holds their shared row builders and fetchers.
 ;; The `M-x octocat-repo' entry point is defined in octocat.el (see
 ;; CONTRIBUTING.md, "Entry points"); this file defines `octocat-repo-mode'
 ;; and all of its supporting logic.
@@ -111,6 +114,9 @@
 (declare-function octocat-commit-refresh           "octocat-commit"   (&optional _ignore-auto _noconfirm))
 (declare-function octocat-tree-open                "octocat-tree"     ())
 (declare-function octocat-tree-find-file           "octocat-tree"     ())
+(declare-function octocat-issues                   "octocat"          ())
+(declare-function octocat-prs                      "octocat"          ())
+(declare-function octocat-workflows                "octocat"          ())
 
 ;; Buffer-locals this file `setq's in a *different* buffer (the target
 ;; detail buffer, after `pop-to-buffer') than the one that defines them.
@@ -274,36 +280,38 @@ always issues a GET request."
    #'octocat--parse-json-list
    callback))
 
-(defun octocat-repo--fetch-default-branch (repo callback)
-  "Fetch the default branch name for REPO asynchronously.
-Calls CALLBACK with a non-empty string such as \"main\", or a cons
-\\=(error . MSG) on failure.  Uses the GitHub REST API via `gh api'."
-  (octocat--run-gh
-   "default-branch"
-   (list "api"
-         (format "repos/%s" repo)
-         "--jq" ".default_branch")
-   (lambda (output)
-     (let ((s (string-trim output)))
-       (if (string-empty-p s)
-           (error "Empty default_branch in repo response")
-         s)))
-   callback))
+(defconst octocat-repo--summary-query
+  "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){defaultBranchRef{name} parent{nameWithOwner} issues(states:OPEN){totalCount} pullRequests(states:OPEN){totalCount}}}"
+  "GraphQL query behind `octocat-repo--fetch-summary'.")
 
+(defun octocat-repo--parse-summary (json-string)
+  "Parse the GraphQL response JSON-STRING into a summary plist.
+Keys: :default-branch (string or nil), :fork-parent (\"owner/repo\" or
+nil), :open-issues and :open-prs (integers)."
+  (let* ((repo (gethash "repository"
+                        (gethash "data" (json-parse-string json-string :null-object nil))))
+         (ref    (gethash "defaultBranchRef" repo))
+         (parent (gethash "parent" repo)))
+    (list :default-branch (and ref (gethash "name" ref))
+          :fork-parent    (and parent (gethash "nameWithOwner" parent))
+          :open-issues    (gethash "totalCount" (gethash "issues" repo))
+          :open-prs       (gethash "totalCount" (gethash "pullRequests" repo)))))
 
-(defun octocat-repo--fetch-fork-parent (repo callback)
-  "Fetch the parent repository name for REPO asynchronously.
-Calls CALLBACK with an \"owner/repo\" string when REPO is a fork, or nil
-when it is not a fork.  Uses the GitHub REST API via `gh api'."
-  (octocat--run-gh
-   "fork-parent"
-   (list "api"
-         (format "repos/%s" repo)
-         "--jq" "if .fork then .parent.full_name else empty end")
-   (lambda (output)
-     (let ((s (string-trim output)))
-       (and (not (string-empty-p s)) s)))
-   callback))
+(defun octocat-repo--fetch-summary (repo callback)
+  "Fetch the repo-view summary for REPO asynchronously in one API call.
+Calls CALLBACK with the plist described in `octocat-repo--parse-summary',
+or a cons \\=(error . MSG) on failure.  One GraphQL request replaces what
+would otherwise be separate default-branch, fork-parent and
+issue/PR-count lookups."
+  (let ((parts (split-string repo "/")))
+    (octocat--run-gh
+     "repo-summary"
+     (list "api" "graphql"
+           "-f" (concat "query=" octocat-repo--summary-query)
+           "-F" (concat "owner=" (car parts))
+           "-F" (concat "name=" (cadr parts)))
+     #'octocat-repo--parse-summary
+     callback)))
 
 
 ;;;; Row rendering
@@ -594,68 +602,6 @@ DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
 ;; and `octocat-repo-load-more's "find the pageable section at point"
 ;; walk in the previous magit-section implementation.
 
-(vui-defcomponent octocat-repo-vui--issues-section (repo)
-  "Issues section for REPO."
-  :state ((limit octocat-section-limit))
-  :render
-  (let ((result (octocat-vui-use-async-sticky (list 'issues repo limit)
-                  (lambda (resolve reject)
-                    (octocat--list-issues
-                     repo limit
-                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
-    (vui-collapsible
-     :title "Issues" :key 'issues :initially-expanded t :indent 0
-     (pcase (plist-get result :status)
-       ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
-       ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
-       ('ready
-        (let ((issues (plist-get result :data)))
-          (vui-fragment
-           (if (null issues)
-               (vui-text "  (no issues)\n" :face 'octocat-dimmed)
-             (vui-list issues
-                       (lambda (issue) (octocat-repo-vui--issue-row repo issue))
-                       (lambda (issue) (gethash "number" issue))))
-           (when (and issues (or (plist-get result :refreshing)
-                                 (>= (length issues) limit)))
-             (octocat-vui-load-more-button
-              'load-more-issues octocat-section-limit
-              "RET: load more issues"
-              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
-              (plist-get result :refreshing)))))))
-     )))
-
-(vui-defcomponent octocat-repo-vui--prs-section (repo current-branch)
-  "Pull Requests section for REPO."
-  :state ((limit octocat-section-limit))
-  :render
-  (let ((result (octocat-vui-use-async-sticky (list 'prs repo limit)
-                  (lambda (resolve reject)
-                    (octocat--list-prs
-                     repo limit
-                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
-    (vui-collapsible
-     :title "Pull Requests" :key 'prs :initially-expanded t :indent 0
-     (pcase (plist-get result :status)
-       ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
-       ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
-       ('ready
-        (let ((prs (plist-get result :data)))
-          (vui-fragment
-           (if (null prs)
-               (vui-text "  (no pull requests)\n" :face 'octocat-dimmed)
-             (vui-list prs
-                       (lambda (pr) (octocat-repo-vui--pr-row repo pr current-branch))
-                       (lambda (pr) (gethash "number" pr))))
-           (when (and prs (or (plist-get result :refreshing)
-                              (>= (length prs) limit)))
-             (octocat-vui-load-more-button
-              'load-more-prs octocat-section-limit
-              "RET: load more pull requests"
-              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
-              (plist-get result :refreshing)))))))
-     )))
-
 (vui-defcomponent octocat-repo-vui--commits-section (repo default-branch current-branch head-info)
   "Commits section for REPO."
   :state ((limit octocat-section-limit))
@@ -685,91 +631,46 @@ DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
               'load-more-commits octocat-section-limit
               "RET: load more commits"
               (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
-              (plist-get result :refreshing)))))))
-     )))
-
-(vui-defcomponent octocat-repo-vui--workflow-runs-section (repo current-branch)
-  "Workflow Runs section for REPO."
-  :state ((limit octocat-section-limit))
-  :render
-  (let ((result (octocat-vui-use-async-sticky (list 'recent-runs repo limit)
-                  (lambda (resolve reject)
-                    (octocat-repo--list-recent-runs
-                     repo limit
-                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
-    (vui-collapsible
-     :title "Workflow Runs" :key 'workflow-runs :initially-expanded t :indent 0
-     (pcase (plist-get result :status)
-       ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
-       ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
-       ('ready
-        (let* ((runs (plist-get result :data))
-               (wf-w (if runs
-                        (min 25 (apply #'max 1
-                                      (mapcar (lambda (r) (length (or (gethash "workflowName" r) "")))
-                                              runs)))
-                      1)))
-          (vui-fragment
-           (if (null runs)
-               (vui-text "  (no workflow runs)\n" :face 'octocat-dimmed)
-             (vui-list runs
-                       (lambda (r) (octocat-repo-vui--workflow-run-row repo r current-branch wf-w))
-                       (lambda (r) (gethash "databaseId" r))))
-           (when (and runs (or (plist-get result :refreshing)
-                              (>= (length runs) limit)))
-             (octocat-vui-load-more-button
-              'load-more-runs octocat-section-limit
-              "RET: load more runs"
-              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
-              (plist-get result :refreshing)))))))
-     )))
-
-(vui-defcomponent octocat-repo-vui--workflows-section (repo)
-  "Workflows section for REPO (no pagination: run history lives in
-`octocat-repo-vui--workflow-runs-section' instead)."
-  :render
-  (let ((result (vui-use-async (list 'workflows repo)
-                  (lambda (resolve reject)
-                    (octocat-repo--list-workflows
-                     repo
-                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
-    (vui-collapsible
-     :title "Workflows" :key 'workflows :initially-expanded t :indent 0
-     (pcase (plist-get result :status)
-       ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
-       ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
-       ('ready
-        (let ((workflows (plist-get result :data)))
-          (if (null workflows)
-              (vui-text "  (no workflows)\n" :face 'octocat-dimmed)
-            (vui-list workflows
-                      (lambda (wf) (octocat-repo-vui--workflow-row repo wf))
-                      (lambda (wf) (gethash "id" wf)))))))
-     )))
-
+              (plist-get result :refreshing))))))))))
 
 ;;;; Root
 
+(defun octocat-repo-vui--summary-line (summary)
+  "Return a vnode listing open issue/PR counts from SUMMARY, with nav buttons.
+SUMMARY is the plist from `octocat-repo--fetch-summary', or nil while it
+is still loading (counts then render as an ellipsis)."
+  (let ((issues (plist-get summary :open-issues))
+        (prs    (plist-get summary :open-prs)))
+    (vui-hstack :spacing 2
+      (vui-button (format "Issues (%s open)" (or issues "…"))
+                  :face 'octocat-dimmed
+                  :help-echo "RET: list issues"
+                  :on-click #'octocat-issues)
+      (vui-button (format "Pull requests (%s open)" (or prs "…"))
+                  :face 'octocat-dimmed
+                  :help-echo "RET: list pull requests"
+                  :on-click #'octocat-prs)
+      (vui-button "Workflows"
+                  :face 'octocat-dimmed
+                  :help-echo "RET: list workflows and runs"
+                  :on-click #'octocat-workflows))))
+
 (vui-defcomponent octocat-repo-vui--root (repo local-dir)
   "Root component for the repo buffer: header, local-head/fork-parent
-info, then the five sections."
+info, issue/PR summary line, then the commits section.
+Everything but the commits comes from a single summary API call."
   :render
   (let* ((head-info      (octocat--head-info))
          (current-branch (plist-get head-info :branch))
-         (branch-result  (vui-use-async (list 'default-branch repo)
+         (summary-result (vui-use-async (list 'summary repo)
                            (lambda (resolve reject)
-                             (octocat-repo--fetch-default-branch
+                             (octocat-repo--fetch-summary
                               repo
                               (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
-         (fork-result    (vui-use-async (list 'fork-parent repo)
-                           (lambda (resolve reject)
-                             (octocat-repo--fetch-fork-parent
-                              repo
-                              (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
-         (default-branch (and (eq (plist-get branch-result :status) 'ready)
-                              (plist-get branch-result :data)))
-         (fork-parent    (and (eq (plist-get fork-result :status) 'ready)
-                              (plist-get fork-result :data))))
+         (summary        (and (eq (plist-get summary-result :status) 'ready)
+                              (plist-get summary-result :data)))
+         (default-branch (plist-get summary :default-branch))
+         (fork-parent    (plist-get summary :fork-parent)))
     (vui-vstack
      (vui-hstack :spacing 2
        (vui-text repo :face 'octocat-repo)
@@ -796,18 +697,12 @@ info, then the five sections."
         (lambda () (octocat-visit-repo fork-parent))
         "RET: open parent repo view"))
      (vui-newline)
-     (vui-component 'octocat-repo-vui--issues-section :repo repo)
+     (octocat-repo-vui--summary-line summary)
      (vui-newline)
-     (vui-component 'octocat-repo-vui--prs-section :repo repo :current-branch current-branch)
      (vui-newline)
      (vui-component 'octocat-repo-vui--commits-section
                     :repo repo :default-branch default-branch
-                    :current-branch current-branch :head-info head-info)
-     (vui-newline)
-     (vui-component 'octocat-repo-vui--workflow-runs-section
-                    :repo repo :current-branch current-branch)
-     (vui-newline)
-     (vui-component 'octocat-repo-vui--workflows-section :repo repo))))
+                    :current-branch current-branch :head-info head-info))))
 
 
 ;;;; Major mode

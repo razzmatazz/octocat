@@ -30,7 +30,8 @@
 ;;
 ;; Entry points:
 ;;   M-x octocat      — GitHub account dashboard (recent repos, activity feed)
-;;   M-x octocat-repo — Per-repository view (PRs, Issues, Workflows, Commits)
+;;   M-x octocat-repo — Per-repository view (summary, Commits)
+;;   M-x octocat-prs / octocat-issues / octocat-workflows — list pages
 
 ;;; Code:
 
@@ -1061,6 +1062,47 @@ mode with no local directory bound."
           octocat-repo--local-dir (and local-dir
                                        (expand-file-name local-dir)))
     (octocat-repo-refresh)))
+
+(defun octocat--open-list (mode name path)
+  "Open (or switch to) the list page for the current repository.
+MODE is the list major mode to enable, NAME its buffer-name prefix, and
+PATH the github.com sub-path `octocat-vui-list-browse' opens.  Inside an
+octocat repo or list buffer the page is for that buffer's repository
+(and local clone); elsewhere the repository is derived from the current
+git working tree."
+  (let* ((repo      (cond ((derived-mode-p 'octocat-repo-mode) octocat-repo--repo)
+                          ((derived-mode-p 'octocat-vui-list-mode) octocat-vui-list--repo)
+                          (t (octocat-repo--current-repo))))
+         (local-dir (if (derived-mode-p 'octocat-repo-mode)
+                        octocat-repo--local-dir
+                      (octocat-repo--local-dir-for repo)))
+         (buf       (get-buffer-create (format "*octocat-%s: %s*" name repo))))
+    (pop-to-buffer buf)
+    (when local-dir
+      (setq default-directory (file-name-as-directory local-dir)))
+    (unless (derived-mode-p mode)
+      (funcall mode))
+    (setq octocat-vui-list--repo repo
+          octocat-vui-list--path path)
+    (funcall revert-buffer-function)))
+
+;;;###autoload
+(defun octocat-prs ()
+  "Open the pull request list for the current GitHub repository."
+  (interactive)
+  (octocat--open-list #'octocat-pr-list-mode "prs" "pulls"))
+
+;;;###autoload
+(defun octocat-issues ()
+  "Open the issue list for the current GitHub repository."
+  (interactive)
+  (octocat--open-list #'octocat-issue-list-mode "issues" "issues"))
+
+;;;###autoload
+(defun octocat-workflows ()
+  "Open the workflows and recent runs page for the current GitHub repository."
+  (interactive)
+  (octocat--open-list #'octocat-workflow-list-mode "workflows" "actions"))
 
 
 ;;;; Evil integration

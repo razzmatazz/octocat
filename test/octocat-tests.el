@@ -143,5 +143,22 @@ no gh call is made."
     (should (equal (octocat--format-labels :null) ""))
     (should (equal (octocat--format-labels []) ""))))
 
+
+;;; octocat-repo--parse-summary
+
+(ert-deftest octocat-test-parse-summary-fork ()
+  "A fork's summary carries its parent, default branch and counts."
+  (should (equal (octocat-repo--parse-summary
+                  "{\"data\":{\"repository\":{\"defaultBranchRef\":{\"name\":\"main\"},\"parent\":{\"nameWithOwner\":\"up/stream\"},\"issues\":{\"totalCount\":3},\"pullRequests\":{\"totalCount\":2}}}}")
+                 '(:default-branch "main" :fork-parent "up/stream"
+                   :open-issues 3 :open-prs 2))))
+
+(ert-deftest octocat-test-parse-summary-empty-repo ()
+  "A non-fork with no default branch yields nils, not errors."
+  (should (equal (octocat-repo--parse-summary
+                  "{\"data\":{\"repository\":{\"defaultBranchRef\":null,\"parent\":null,\"issues\":{\"totalCount\":0},\"pullRequests\":{\"totalCount\":0}}}}")
+                 '(:default-branch nil :fork-parent nil
+                   :open-issues 0 :open-prs 0))))
+
 (provide 'octocat-tests)
 ;;; octocat-tests.el ends here

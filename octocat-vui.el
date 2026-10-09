@@ -32,6 +32,9 @@
 ;;   `octocat-vui-use-async-sticky'  `vui-use-async' that keeps old data
 ;;                                   visible while the next page loads
 ;;   `octocat-vui-load-more-button'  "[+] Load N more…" button
+;;   `octocat-vui-list-mode'         base mode of the list pages (below);
+;;                                   the one place that knows about a
+;;                                   repo, to share keymap and browse
 
 ;;; Code:
 
@@ -104,6 +107,61 @@ button starts on a fresh line and carries the same two-space indent."
                :disabled loading
                :help-echo (if loading nil help-echo)
                :on-click on-click)))
+
+(defun octocat-vui-list-header (repo title)
+  "Return a header vnode for a list page TITLE of REPO."
+  (vui-fragment
+   (vui-hstack :spacing 2
+     (vui-text repo :face 'octocat-repo)
+     (vui-text title :face 'octocat-dimmed))
+   (vui-newline)))
+
+
+;;;; List-page base mode
+;;
+;; Skeleton shared by the PR, issue and workflow list pages (defined in
+;; octocat-pr.el, octocat-issue.el and octocat-workflow.el): the repo they
+;; show, the github.com path `octocat-vui-list-browse' opens, and the
+;; common keymap.  Each page derives from this mode, sets its own
+;; `revert-buffer-function', and is opened via `octocat--open-list'
+;; (octocat.el).
+
+(defvar-local octocat-vui-list--repo nil
+  "The \"owner/repo\" string this list buffer is tracking.")
+
+(defvar-local octocat-vui-list--path nil
+  "Path under github.com/OWNER/REPO that shows this list in a browser.")
+
+(defun octocat-vui-list-browse ()
+  "Open the GitHub page matching the current list buffer in a browser."
+  (interactive)
+  (unless (and octocat-vui-list--repo octocat-vui-list--path)
+    (user-error "Octocat: Buffer is not associated with a repository"))
+  (message "Octocat: Opening %s in browser…" octocat-vui-list--repo)
+  (browse-url (format "https://github.com/%s/%s"
+                      octocat-vui-list--repo octocat-vui-list--path)))
+
+(declare-function octocat-switch-repo "octocat-core" ())
+(declare-function octocat-search-repo "octocat-core" ())
+
+(defvar octocat-vui-list-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map vui-mode-map)
+    map)
+  "Keymap for `octocat-vui-list-mode' and the list pages derived from it.")
+(define-key octocat-vui-list-mode-map (kbd "q") #'quit-window)
+(define-key octocat-vui-list-mode-map (kbd "g") #'revert-buffer)
+(define-key octocat-vui-list-mode-map (kbd "C-c C-o") #'octocat-vui-list-browse)
+(define-key octocat-vui-list-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-vui-list-mode-map (kbd "C-c C-s") #'octocat-search-repo)
+
+(define-derived-mode octocat-vui-list-mode vui-mode "Octocat-List"
+  "Base major mode for the octocat PR, issue and workflow list pages.
+
+\\{octocat-vui-list-mode-map}"
+  :group 'octocat
+  (setq-local buffer-read-only t)
+  (setq-local truncate-lines t))
 
 (provide 'octocat-vui)
 ;;; octocat-vui.el ends here

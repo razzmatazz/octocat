@@ -29,6 +29,15 @@
 (require 'octocat-core)
 (require 'octocat-commit)
 (require 'octocat-edit)
+(require 'octocat-vui)
+(require 'vui)
+(require 'vui-components) ; vui-list, vui-vstack, etc.
+
+;; The PR list page below reuses the row builder and fetch plumbing from
+;; octocat-repo.el, which requires this file (so cannot be required here).
+(defvar octocat-section-limit)
+(declare-function octocat-repo-vui--pr-row "octocat-repo" (repo pr current-branch))
+(declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
 
 ;; Forward declarations for buffer-locals defined later in this file.
 ;; Needed so the byte-compiler doesn't warn about free variables in
@@ -523,6 +532,61 @@ then always fetches fresh data in the background."
                                (octocat--detail-cache-save repo "pr" num result)
                                (octocat--render-pr result)
                                (octocat--restore-point saved-point))))))))
+
+
+
+;;;; PR list page
+;;
+;; Opened by `M-x octocat-prs' (octocat.el).  vui.el-rendered, unlike the
+;; magit-section PR detail buffer above; see "UI frameworks" in
+;; CONTRIBUTING.md.
+
+(vui-defcomponent octocat-pr--list-page (repo current-branch)
+  "Pull request list page for REPO."
+  :state ((limit octocat-section-limit))
+  :render
+  (let ((result (octocat-vui-use-async-sticky (list 'prs repo limit)
+                  (lambda (resolve reject)
+                    (octocat--list-prs
+                     repo limit
+                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
+    (vui-vstack
+     (octocat-vui-list-header repo "Pull Requests")
+     (pcase (plist-get result :status)
+       ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
+       ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
+       ('ready
+        (let ((prs (plist-get result :data)))
+          (vui-fragment
+           (if (null prs)
+               (vui-text "  (no pull requests)\n" :face 'octocat-dimmed)
+             (vui-list prs
+                       (lambda (pr) (octocat-repo-vui--pr-row repo pr current-branch))
+                       (lambda (pr) (gethash "number" pr))))
+           (when (and prs (or (plist-get result :refreshing)
+                              (>= (length prs) limit)))
+             (octocat-vui-load-more-button
+              'load-more-prs octocat-section-limit
+              "RET: load more pull requests"
+              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
+              (plist-get result :refreshing))))))))))
+
+(defun octocat-pr-list-refresh (&optional _ignore-auto _noconfirm)
+  "Refresh the current PR list buffer."
+  (interactive)
+  (unless octocat-vui-list--repo
+    (user-error "Octocat: Buffer is not associated with a repository"))
+  (vui-mount (vui-component 'octocat-pr--list-page
+                            :repo octocat-vui-list--repo
+                            :current-branch (plist-get (octocat--head-info) :branch))
+             (buffer-name)))
+
+(define-derived-mode octocat-pr-list-mode octocat-vui-list-mode "Octocat-PRs"
+  "Major mode for the pull request list of a repository.
+
+\\{octocat-pr-list-mode-map}"
+  :group 'octocat
+  (setq-local revert-buffer-function #'octocat-pr-list-refresh))
 
 (provide 'octocat-pr)
 ;;; octocat-pr.el ends here

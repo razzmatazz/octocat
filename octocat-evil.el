@@ -36,6 +36,9 @@
 
 (defvar octocat-mode-map)
 (defvar octocat-repo-mode-map)
+(defvar octocat-pr-list-mode-map)
+(defvar octocat-issue-list-mode-map)
+(defvar octocat-workflow-list-mode-map)
 (defvar octocat-pr-mode-map)
 (defvar octocat-commit-mode-map)
 (defvar octocat-pr-diff-mode-map)
@@ -73,6 +76,7 @@
 (declare-function octocat-issue-edit         "octocat-issue"     ())
 (declare-function octocat-feed-load-more     "octocat"           ())
 (declare-function octocat-repo-browse        "octocat-repo"      ())
+(declare-function octocat-vui-list-browse    "octocat-vui"       ())
 (declare-function octocat-workflow-load-more "octocat-workflow"  ())
 (declare-function octocat-workflow-refresh   "octocat-workflow"  (&optional _ignore-auto _noconfirm))
 (declare-function octocat-workflow-visit     "octocat-workflow"  ())
@@ -119,6 +123,21 @@
     (kbd "gs")      #'octocat-search-repo
     (kbd "gr")      #'revert-buffer
     (kbd "q")       #'quit-window)
+
+  ;; ── PR / issue / workflow list pages ──────────────────────────────────
+  ;; vui.el-rendered like octocat-repo-mode, so the same rules apply.
+  ;; Bound on each derived mode's own map: Evil's auxiliary keymaps are
+  ;; not reliably found through the parent `octocat-vui-list-mode-map'.
+  (dolist (map (list octocat-pr-list-mode-map
+                     octocat-issue-list-mode-map
+                     octocat-workflow-list-mode-map))
+    (evil-define-key* 'normal map
+      (kbd "C-c C-o") #'octocat-vui-list-browse
+      (kbd "C-c C-r") #'octocat-switch-repo
+      (kbd "C-c C-s") #'octocat-search-repo
+      (kbd "gs")      #'octocat-search-repo
+      (kbd "gr")      #'revert-buffer
+      (kbd "q")       #'quit-window))
 
   ;; ── octocat-pr-mode ───────────────────────────────────────────────────
   ;; Use define-key directly so all bindings (including RET) land in the

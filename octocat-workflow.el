@@ -28,6 +28,18 @@
 
 (require 'octocat-core)
 (require 'octocat-run)
+(require 'octocat-vui)
+(require 'vui)
+(require 'vui-components) ; vui-collapsible, vui-list, etc.
+
+;; The workflows page below reuses row builders and fetchers from
+;; octocat-repo.el, which requires this file (so cannot be required here).
+(defvar octocat-section-limit)
+(declare-function octocat-repo-vui--workflow-row "octocat-repo" (repo workflow))
+(declare-function octocat-repo-vui--workflow-run-row "octocat-repo" (repo run current-branch wf-w))
+(declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
+(declare-function octocat-repo--list-workflows "octocat-repo" (repo callback))
+(declare-function octocat-repo--list-recent-runs "octocat-repo" (repo limit callback))
 
 ;; These commands are defined in octocat.el which loads this file, so we
 ;; cannot require it here.  Declare them to silence the byte-compiler.
@@ -364,6 +376,99 @@ then always fetches fresh data in the background."
                  (octocat--detail-cache-save repo "workflow" id obj))
                (octocat--render-workflow wf runs)
                (octocat--restore-point saved-point)))))))))
+
+
+
+;;;; Workflows page
+;;
+;; Opened by `M-x octocat-workflows' (octocat.el): the repository's
+;; workflows and its recent runs (across all workflows) in one buffer.
+;; vui.el-rendered, unlike the magit-section workflow detail buffer above;
+;; see "UI frameworks" in CONTRIBUTING.md.
+
+(vui-defcomponent octocat-workflow--runs-section (repo current-branch)
+  "Workflow Runs section for REPO."
+  :state ((limit octocat-section-limit))
+  :render
+  (let ((result (octocat-vui-use-async-sticky (list 'recent-runs repo limit)
+                  (lambda (resolve reject)
+                    (octocat-repo--list-recent-runs
+                     repo limit
+                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
+    (vui-collapsible
+     :title "Workflow Runs" :key 'workflow-runs :initially-expanded t :indent 0
+     (pcase (plist-get result :status)
+       ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
+       ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
+       ('ready
+        (let* ((runs (plist-get result :data))
+               (wf-w (if runs
+                         (min 25 (apply #'max 1
+                                        (mapcar (lambda (r) (length (or (gethash "workflowName" r) "")))
+                                                runs)))
+                       1)))
+          (vui-fragment
+           (if (null runs)
+               (vui-text "  (no workflow runs)\n" :face 'octocat-dimmed)
+             (vui-list runs
+                       (lambda (r) (octocat-repo-vui--workflow-run-row repo r current-branch wf-w))
+                       (lambda (r) (gethash "databaseId" r))))
+           (when (and runs (or (plist-get result :refreshing)
+                               (>= (length runs) limit)))
+             (octocat-vui-load-more-button
+              'load-more-runs octocat-section-limit
+              "RET: load more runs"
+              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
+              (plist-get result :refreshing))))))))))
+
+(vui-defcomponent octocat-workflow--list-section (repo)
+  "Workflows section for REPO (no pagination: run history lives in
+`octocat-workflow--runs-section' instead)."
+  :render
+  (let ((result (vui-use-async (list 'workflows repo)
+                  (lambda (resolve reject)
+                    (octocat-repo--list-workflows
+                     repo
+                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
+    (vui-collapsible
+     :title "Workflows" :key 'workflows :initially-expanded t :indent 0
+     (pcase (plist-get result :status)
+       ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
+       ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
+       ('ready
+        (let ((workflows (plist-get result :data)))
+          (if (null workflows)
+              (vui-text "  (no workflows)\n" :face 'octocat-dimmed)
+            (vui-list workflows
+                      (lambda (wf) (octocat-repo-vui--workflow-row repo wf))
+                      (lambda (wf) (gethash "id" wf))))))))))
+
+(vui-defcomponent octocat-workflow--list-page (repo current-branch)
+  "Combined workflows + runs page for REPO."
+  :render
+  (vui-vstack
+   (octocat-vui-list-header repo "Workflows")
+   (vui-component 'octocat-workflow--list-section :repo repo)
+   (vui-newline)
+   (vui-component 'octocat-workflow--runs-section
+                  :repo repo :current-branch current-branch)))
+
+(defun octocat-workflow-list-refresh (&optional _ignore-auto _noconfirm)
+  "Refresh the current workflows page buffer."
+  (interactive)
+  (unless octocat-vui-list--repo
+    (user-error "Octocat: Buffer is not associated with a repository"))
+  (vui-mount (vui-component 'octocat-workflow--list-page
+                            :repo octocat-vui-list--repo
+                            :current-branch (plist-get (octocat--head-info) :branch))
+             (buffer-name)))
+
+(define-derived-mode octocat-workflow-list-mode octocat-vui-list-mode "Octocat-Workflows"
+  "Major mode for the workflows and runs page of a repository.
+
+\\{octocat-workflow-list-mode-map}"
+  :group 'octocat
+  (setq-local revert-buffer-function #'octocat-workflow-list-refresh))
 
 (provide 'octocat-workflow)
 ;;; octocat-workflow.el ends here
