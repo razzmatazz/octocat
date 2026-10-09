@@ -102,6 +102,7 @@
 
 ;; Repo-mode entry point (defined in octocat-repo.el, already required).
 (declare-function octocat-repo-refresh      "octocat-repo" (&optional _ignore-auto _noconfirm))
+(declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
 (declare-function octocat-repo--local-dir-for "octocat-repo" (repo))
 
 
@@ -115,19 +116,6 @@
       (octocat-tree-open)
     (let ((section (magit-current-section)))
       (pcase (and section (oref section type))
-      ('repo
-       ;; Dashboard: open the per-repo buffer for the selected repo in
-       ;; another window so the dashboard stays reachable via `q'.
-       ;; Attach to the current working tree when its origin matches.
-       (let* ((full-name (oref section value))
-              (buf-name  (format "*octocat-repo: %s*" full-name))
-              (buf       (get-buffer-create buf-name)))
-         (pop-to-buffer buf)
-         (unless (derived-mode-p 'octocat-repo-mode)
-           (octocat-repo-mode))
-         (setq octocat-repo--repo      full-name
-               octocat-repo--local-dir (octocat-repo--local-dir-for full-name))
-         (octocat-repo-refresh)))
       ('pr
        (octocat-pr-open (or octocat-repo--repo octocat--pr-repo)
                         (gethash "number" (oref section value))))
@@ -204,77 +192,10 @@
       ('check-run
        (when (and (boundp 'octocat--commit-sha) octocat--commit-sha)
          (octocat-checks-open octocat--commit-repo octocat--commit-sha nil)))
-      ;; RET on a feed-event row dispatches based on event type:
-      ;;   PushEvent                      → octocat-commit for the head SHA
-      ;;   PullRequestEvent / Review*     → octocat-pr for the PR number
-      ;;   IssuesEvent / IssueCommentEvent → octocat-issue for the issue number
-      ;;   everything else                → octocat-repo for the repo
-      ('feed-event
-       (let* ((ev        (oref section value))
-              (type      (and ev (hash-table-p ev) (gethash "type" ev)))
-              (repo-obj  (and ev (hash-table-p ev) (gethash "repo" ev)))
-              (full-name (and repo-obj
-                              (hash-table-p repo-obj)
-                              (octocat--nonempty (gethash "name" repo-obj))))
-              (payload   (and ev (hash-table-p ev) (gethash "payload" ev))))
-         (if (not full-name)
-             (message "Octocat: No repository associated with this event")
-           (cond
-            ;; ── Push → commit buffer for the head SHA ─────────────────
-            ((equal type "PushEvent")
-             (let* ((head  (and (hash-table-p payload)
-                                (octocat--nonempty (gethash "head" payload))))
-                    (oid   (or head ""))
-                    (short (substring oid 0 (min 7 (length oid))))
-                    (buf   (get-buffer-create
-                            (format "*octocat-commit: %s@%s*" full-name short))))
-               (pop-to-buffer buf)
-               (unless (derived-mode-p 'octocat-commit-mode)
-                 (octocat-commit-mode))
-               (setq octocat--commit-repo full-name
-                     octocat--commit-sha  oid)
-               (octocat--render-commit-loading oid)
-               (octocat-commit-refresh)))
-            ;; ── PR / review events → PR buffer ────────────────────────
-            ((member type '("PullRequestEvent"
-                            "PullRequestReviewEvent"
-                            "PullRequestReviewCommentEvent"))
-             (let* ((pr-obj (and (hash-table-p payload)
-                                 (gethash "pull_request" payload)))
-                    (number (or (and (hash-table-p payload)
-                                     (gethash "number" payload))
-                                (and (hash-table-p pr-obj)
-                                     (gethash "number" pr-obj)))))
-               (if (not number)
-                   (message "Octocat: No PR number in event payload")
-                 (octocat-pr-open full-name number))))
-            ;; ── Issue / comment events → issue buffer ─────────────────
-            ((member type '("IssuesEvent" "IssueCommentEvent"))
-             (let* ((issue-obj (and (hash-table-p payload)
-                                    (gethash "issue" payload)))
-                    (number    (and (hash-table-p issue-obj)
-                                    (gethash "number" issue-obj))))
-               (if (not number)
-                   (message "Octocat: No issue number in event payload")
-                 (octocat-issue-open full-name number))))
-            ;; ── Everything else → repo buffer ─────────────────────────
-            (t
-             (let ((buf (get-buffer-create
-                         (format "*octocat-repo: %s*" full-name))))
-               (pop-to-buffer buf)
-               (unless (derived-mode-p 'octocat-repo-mode)
-                 (octocat-repo-mode))
-               (setq octocat-repo--repo      full-name
-                     octocat-repo--local-dir (octocat-repo--local-dir-for full-name))
-               (octocat-repo-refresh)))))))
-      ;; NOTE: the repo view's own "load more" rows are no longer magit
-      ;; sections dispatched through here -- octocat-repo-mode is rendered
-      ;; with vui.el now (see octocat-repo.el's Commentary) and each
-      ;; pageable section owns its own "Load more" vui-button directly.
+      ;; NOTE: the dashboard and the repo view are rendered with vui.el, so
+      ;; their rows (and "load more" buttons) carry their own RET handlers
+      ;; instead of being dispatched through here.
       ;;
-      ;; RET on the feed "[+] Load more…" row fetches more feed events.
-      ('load-more-feed
-       (octocat-feed-load-more))
       ;; RET on a repo-nav line (inside any detail-view Info section) opens
       ;; the repo view for the repository this detail view belongs to.
       ('repo-nav
@@ -310,7 +231,6 @@ the current major mode when point is not on a section that has a
 corresponding GitHub URL (e.g. the header line of a PR detail buffer).
 
 Section types handled:
-  `repo'          → https://github.com/OWNER/REPO
   `pr'            → gh pr view --web (respects gh's host config)
   `issue'         → gh issue view --web
   `octocat-commit'→ https://github.com/REPO/commit/SHA
@@ -337,10 +257,6 @@ handler, e.g. point is on a title/header line):
       (user-error "Octocat: `gh' executable not found"))
     (or
      (pcase type
-       ('repo
-        (let ((url (format "https://github.com/%s" value)))
-          (message "Octocat: Opening %s in browser…" value)
-          (browse-url url)))
        ('pr
         (let ((number (gethash "number" value)))
           (message "Octocat: Opening PR #%d in browser…" number)
@@ -482,27 +398,36 @@ Each `octocat-feed-load-more' call fetches this many additional events."
   "Per-buffer feed event fetch limit.
 Starts at `octocat-feed-limit' and grows with `octocat-feed-load-more'.")
 
+(defun octocat-dashboard-browse ()
+  "Open the repository on the dashboard row at point in a browser.
+Falls back to the user's GitHub page when point is not on a row."
+  (interactive)
+  (let ((repo (get-text-property (point) 'octocat-dashboard-repo)))
+    (if repo
+        (progn (message "Octocat: Opening %s in browser…" repo)
+               (browse-url (format "https://github.com/%s" repo)))
+      (message "Octocat: Opening GitHub in browser…")
+      (browse-url "https://github.com"))))
+
 (defvar octocat-mode-map
   (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map magit-section-mode-map)
+    (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-mode' (GitHub account dashboard).")
 (define-key octocat-mode-map (kbd "q")       #'quit-window)
-(define-key octocat-mode-map (kbd "RET")     #'octocat-visit)
+(define-key octocat-mode-map (kbd "g")       #'revert-buffer)
 (define-key octocat-mode-map (kbd "+")       #'octocat-feed-load-more)
-
-(define-key octocat-mode-map (kbd "C-c C-o") #'octocat-browse)
+(define-key octocat-mode-map (kbd "C-c C-o") #'octocat-dashboard-browse)
 (define-key octocat-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
 (define-key octocat-mode-map (kbd "C-c C-s") #'octocat-search-repo)
-(define-derived-mode octocat-mode magit-section-mode "Octocat"
+(define-derived-mode octocat-mode vui-mode "Octocat"
   "Major mode for the GitHub account dashboard.
 
 \\{octocat-mode-map}"
   :group 'octocat
   (setq-local buffer-read-only t)
-  (setq-local truncate-lines nil)
-  (setq-local revert-buffer-function #'octocat-refresh)
-  (font-lock-mode -1))
+  (setq-local truncate-lines t)
+  (setq-local revert-buffer-function #'octocat-refresh))
 
 
 ;;;; Dashboard cache
@@ -701,181 +626,177 @@ The detail text is derived from the event type and payload fields."
       (_
        (or action type "event")))))
 
-(defun octocat--render-dashboard-repos (repos)
-  "Insert the Recent Repositories section using REPOS list.
-REPOS is a list of hash-tables from the GitHub user/repos endpoint."
-  (magit-insert-section (recent-repos)
-    (magit-insert-heading
-      (propertize "Recent Repositories" 'face 'octocat-section-heading))
-    (if (null repos)
-        (insert (propertize "  (no repositories)\n" 'face 'octocat-dimmed))
-      (dolist (r repos)
-        (let* ((full-name (or (gethash "full_name" r) ""))
-               (desc      (octocat--nonempty (gethash "description" r)))
-               (lang      (or (octocat--nonempty (gethash "language"    r)) ""))
-               (pushed-at (or (gethash "pushed_at"   r) ""))
-               (date      (octocat--relative-ts pushed-at))
-               (hint      '(mouse-face magit-section-highlight
-                            help-echo  "RET: open repo  o: browse on GitHub")))
-          (magit-insert-section (repo full-name)
-            (magit-insert-heading
-              (apply #'concat
-                     (apply #'propertize
-                            (format "  %-35s" full-name)
-                            'face 'octocat-repo hint)
-                     (propertize (format "  %-14s" lang) 'face 'octocat-dimmed)
-                     (propertize (format "  %-12s" date) 'face 'octocat-dimmed)
-                     (list (propertize
-                            (format "  %s\n" (or desc ""))
-                            'face 'octocat-dimmed))))))))))
+(defun octocat--dashboard-visit-event (ev)
+  "Open the buffer that best matches feed event EV.
+Dispatches on the event type:
+  PushEvent                       → octocat-commit for the head SHA
+  PullRequestEvent / Review*      → octocat-pr for the PR number
+  IssuesEvent / IssueCommentEvent → octocat-issue for the issue number
+  everything else                 → octocat-repo for the repo"
+  (let* ((type      (and (hash-table-p ev) (gethash "type" ev)))
+         (repo-obj  (and (hash-table-p ev) (gethash "repo" ev)))
+         (full-name (and (hash-table-p repo-obj)
+                         (octocat--nonempty (gethash "name" repo-obj))))
+         (payload   (and (hash-table-p ev) (gethash "payload" ev))))
+    (cond
+     ((not full-name)
+      (message "Octocat: No repository associated with this event"))
+     ((equal type "PushEvent")
+      (octocat-commit-open
+       full-name
+       (or (and (hash-table-p payload)
+                (octocat--nonempty (gethash "head" payload)))
+           "")))
+     ((member type '("PullRequestEvent"
+                     "PullRequestReviewEvent"
+                     "PullRequestReviewCommentEvent"))
+      (let* ((pr-obj (and (hash-table-p payload)
+                          (gethash "pull_request" payload)))
+             (number (or (and (hash-table-p payload)
+                              (gethash "number" payload))
+                         (and (hash-table-p pr-obj)
+                              (gethash "number" pr-obj)))))
+        (if number
+            (octocat-pr-open full-name number)
+          (message "Octocat: No PR number in event payload"))))
+     ((member type '("IssuesEvent" "IssueCommentEvent"))
+      (let* ((issue-obj (and (hash-table-p payload)
+                             (gethash "issue" payload)))
+             (number    (and (hash-table-p issue-obj)
+                             (gethash "number" issue-obj))))
+        (if number
+            (octocat-issue-open full-name number)
+          (message "Octocat: No issue number in event payload"))))
+     (t (octocat-visit-repo full-name)))))
 
-(defun octocat--render-dashboard-feed (feed)
-  "Insert the Feed section using FEED list.
-FEED is a list of hash-tables from the GitHub received_events endpoint."
-  (let ((limit (or octocat--feed-limit octocat-feed-limit)))
-    ;; Insert the "Feed" heading as plain text — not a collapsible
-    ;; magit-section.  Wrapping all feed-event children in a parent (feed)
-    ;; section causes magit to highlight the entire block whenever the
-    ;; cursor sits anywhere inside it, giving the feed a distracting
-    ;; background colour that repo rows do not share.
-    (insert (propertize "Feed" 'face 'octocat-section-heading) "\n")
-    (if (null feed)
-        (insert (propertize "  (no recent activity)\n" 'face 'octocat-dimmed))
-      (dolist (ev feed)
-        (let* ((type   (or (gethash "type"       ev) ""))
-               (actor  (let ((a (gethash "actor" ev)))
-                         (if (and a (hash-table-p a))
-                             (or (gethash "login" a) "")
-                           "")))
-               (repo   (let ((r (gethash "repo" ev)))
-                         (if (and r (hash-table-p r))
-                             (or (gethash "name" r) "")
-                           "")))
-               (detail (octocat--dashboard-event-detail ev))
-               (date   (octocat--relative-ts
-                        (or (gethash "created_at" ev) "")))
-               (hint   '(mouse-face magit-section-highlight
-                         help-echo  "RET: open commit or repo")))
-          (magit-insert-section (feed-event ev)
-            (magit-insert-heading
-              (apply #'propertize
-                     (concat
-                      "  "
-                      (octocat--dashboard-event-icon type)
-                      "  "
-                      (propertize (format "%-16s" actor) 'face 'octocat-pr-author)
-                      "  "
-                      (propertize (format "%-35s" repo)  'face 'octocat-branch)
-                      "  "
-                      (octocat--format-title detail)
-                      "  "
-                      (propertize date 'face 'octocat-dimmed)
-                      "\n")
-                     hint)))))
-      (when (>= (length feed) limit)
-        (let ((hint '(mouse-face magit-section-highlight
-                      help-echo  "RET / +: load more feed events")))
-          (magit-insert-section (load-more-feed)
-            (magit-insert-heading
-              (concat (apply #'propertize
-                             (format "  [+] Load %d more…" octocat-feed-limit)
-                             'face 'octocat-dimmed hint)
-                      "\n"))))))))
+(defun octocat--dashboard-repo-row (r)
+  "Return the RET-able row vnode for repo hash-table R."
+  (let* ((full-name (or (gethash "full_name" r) ""))
+         (desc      (octocat--nonempty (gethash "description" r)))
+         (lang      (or (octocat--nonempty (gethash "language" r)) ""))
+         (date      (octocat--relative-ts (or (gethash "pushed_at" r) ""))))
+    (octocat-vui-row
+     (propertize
+      (concat (propertize (format "  %-35s" full-name) 'face 'octocat-repo)
+              (propertize (format "  %-14s" lang) 'face 'octocat-dimmed)
+              (propertize (format "  %-12s" date) 'face 'octocat-dimmed)
+              (propertize (format "  %s" (or desc "")) 'face 'octocat-dimmed))
+      'octocat-dashboard-repo full-name)
+     (lambda () (octocat-visit-repo full-name))
+     "RET: open repo  C-c C-o: browse on GitHub")))
 
-(defun octocat--render-dashboard (repos feed)
-  "Render the dashboard buffer content from REPOS and FEED data.
-REPOS is a list of hash-tables (user/repos endpoint).
-FEED is a list of hash-tables (received_events endpoint).
-This helper is called both with cached data (synchronous, on refresh
-start) and with freshly fetched data (async, after gh calls return)."
-  (let ((inhibit-read-only t))
-    (erase-buffer)
-    (magit-insert-section (octocat-dashboard)
-      (magit-insert-heading
-        (propertize "GitHub Dashboard" 'face 'octocat-repo))
-      (octocat--render-dashboard-repos repos)
-      (insert "\n")
-      (octocat--render-dashboard-feed feed))))
+(defun octocat--dashboard-feed-row (ev)
+  "Return the RET-able row vnode for feed event hash-table EV."
+  (let* ((type   (or (gethash "type" ev) ""))
+         (actor  (let ((a (gethash "actor" ev)))
+                   (if (hash-table-p a) (or (gethash "login" a) "") "")))
+         (repo   (let ((r (gethash "repo" ev)))
+                   (if (hash-table-p r) (or (gethash "name" r) "") "")))
+         (detail (octocat--dashboard-event-detail ev))
+         (date   (octocat--relative-ts (or (gethash "created_at" ev) ""))))
+    (octocat-vui-row
+     (propertize
+      (concat "  "
+              (octocat--dashboard-event-icon type)
+              "  "
+              (propertize (format "%-16s" actor) 'face 'octocat-pr-author)
+              "  "
+              (propertize (format "%-35s" repo) 'face 'octocat-branch)
+              "  "
+              (octocat--format-title detail)
+              "  "
+              (propertize date 'face 'octocat-dimmed))
+      'octocat-dashboard-repo (octocat--nonempty repo))
+     (lambda () (octocat--dashboard-visit-event ev))
+     "RET: open commit or repo  C-c C-o: browse repo on GitHub")))
+
+(defun octocat--dashboard-section (title result spin empty rows)
+  "Return a section vnode: heading TITLE, then the body for async RESULT.
+SPIN is the spinner counter for the heading's loading marker, EMPTY the
+text shown when there is nothing to list, and ROWS a function turning
+the loaded data into the vnode of its rows."
+  (vui-vstack
+   (vui-text (concat (propertize title 'face 'octocat-section-heading)
+                     (octocat-vui-loading-suffix result spin)))
+   (pcase (plist-get result :status)
+     ('ready (let ((data (plist-get result :data)))
+               (if (null data)
+                   (vui-text (concat "  " empty) :face 'octocat-dimmed)
+                 (funcall rows data))))
+     ('error (vui-text (format "  %s" (plist-get result :error))
+                       :face 'octocat-dimmed))
+     (_      (vui-text "  Loading…" :face 'octocat-dimmed)))))
+
+(vui-defcomponent octocat-dashboard--root (feed-limit)
+  "Root component of the dashboard: recent repositories, then the feed.
+FEED-LIMIT is how many feed events to fetch.  The disk cache shows until
+the fresh data arrives (stale-while-revalidate)."
+  :state ((spin 0))
+  :render
+  (let* ((cached (vui-use-memo () (octocat--dashboard-cache-load)))
+         (repos  (octocat-vui-use-async-sticky 'dashboard-repos
+                   (lambda (resolve reject)
+                     (octocat--fetch-recent-repos
+                      (lambda (r) (octocat-repo-vui--resolve-or-reject
+                                   r resolve reject))))))
+         (feed   (octocat-vui-use-async-sticky (list 'dashboard-feed feed-limit)
+                   (lambda (resolve reject)
+                     (octocat--fetch-viewer-login
+                      (lambda (login)
+                        (if (eq (car-safe login) 'error)
+                            (funcall reject (cdr login))
+                          (octocat--fetch-received-events
+                           login feed-limit
+                           (lambda (r) (octocat-repo-vui--resolve-or-reject
+                                        r resolve reject)))))))))
+         (fresh-repos (and (eq (plist-get repos :status) 'ready)
+                           (not (plist-get repos :refreshing))
+                           (plist-get repos :data)))
+         (fresh-feed  (and (eq (plist-get feed :status) 'ready)
+                           (not (plist-get feed :refreshing))
+                           (plist-get feed :data)))
+         (repos  (octocat-vui-with-stale repos (plist-get cached :repos)))
+         (feed   (octocat-vui-with-stale feed  (plist-get cached :feed))))
+    ;; Write the cache only once both calls have succeeded.
+    (vui-use-effect (fresh-repos fresh-feed)
+      (when (and fresh-repos fresh-feed)
+        (octocat--dashboard-cache-save fresh-repos fresh-feed))
+      nil)
+    (octocat-vui-use-spinner (or (plist-get repos :refreshing)
+                                 (plist-get feed :refreshing)))
+    (vui-vstack
+     (vui-text "GitHub Dashboard" :face 'octocat-repo)
+     (octocat--dashboard-section
+      "Recent Repositories" repos spin "(no repositories)"
+      (lambda (data)
+        (vui-list data #'octocat--dashboard-repo-row
+                  (lambda (r) (gethash "full_name" r)))))
+     (vui-newline)
+     (octocat--dashboard-section
+      "Feed" feed spin "(no recent activity)"
+      (lambda (data)
+        (vui-fragment
+         (vui-list data #'octocat--dashboard-feed-row
+                   (lambda (ev) (gethash "id" ev)))
+         (when (>= (length data) feed-limit)
+           (octocat-vui-load-more-button
+            'load-more-feed octocat-feed-limit
+            "RET / +: load more feed events"
+            #'octocat-feed-load-more
+            (plist-get feed :refreshing)))))))))
 
 
-;;;; Dashboard refresh (live data)
+;;;; Dashboard refresh
 
 (defun octocat-refresh (&optional _ignore-auto _noconfirm)
-  "Refresh the octocat dashboard buffer from live gh API data.
-Follows the standard stale-while-revalidate pattern:
-1. Render cached data immediately (if any) so the buffer is not empty.
-2. Set `mode-line-process' to \" [refreshing…]\" and fire gh API calls.
-3. When all calls complete: re-render from fresh data, write cache,
-   clear the mode-line indicator."
+  "Refresh the octocat dashboard buffer.
+Mounts the vui.el dashboard, which paints the disk cache at once and then
+fetches the repositories and the feed in the background."
   (interactive)
-  (let* ((buf     (current-buffer))
-         (cache   (octocat--dashboard-cache-load))
-         (c-repos (and cache (plist-get cache :repos)))
-         (c-feed  (and cache (plist-get cache :feed))))
-    ;; ── Step 1: render stale cache immediately ────────────────────────
-    (if cache
-        (octocat--render-dashboard c-repos c-feed)
-      ;; No cache yet — render a loading skeleton.
-      (let ((inhibit-read-only t))
-        (erase-buffer)
-        (magit-insert-section (octocat-dashboard)
-          (magit-insert-heading
-            (propertize "GitHub Dashboard" 'face 'octocat-repo))
-          (magit-insert-section (recent-repos)
-            (magit-insert-heading
-              (propertize "Recent Repositories" 'face 'octocat-section-heading))
-            (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
-          (insert "\n")
-          (insert (propertize "Feed" 'face 'octocat-section-heading) "\n")
-          (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))))
-    ;; ── Step 2: fetch fresh data asynchronously ───────────────────────
-    (setq mode-line-process " [refreshing…]")
-    (force-mode-line-update)
-    (let ((results  (make-hash-table :test #'equal))
-          (pending  2))
-      (cl-flet ((maybe-done
-                 ()
-                 (cl-decf pending)
-                 (when (= pending 0)
-                   (let ((fresh-repos (gethash "repos" results))
-                         (fresh-feed  (gethash "feed"  results)))
-                     (when (buffer-live-p buf)
-                       (with-current-buffer buf
-                         (let ((saved (octocat--save-point)))
-                           (octocat--render-dashboard
-                            (if (eq (car-safe fresh-repos) 'error)
-                                (or c-repos '())
-                              fresh-repos)
-                            (if (eq (car-safe fresh-feed) 'error)
-                                (or c-feed '())
-                              fresh-feed))
-                           (octocat--restore-point saved))
-                         (setq mode-line-process nil)
-                         (force-mode-line-update)))
-                     ;; Write cache only when both calls succeeded.
-                     (unless (or (eq (car-safe fresh-repos) 'error)
-                                 (eq (car-safe fresh-feed)  'error))
-                       (octocat--dashboard-cache-save fresh-repos
-                                                      fresh-feed))))))
-        ;; Kick off repo fetch directly.
-        (octocat--fetch-recent-repos
-         (lambda (repos)
-           (puthash "repos" repos results)
-           (maybe-done)))
-        ;; Kick off feed fetch: need viewer login first.
-        (let ((feed-limit (or octocat--feed-limit octocat-feed-limit)))
-          (octocat--fetch-viewer-login
-           (lambda (login)
-             (if (eq (car-safe login) 'error)
-                 (progn
-                   (puthash "feed" login results)
-                   (maybe-done))
-               (octocat--fetch-received-events
-                login
-                feed-limit
-                (lambda (feed)
-                  (puthash "feed" feed results)
-                  (maybe-done)))))))))))
+  (vui-mount (vui-component 'octocat-dashboard--root
+                            :feed-limit (or octocat--feed-limit
+                                            octocat-feed-limit))
+             (buffer-name)))
 
 
 

@@ -77,6 +77,7 @@
 (declare-function octocat-pr-browse          "octocat-pr"        ())
 (declare-function octocat-issue-edit         "octocat-issue"     ())
 (declare-function octocat-feed-load-more     "octocat"           ())
+(declare-function octocat-dashboard-browse   "octocat"           ())
 (declare-function octocat-repo-browse        "octocat-repo"      ())
 (declare-function octocat-vui-list-browse    "octocat-vui"       ())
 (declare-function octocat-vui-list-filter    "octocat-vui"       ())
@@ -95,21 +96,16 @@
 (defun octocat-evil-setup ()
   "Install Evil normal-state keybindings for all octocat modes."
   ;; ── octocat-mode (dashboard) ──────────────────────────────────────────
-  ;; Bind RET in both normal and motion states: evil-ret lives in
-  ;; evil-motion-state-map, which normal state inherits.  Auxiliary-keymap
-  ;; bindings added via evil-define-key* sit below the built-in state maps
-  ;; in the lookup order, so we must shadow evil-ret in motion state as well
-  ;; to ensure RET actually dispatches to octocat-visit.
+  ;; vui.el-rendered like octocat-repo-mode below: each row binds its own
+  ;; RET via a `keymap' text property, so only the global bindings go here.
   (evil-define-key* 'normal octocat-mode-map
-    (kbd "RET")     #'octocat-visit
     (kbd "+")       #'octocat-feed-load-more
-    (kbd "C-c C-o") #'octocat-browse
+    (kbd "C-c C-o") #'octocat-dashboard-browse
     (kbd "C-c C-r") #'octocat-switch-repo
     (kbd "C-c C-s") #'octocat-search-repo
     (kbd "gs")      #'octocat-search-repo
+    (kbd "gr")      #'revert-buffer
     (kbd "q")       #'quit-window)
-  (evil-define-key* 'motion octocat-mode-map
-    (kbd "RET")     #'octocat-visit)
 
   ;; ── octocat-repo-mode ─────────────────────────────────────────────────
   ;; octocat-repo-mode is rendered with vui.el now (see octocat-repo.el's

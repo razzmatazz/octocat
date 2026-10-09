@@ -48,12 +48,14 @@ Clone the repository and add it to your Emacs load path:
 ### GitHub account dashboard (`M-x octocat`)
 
 Run `M-x octocat` to open the GitHub account dashboard in a global
-`*octocat*` buffer.  The dashboard shows two collapsible sections:
+`*octocat*` buffer.  The dashboard shows two sections:
 
 - **Recent Repositories** — your most-recently-pushed repos; press `RET`
   on a row to open its per-repository buffer, or `C-c C-o` to open
   it on GitHub.
-- **Feed** — recent activity events across your account.
+- **Feed** — recent activity events across your account; press `RET` on
+  an event to open the related commit, PR, issue or repo, and `+` to load
+  more events.
 
 ### Per-repository view (`M-x octocat-repo`)
 
