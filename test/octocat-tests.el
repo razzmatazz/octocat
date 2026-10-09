@@ -211,6 +211,14 @@ no gh call is made."
   (should (equal (octocat-vui-list--with-state "is:open label:x" "all")
                  "label:x")))
 
+(ert-deftest octocat-test-quote-prefix-marks-every-line ()
+  "Bodies rendered with the quote prefix start every line, blanks included, with \"| \"."
+  (with-temp-buffer
+    (setq octocat--markdown-raw t)
+    (octocat--insert-markdown "first\n\nthird" octocat--quote-prefix)
+    (should (equal (buffer-substring-no-properties (point-min) (point-max))
+                   "| first\n| \n| third\n"))))
+
 (ert-deftest octocat-test-state-label ()
   "State labels are fixed-width words; only open PRs can be drafts."
   (should (equal (substring-no-properties (octocat-repo-vui--state-label "OPEN")) "open  "))

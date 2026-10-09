@@ -363,7 +363,7 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
         (magit-insert-heading (propertize "Body" 'face 'octocat-section-heading))
         (if (string-empty-p (string-trim body))
             (insert (propertize "  (no description)\n" 'face 'octocat-dimmed))
-          (octocat--insert-markdown body)))
+          (octocat--insert-markdown body octocat--quote-prefix)))
       ;; ── Commits ─────────────────────────────────────────────────────────
       (insert "\n")
       (magit-insert-section (pr-commits)

@@ -836,10 +836,15 @@ below it.  An empty vector renders a dimmed \"(no comments)\" placeholder."
                            "\n"))
                  (if (string-empty-p (string-trim body))
                      (insert (propertize "  (empty)\n" 'face 'octocat-dimmed))
-                   (octocat--insert-markdown body))
+                   (octocat--insert-markdown body octocat--quote-prefix))
                  (insert "\n"))))))
 
 ;;;; Markdown rendering
+
+(defconst octocat--quote-prefix (propertize "| " 'face 'octocat-dimmed)
+  "Line prefix that marks PR/issue bodies and comments as quoted blocks.
+Two columns wide, like the default indent of `octocat--insert-markdown',
+so the text stays aligned with the rest of the buffer.")
 
 (defvar-local octocat--markdown-raw nil
   "Non-nil means show markdown body text verbatim instead of rendered.
