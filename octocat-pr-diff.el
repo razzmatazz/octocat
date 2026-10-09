@@ -1,7 +1,7 @@
 ;;; octocat-pr-diff.el --- PR diff view for octocat  -*- lexical-binding: t; package-lint-main-file: "octocat.el"; -*-
 
 ;; Copyright (C) 2026 Saulius Menkevicius
-;; Assisted-by: Claude:claude-sonnet-4-6
+;; Assisted-by: Claude:claude-sonnet-5-5
 
 ;; This file is NOT part of GNU Emacs.
 
@@ -21,29 +21,36 @@
 ;;; Commentary:
 
 ;; Full-diff view for a GitHub Pull Request, opened by pressing RET on the
-;; "Changes" info field inside `octocat-pr-mode'.  Fetches per-file patches
-;; via the GitHub REST API and renders them with collapsible
-;; `magit-section' file sections — the same presentation as the commit diff
-;; view in `octocat-commit.el'.
+;; "Changes" line of the PR page (`octocat-pr-mode').  Fetches per-file
+;; patches and the inline review comments from the GitHub REST API and
+;; renders one collapsible section per file.
 ;;
-;; Depends on octocat-core.el and octocat-commit.el (for the shared helpers
-;; `octocat--insert-patch', `octocat--insert-patch-with-comments',
-;; `octocat--insert-patch-comment', `octocat--commit-file-icon', and
-;; `octocat--commit-file-face').  Must not depend on octocat.el to avoid a
-;; circular require.
+;; Rendered with vui.el (https://github.com/d12frosted/vui.el), like the PR
+;; page itself.  The two fetches are independent `vui-use-async' hooks, so
+;; the diff shows as soon as the files arrive and the review comments
+;; appear in it when theirs do.  Each file is a component of its own, whose
+;; patch text (with the comments interleaved) is only rebuilt when that
+;; file or its comments change.
+;;
+;; Depends on octocat-core.el and octocat-commit.el (for the file status
+;; icon and face).  Must not depend on octocat.el to avoid a circular
+;; require.
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'octocat-core)
 (require 'octocat-commit)
+(require 'octocat-vui)
+(require 'vui)
+(require 'vui-components) ; vui-collapsible
 
-;; Forward declarations for commands defined in octocat.el.
-(declare-function octocat-browse                        "octocat"        ())
-(declare-function octocat--commit-file-icon             "octocat-commit" (status))
-(declare-function octocat--commit-file-face             "octocat-commit" (status))
-(declare-function octocat--insert-patch                 "octocat-commit" (patch))
-(declare-function octocat--insert-patch-comment         "octocat-commit" (comment))
-(declare-function octocat--insert-patch-with-comments   "octocat-commit" (patch comments-by-line &optional comments-by-pos))
+(declare-function octocat--commit-file-icon "octocat-commit" (status))
+(declare-function octocat--commit-file-face "octocat-commit" (status))
+(declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
+(declare-function octocat-visit-repo "octocat-core" (repo))
+(declare-function octocat-switch-repo "octocat-core" ())
+(declare-function octocat-search-repo "octocat-core" ())
 
 
 ;;;; Buffer-local declarations
@@ -89,263 +96,246 @@ Uses the GitHub REST API via `gh api'."
    callback))
 
 
-;;;; Rendering
+;;;; Patch text
+;;
+;; The patch of a file is built as one string: the diff lines in the diff
+;; faces, each inline review comment boxed right after the line it is on.
 
-(defun octocat--render-pr-diff-loading (number)
-  "Render a loading skeleton for the diff of PR NUMBER."
-  (let ((inhibit-read-only t))
-    (erase-buffer)
-    (magit-insert-section (octocat-pr-diff-root)
-      (magit-insert-heading
-        (concat (propertize (or octocat--pr-diff-repo "") 'face 'octocat-repo)
-                "  "
-                (propertize "PR" 'face 'octocat-dimmed)
-                " "
-                (propertize (format "#%d" number) 'face 'octocat-pr-number)
-                "  "
-                (propertize "diff" 'face 'octocat-dimmed)))
-      (let ((hint (list 'mouse-face 'magit-section-highlight
-                        'help-echo  "RET: open repo view")))
-        (magit-insert-section (repo-nav octocat--pr-diff-repo)
-          (magit-insert-heading
-            (concat (apply #'propertize "  Repo     " hint)
-                    (apply #'propertize (or octocat--pr-diff-repo "")
-                           'face 'octocat-repo hint)
-                    (apply #'propertize "\n" hint)))))
-      (insert "\n")
-      (magit-insert-section (pr-diff-files)
-        (magit-insert-heading (propertize "Files" 'face 'octocat-section-heading))
-        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
-      (insert "\n")
-      (magit-insert-section (pr-diff-review-comments)
-        (magit-insert-heading
-          (propertize "Review Comments" 'face 'octocat-section-heading))
-        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))))
+(defun octocat-pr-diff--comment-lines (comment)
+  "Return the lines of the boxed inline review COMMENT, without newlines."
+  (let* ((user   (gethash "user" comment))
+         (login  (or (and (hash-table-p user)
+                          (octocat--nonempty (gethash "login" user)))
+                     ""))
+         (author (if (string-empty-p login) "(unknown)" (concat "@" login)))
+         (body   (string-trim (or (gethash "body" comment) "")))
+         (date   (octocat--format-ts-full
+                  (or (octocat--nonempty (gethash "created_at" comment)) "")))
+         (bar    (propertize "  │ " 'face 'octocat-dimmed)))
+    (append
+     (list (concat (propertize "  ┌─ " 'face 'octocat-dimmed)
+                   (propertize author 'face 'octocat-pr-author)
+                   (propertize (concat "  " date) 'face 'octocat-dimmed)))
+     (if (string-empty-p body)
+         (list (concat bar (propertize "(empty)" 'face 'octocat-dimmed)))
+       (mapcar (lambda (line) (concat bar line)) (split-string body "\n")))
+     (list (propertize "  └─" 'face 'octocat-dimmed)))))
 
-(defun octocat--render-pr-diff (files &optional review-comments)
-  "Erase the current buffer and render the PR diff from FILES vector.
-FILES is a vector of file hash-tables as returned by the GitHub
-pulls/NUMBER/files REST endpoint.
-REVIEW-COMMENTS is a list of review-comment hash-tables from the
-pulls/NUMBER/comments endpoint, or the symbol `loading' when the fetch
-is still in flight, or nil when there are no comments."
-  (let* ((total-add (cl-reduce #'+ (cl-loop for f across files
-                                            collect (or (gethash "additions" f) 0))
-                               :initial-value 0))
-         (total-del (cl-reduce #'+ (cl-loop for f across files
-                                            collect (or (gethash "deletions" f) 0))
-                               :initial-value 0))
-         ;; Build path-keyed lookup tables for inline review comments.
-         ;; inline-by-path     — (path . ((line . comment) …))  right-side line
-         ;; inline-by-path-pos — (path . ((pos  . comment) …))  diff position
-         (inline-by-path
-          (when (and review-comments (listp review-comments))
-            (let ((tbl '()))
-              (dolist (c review-comments)
-                (let* ((path (octocat--nonempty (gethash "path" c)))
-                       (lv   (gethash "line" c))
-                       (line (and lv (not (eq lv :null)) lv)))
-                  (when (and path line)
-                    (let ((entry (assoc path tbl)))
-                      (if entry
-                          (setcdr entry (append (cdr entry) (list (cons line c))))
-                        (push (cons path (list (cons line c))) tbl))))))
-              tbl)))
-         (inline-by-path-pos
-          (when (and review-comments (listp review-comments))
-            (let ((tbl '()))
-              (dolist (c review-comments)
-                (let* ((path (octocat--nonempty (gethash "path" c)))
-                       (lv   (gethash "line" c))
-                       (line (and lv (not (eq lv :null)) lv))
-                       (pv   (gethash "position" c))
-                       (pos  (and pv (not (eq pv :null)) pv)))
-                  ;; Only use position for comments that lack a line number.
-                  (when (and path pos (not line))
-                    (let ((entry (assoc path tbl)))
-                      (if entry
-                          (setcdr entry (append (cdr entry) (list (cons pos c))))
-                        (push (cons path (list (cons pos c))) tbl))))))
-              tbl)))
-         (inhibit-read-only t))
-    (erase-buffer)
-    (magit-insert-section (octocat-pr-diff-root)
-      ;; ── Header ────────────────────────────────────────────────────────
-      (magit-insert-heading
-        (concat (propertize (or octocat--pr-diff-repo "") 'face 'octocat-repo)
-                "  "
-                (propertize "PR" 'face 'octocat-dimmed)
-                " "
-                (propertize (format "#%d" octocat--pr-diff-number)
-                            'face 'octocat-pr-number)
-                "  "
-                (propertize "diff" 'face 'octocat-dimmed)
-                "  "
-                (propertize (format "+%d" total-add) 'face 'diff-added)
-                " "
-                (propertize (format "-%d" total-del) 'face 'diff-removed)
-                (propertize (format "  %d file(s)" (length files))
-                            'face 'octocat-dimmed)))
-      ;; ── Repo breadcrumb ───────────────────────────────────────────────
-      (let ((hint (list 'mouse-face 'magit-section-highlight
-                        'help-echo  "RET: open repo view")))
-        (magit-insert-section (repo-nav octocat--pr-diff-repo)
-          (magit-insert-heading
-            (concat (apply #'propertize "  Repo     " hint)
-                    (apply #'propertize (or octocat--pr-diff-repo "")
-                           'face 'octocat-repo hint)
-                    (apply #'propertize "\n" hint)))))
-      (insert "\n")
-      ;; ── Files ─────────────────────────────────────────────────────────
-      (magit-insert-section (pr-diff-files)
-        (magit-insert-heading
-          (propertize (format "Files (%d)" (length files))
-                      'face 'octocat-section-heading))
-        (if (zerop (length files))
-            (insert (propertize "  (no files changed)\n" 'face 'octocat-dimmed))
-          (cl-loop for file across files do
-                   (let* ((filename  (or (gethash "filename"  file) ""))
-                          (status    (or (gethash "status"    file) "modified"))
-                          (additions (or (gethash "additions" file) 0))
-                          (deletions (or (gethash "deletions" file) 0))
-                          (patch     (gethash "patch" file))
-                          (icon      (octocat--commit-file-icon status))
-                          (fface     (octocat--commit-file-face status))
-                          (has-patch (and patch
-                                          (not (eq patch :null))
-                                          (not (string-empty-p patch))))
-                          ;; Inline comments for this file keyed by line number
-                          ;; and by diff-position (for older position-only comments).
-                          (file-by-line (cdr (assoc filename inline-by-path)))
-                          (file-by-pos  (cdr (assoc filename inline-by-path-pos))))
-                     (magit-insert-section (pr-diff-file file)
-                       (magit-insert-heading
-                         (concat "  "
-                                 icon
-                                 " "
-                                 (propertize filename 'face fface)
-                                 (propertize
-                                  (format "  +%d -%d" additions deletions)
-                                  'face 'octocat-dimmed)
-                                 "\n"))
-                       (when has-patch
-                         (if (or file-by-line file-by-pos)
-                             ;; Group multiple comments at the same key into
-                             ;; lists for assq lookup.
-                             (cl-flet ((group (pairs)
-                                         (let ((tbl2 '()))
-                                           (dolist (p pairs)
-                                             (let* ((k (car p)) (v (cdr p))
-                                                    (e (assq k tbl2)))
-                                               (if e
-                                                   (setcdr e (append (cdr e) (list v)))
-                                                 (push (cons k (list v)) tbl2))))
-                                           tbl2)))
-                               (octocat--insert-patch-with-comments
-                                patch
-                                (group file-by-line)
-                                (group file-by-pos)))
-                           (octocat--insert-patch patch))))))))
-      ;; ── Review Comments ───────────────────────────────────────────────
-      (insert "\n")
-      (magit-insert-section (pr-diff-review-comments)
-        (magit-insert-heading
-          (if (and review-comments (listp review-comments))
-              (propertize (format "Review Comments (%d)" (length review-comments))
-                          'face 'octocat-section-heading)
-            (propertize "Review Comments" 'face 'octocat-section-heading)))
+(defun octocat-pr-diff--index (comments)
+  "Index the review COMMENTS of one file for `octocat-pr-diff--patch-text'.
+Returns (BY-LINE . BY-POS): alists mapping a right-side line number, and
+for older comments that have no line a diff position, to the list of
+comments there, in order."
+  (let (by-line by-pos)
+    (dolist (c comments)
+      (let ((line (let ((v (gethash "line" c))) (and (integerp v) v)))
+            (pos  (let ((v (gethash "position" c))) (and (integerp v) v))))
+        (cond (line (push c (alist-get line by-line)))
+              (pos  (push c (alist-get pos by-pos))))))
+    (cons (mapcar (lambda (e) (cons (car e) (reverse (cdr e)))) by-line)
+          (mapcar (lambda (e) (cons (car e) (reverse (cdr e)))) by-pos))))
+
+(defun octocat-pr-diff--patch-text (patch index)
+  "Return the unified diff PATCH as a propertized string, without final newline.
+INDEX is the comment index of the file, see `octocat-pr-diff--index'.
+Each comment is placed right after the diff line it is on, found by
+tracking the right-side line number (from the `@@' headers) and the
+1-based position in the diff."
+  (let ((by-line (car index))
+        (by-pos  (cdr index))
+        (right 0)
+        (pos   0)
+        (lines (split-string patch "\n"))
+        out)
+    (when (equal (car (last lines)) "")
+      (setq lines (butlast lines)))
+    (cl-flet ((emit (text &optional face)
+                (push (if face
+                          (propertize (concat "  " text) 'face face)
+                        (concat "  " text))
+                      out))
+              (comments (key table)
+                (dolist (c (cdr (assq key table)))
+                  (dolist (l (octocat-pr-diff--comment-lines c))
+                    (push l out)))))
+      (dolist (raw lines)
+        (cl-incf pos)
         (cond
-         ((eq review-comments 'loading)
-          (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
-         ((or (null review-comments) (null (listp review-comments)))
-          (insert (propertize "  (no review comments)\n" 'face 'octocat-dimmed)))
+         ((string-prefix-p "@@" raw)
+          (when (string-match "@@ -[0-9]+\\(?:,[0-9]+\\)? \\+\\([0-9]+\\)" raw)
+            (setq right (string-to-number (match-string 1 raw))))
+          (emit raw 'octocat-diff-hunk-heading)
+          (comments pos by-pos))
+         ;; Deleted: only in the old file, so the right line stays.
+         ((string-prefix-p "-" raw)
+          (emit raw 'diff-removed)
+          (comments pos by-pos))
          (t
-          (let ((n (length review-comments)))
-            (insert (propertize
-                     (format "  (%d inline review comment%s shown in diff above)\n"
-                             n (if (= n 1) "" "s"))
-                     'face 'octocat-dimmed)))))))))
+          (if (string-prefix-p "+" raw) (emit raw 'diff-added) (emit raw))
+          (comments right by-line)
+          (comments pos by-pos)
+          (cl-incf right)))))
+    (mapconcat #'identity (nreverse out) "\n")))
+
+
+;;;; Components
+
+(vui-defcomponent octocat-pr-diff--file (file comments)
+  "One changed FILE (a files-endpoint hash-table) with its inline COMMENTS.
+A collapsible section, expanded at first; a file without a patch (binary,
+or too large for GitHub to show) is just its heading."
+  :render
+  (let* ((filename  (or (gethash "filename" file) ""))
+         (status    (or (gethash "status" file) "modified"))
+         (patch     (let ((p (gethash "patch" file)))
+                      (and (stringp p) (not (string-empty-p p)) p)))
+         (title     (concat (octocat--commit-file-icon status)
+                            " "
+                            (propertize filename 'face (octocat--commit-file-face status))
+                            (propertize (format "  +%d -%d"
+                                                (or (gethash "additions" file) 0)
+                                                (or (gethash "deletions" file) 0))
+                                        'face 'octocat-dimmed)))
+         (text      (vui-use-memo (patch comments)
+                      (and patch
+                           (octocat-pr-diff--patch-text
+                            patch (octocat-pr-diff--index comments))))))
+    (if (null text)
+        (vui-text (concat "  " title))
+      (vui-collapsible
+       :title title :key (intern filename) :initially-expanded t :indent 0
+       (vui-text text)))))
+
+(defun octocat-pr-diff--by-path (comments)
+  "Return an alist mapping a file path to the review COMMENTS made on it."
+  (let (table)
+    (dolist (c comments)
+      (when-let* ((path (octocat--nonempty (gethash "path" c))))
+        (push c (alist-get path table nil nil #'equal))))
+    (mapcar (lambda (e) (cons (car e) (reverse (cdr e)))) table)))
+
+(defun octocat-pr-diff--sum (files key)
+  "Return the sum of the KEY field over the FILES vector."
+  (cl-loop for f across files sum (or (gethash key f) 0)))
+
+(defun octocat-pr-diff--files-section (repo number files by-path)
+  "Return the vnode of the Files section: the header and one entry per file.
+REPO and NUMBER name the pull request, FILES is the files vector and
+BY-PATH the review comments by file path."
+  (vui-vstack
+   (octocat-vui-row
+    (concat (propertize repo 'face 'octocat-repo)
+            (propertize (format "#%d" number) 'face 'octocat-pr-number))
+    (lambda () (octocat-visit-repo repo))
+    "RET: open repo view")
+   (vui-text (concat (propertize "diff" 'face 'octocat-dimmed)
+                     "  "
+                     (propertize (format "+%d" (octocat-pr-diff--sum files "additions"))
+                                 'face 'diff-added)
+                     " "
+                     (propertize (format "-%d" (octocat-pr-diff--sum files "deletions"))
+                                 'face 'diff-removed)
+                     (propertize (format "  %d file(s)" (length files))
+                                 'face 'octocat-dimmed)))
+   (vui-newline)
+   (vui-text (propertize (format "Files (%d)" (length files))
+                         'face 'octocat-section-heading))
+   (if (zerop (length files))
+       (vui-text "  (no files changed)" :face 'octocat-dimmed)
+     (vui-list (append files nil)
+               (lambda (f)
+                 (vui-component 'octocat-pr-diff--file
+                                :file f
+                                :comments (cdr (assoc (gethash "filename" f) by-path))))
+               (lambda (f) (gethash "filename" f))))))
+
+(defun octocat-pr-diff--comments-section (comments)
+  "Return the vnode of the Review Comments section.
+COMMENTS is the `vui-use-async' result for the review comments."
+  (let ((n (length (plist-get comments :data))))
+    (vui-vstack
+     (vui-text (concat (propertize "Review Comments" 'face 'octocat-section-heading)
+                       (when (eq (plist-get comments :status) 'ready)
+                         (propertize (format " (%d)" n) 'face 'octocat-section-heading))))
+     (pcase (plist-get comments :status)
+       ('pending (vui-text "  (loading…)" :face 'octocat-dimmed))
+       ('error   (vui-text (format "  %s" (plist-get comments :error)) :face 'octocat-dimmed))
+       (_ (vui-text (if (zerop n)
+                        "  (no review comments)"
+                      (format "  (%d inline review comment%s shown in the diff above)"
+                              n (if (= n 1) "" "s")))
+                    :face 'octocat-dimmed))))))
+
+(vui-defcomponent octocat-pr-diff--page (repo number)
+  "The diff of pull request NUMBER of REPO."
+  :render
+  (let* ((files    (vui-use-async (list 'pr-diff-files repo number)
+                     (lambda (resolve reject)
+                       (octocat--fetch-pr-diff
+                        repo number
+                        (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
+         (comments (vui-use-async (list 'pr-diff-comments repo number)
+                     (lambda (resolve reject)
+                       (octocat--fetch-pr-review-comments
+                        repo number
+                        (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
+         (by-path  (vui-use-memo ((plist-get comments :data))
+                     (octocat-pr-diff--by-path (plist-get comments :data)))))
+    (vui-vstack
+     (pcase (plist-get files :status)
+       ('pending (vui-text (format "%s#%d  diff  (loading…)" repo number)
+                           :face 'octocat-dimmed))
+       ('error   (vui-text (format "Error: %s" (plist-get files :error)) :face 'error))
+       (_ (octocat-pr-diff--files-section repo number (plist-get files :data) by-path)))
+     (vui-newline)
+     (octocat-pr-diff--comments-section comments))))
 
 
 ;;;; Major mode
 
+(defun octocat-pr-diff-browse ()
+  "Open the files changed of this pull request in a browser."
+  (interactive)
+  (unless (and octocat--pr-diff-repo octocat--pr-diff-number)
+    (user-error "Octocat: Buffer is not associated with a pull request diff"))
+  (message "Octocat: Opening PR #%d diff in browser…" octocat--pr-diff-number)
+  (browse-url (format "https://github.com/%s/pull/%d/files"
+                      octocat--pr-diff-repo octocat--pr-diff-number)))
+
 (defvar octocat-pr-diff-mode-map
-  (let ((map (make-sparse-keymap))
-        (g   (make-sparse-keymap)))   ; "g" prefix — lets evil's "gg" through
-    (set-keymap-parent map magit-section-mode-map)
-    (define-key map (kbd "q")       #'quit-window)
-    (define-key map (kbd "C-c C-o") #'octocat-browse)
-    (define-key map (kbd "C-c C-r") #'octocat-switch-repo)
-    (define-key map (kbd "C-c C-s") #'octocat-search-repo)
-    ;; Shadow magit-section-mode-map's "g" → revert-buffer with a prefix map.
-    (define-key map (kbd "g")  g)
-    (define-key map (kbd "gr") #'octocat-pr-diff-refresh)
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-pr-diff-mode'.")
+(define-key octocat-pr-diff-mode-map (kbd "q") #'quit-window)
+(define-key octocat-pr-diff-mode-map (kbd "g") #'revert-buffer)
+(define-key octocat-pr-diff-mode-map (kbd "C-c C-o") #'octocat-pr-diff-browse)
+(define-key octocat-pr-diff-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-pr-diff-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 
-(define-derived-mode octocat-pr-diff-mode magit-section-mode "Octocat-PR-Diff"
+(define-derived-mode octocat-pr-diff-mode vui-mode "Octocat-PR-Diff"
   "Major mode for viewing the complete diff of a GitHub Pull Request.
 
 \\{octocat-pr-diff-mode-map}"
   :group 'octocat
   (setq-local buffer-read-only t)
   (setq-local truncate-lines nil)
-  (setq-local revert-buffer-function #'octocat-pr-diff-refresh)
-  (font-lock-mode -1))
+  (setq-local revert-buffer-function #'octocat-pr-diff-refresh))
 
 
 ;;;; Refresh
 
 (defun octocat-pr-diff-refresh (&optional _ignore-auto _noconfirm)
-  "Refresh the current PR diff buffer asynchronously.
-Fires two parallel fetches — the file diffs and the inline review
-comments — and re-renders once both arrive.  Shows a Loading… placeholder
-in the Review Comments section while the second fetch is in flight."
+  "Refresh the current PR diff buffer.
+Mounts the vui.el page, which fetches the file diffs and the inline
+review comments independently."
   (interactive)
   (unless (and octocat--pr-diff-repo octocat--pr-diff-number)
     (user-error "Octocat: Buffer is not associated with a pull request diff"))
-  (let* ((buf         (current-buffer))
-         (repo        octocat--pr-diff-repo)
-         (number      octocat--pr-diff-number)
-         (saved-point (octocat--save-point))
-         (files-result    'pending)
-         (comments-result 'pending))
-    (setq mode-line-process " [refreshing…]")
-    (cl-labels
-        ((maybe-done ()
-           (unless (or (eq files-result    'pending)
-                       (eq comments-result 'pending))
-             (when (buffer-live-p buf)
-               (with-current-buffer buf
-                 (setq mode-line-process nil)
-                 (if (eq (car-safe files-result) 'error)
-                     (let ((inhibit-read-only t))
-                       (erase-buffer)
-                       (insert (propertize
-                                (format "  Error: %s\n" (cdr files-result))
-                                'face 'error)))
-                   (octocat--render-pr-diff
-                    files-result
-                    (if (eq (car-safe comments-result) 'error) nil comments-result))
-                   (octocat--restore-point saved-point)))))))
-      (octocat--fetch-pr-diff
-       repo number
-       (lambda (result)
-         (setq files-result result)
-         ;; Intermediate render: show file diffs immediately while review
-         ;; comments are still loading.
-         (when (and (buffer-live-p buf)
-                    (not (eq (car-safe result) 'error))
-                    (eq comments-result 'pending))
-           (with-current-buffer buf
-             (octocat--render-pr-diff result 'loading)
-             (octocat--restore-point saved-point)))
-         (maybe-done)))
-      (octocat--fetch-pr-review-comments
-       repo number
-       (lambda (result)
-         (setq comments-result result)
-         (maybe-done))))))
+  (vui-mount (vui-component 'octocat-pr-diff--page
+                            :repo octocat--pr-diff-repo
+                            :number octocat--pr-diff-number)
+             (buffer-name)))
 
 (defun octocat-pr-diff-open (repo number)
   "Show the diff of pull request NUMBER of REPO in its own buffer."
@@ -355,7 +345,6 @@ in the Review Comments section while the second fetch is in flight."
       (octocat-pr-diff-mode))
     (setq octocat--pr-diff-repo   repo
           octocat--pr-diff-number number)
-    (octocat--render-pr-diff-loading number)
     (octocat-pr-diff-refresh)))
 
 (provide 'octocat-pr-diff)

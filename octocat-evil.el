@@ -69,7 +69,7 @@
 (declare-function octocat-pr-edit-body       "octocat-pr"        ())
 (declare-function octocat-pr-edit            "octocat-pr"        ())
 (declare-function octocat-commit-refresh     "octocat-commit"    (&optional _ignore-auto _noconfirm))
-(declare-function octocat-pr-diff-refresh   "octocat-pr-diff"   (&optional _ignore-auto _noconfirm))
+(declare-function octocat-pr-diff-browse    "octocat-pr-diff"   ())
 (declare-function octocat-issue-refresh      "octocat-issue"     (&optional _ignore-auto _noconfirm))
 (declare-function octocat-issue-add-comment  "octocat-issue"     ())
 (declare-function octocat-issue-edit-body    "octocat-issue"     ())
@@ -176,14 +176,15 @@
     (define-key aux-m (kbd "RET")   #'octocat-visit))
 
   ;; ── octocat-pr-diff-mode ──────────────────────────────────────────────
-  (let ((aux (evil-get-auxiliary-keymap octocat-pr-diff-mode-map 'normal t t)))
-    (define-key aux (kbd "g")       nil)
-    (define-key aux (kbd "C-c C-o") #'octocat-browse)
-    (define-key aux (kbd "C-c C-r") #'octocat-switch-repo)
-    (define-key aux (kbd "C-c C-s") #'octocat-search-repo)
-    (define-key aux (kbd "gs")      #'octocat-search-repo)
-    (define-key aux (kbd "q")       #'quit-window)
-    (define-key aux (kbd "gr")      #'octocat-pr-diff-refresh))
+  ;; vui.el-rendered like octocat-repo-mode, so only the global commands
+  ;; are bound here.
+  (evil-define-key* 'normal octocat-pr-diff-mode-map
+    (kbd "C-c C-o") #'octocat-pr-diff-browse
+    (kbd "C-c C-r") #'octocat-switch-repo
+    (kbd "C-c C-s") #'octocat-search-repo
+    (kbd "gs")      #'octocat-search-repo
+    (kbd "gr")      #'revert-buffer
+    (kbd "q")       #'quit-window)
 
   ;; ── octocat-issue-mode ────────────────────────────────────────────────
   ;; vui.el-rendered like octocat-repo-mode: row RET actions come from
