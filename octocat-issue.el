@@ -254,10 +254,6 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
         (magit-insert-heading (propertize "Body" 'face 'octocat-section-heading))
         (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
       (insert "\n")
-      (magit-insert-section (issue-labels)
-        (magit-insert-heading (propertize "Labels" 'face 'octocat-section-heading))
-        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
-      (insert "\n")
       (magit-insert-section (issue-comments)
         (magit-insert-heading (propertize "Comments" 'face 'octocat-section-heading))
         (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))))
@@ -308,6 +304,9 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
               (concat (apply #'propertize "  Title    " hint)
                       (apply #'propertize title hint)
                       (apply #'propertize "\n" hint)))))
+        (let ((chips (octocat--format-labels labels)))
+          (unless (string-empty-p chips)
+            (insert (make-string 11 ?\s) chips "\n")))
         (insert (format "  Author   %s\n"
                         (propertize author 'face 'octocat-pr-author)))
         (insert (format "  Created  %s\n" (octocat--format-ts-full created)))
@@ -320,15 +319,6 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
         (if (string-empty-p (string-trim body))
             (insert (propertize "  (no description)\n" 'face 'octocat-dimmed))
           (octocat--insert-markdown body)))
-      ;; ── Labels ────────────────────────────────────────────────────────
-      (insert "\n")
-      (magit-insert-section (issue-labels)
-        (magit-insert-heading
-          (propertize (format "Labels (%d)" (length labels))
-                      'face 'octocat-section-heading))
-        (if (zerop (length labels))
-            (insert (propertize "  (no labels)\n" 'face 'octocat-dimmed))
-          (insert "  " (octocat--format-labels labels) "\n")))
       ;; ── Comments ──────────────────────────────────────────────────────
       (insert "\n")
       (magit-insert-section (issue-comments)

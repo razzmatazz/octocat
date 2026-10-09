@@ -644,25 +644,25 @@ plist from `octocat--head-info', used to highlight the local HEAD commit."
 
 ;;;; Root
 
-(defun octocat-repo-vui--summary-line (summary)
-  "Return a vnode listing open issue/PR counts from SUMMARY, with nav buttons.
-SUMMARY is the plist from `octocat-repo--fetch-summary', or nil while it
-is still loading (counts then render as an ellipsis)."
+(defun octocat-repo-vui--nav-buttons (summary)
+  "Return a list of buttons opening the issue, PR and workflow pages.
+The issue and PR buttons show open counts from SUMMARY, the plist from
+`octocat-repo--fetch-summary', or an ellipsis while it is still loading."
   (let ((issues (plist-get summary :open-issues))
         (prs    (plist-get summary :open-prs)))
-    (vui-hstack :spacing 2
-      (vui-button (format "Issues (%s open)" (or issues "…"))
-                  :face 'octocat-dimmed
-                  :help-echo "RET: list issues"
-                  :on-click #'octocat-issues)
-      (vui-button (format "Pull requests (%s open)" (or prs "…"))
-                  :face 'octocat-dimmed
-                  :help-echo "RET: list pull requests"
-                  :on-click #'octocat-prs)
-      (vui-button "Workflows"
-                  :face 'octocat-dimmed
-                  :help-echo "RET: list workflows and runs"
-                  :on-click #'octocat-workflows))))
+    (list
+     (vui-button (format "Issues (%s open)" (or issues "…"))
+                 :face 'octocat-dimmed
+                 :help-echo "RET: list issues"
+                 :on-click #'octocat-issues)
+     (vui-button (format "Pull requests (%s open)" (or prs "…"))
+                 :face 'octocat-dimmed
+                 :help-echo "RET: list pull requests"
+                 :on-click #'octocat-prs)
+     (vui-button "Workflows"
+                 :face 'octocat-dimmed
+                 :help-echo "RET: list workflows and runs"
+                 :on-click #'octocat-workflows))))
 
 (vui-defcomponent octocat-repo-vui--root (repo local-dir)
   "Root component for the repo buffer: header, local-head/fork-parent
@@ -681,27 +681,19 @@ Everything but the commits comes from a single summary API call."
          (default-branch (plist-get summary :default-branch))
          (fork-parent    (plist-get summary :fork-parent)))
     (vui-vstack
-     (vui-hstack :spacing 2
-       (vui-text repo :face 'octocat-repo)
-       (vui-button "Browse files"
-                   :face 'octocat-dimmed
-                   :help-echo "RET: browse file tree"
-                   :on-click (lambda () (octocat-tree-open))))
-     (octocat-repo-vui--summary-line summary)
+     (apply #'vui-hstack :spacing 2
+            (vui-text repo :face 'octocat-repo)
+            (vui-button "Browse files"
+                        :face 'octocat-dimmed
+                        :help-echo "RET: browse file tree"
+                        :on-click (lambda () (octocat-tree-open)))
+            (octocat-repo-vui--nav-buttons summary))
      (vui-newline)
      (when local-dir
        (vui-text
-        (concat (propertize "Local Head:" 'face 'octocat-dimmed)
+        (concat (propertize "Local clone:" 'face 'octocat-dimmed)
                 "  "
-                (propertize local-dir 'face 'octocat-branch)
-                (when current-branch
-                  (concat "  " (octocat-tree--branch-glyph) "  "
-                          (propertize current-branch 'face 'octocat-branch-current)))
-                (when (plist-get head-info :hash)
-                  (concat "  " (propertize (plist-get head-info :hash) 'face 'octocat-commit-sha)))
-                (when (and (plist-get head-info :subject)
-                          (not (string-empty-p (plist-get head-info :subject))))
-                  (concat "  " (plist-get head-info :subject))))))
+                (propertize local-dir 'face 'octocat-branch))))
      (when fork-parent
        (octocat-vui-row
         (concat "Forked from  " (propertize fork-parent 'face 'octocat-repo) "\n")

@@ -329,6 +329,9 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
               (concat (apply #'propertize "  Title    " hint)
                       (apply #'propertize title hint)
                       (apply #'propertize "\n" hint)))))
+        (let ((chips (octocat--format-labels (gethash "labels" pr))))
+          (unless (string-empty-p chips)
+            (insert (make-string 11 ?\s) chips "\n")))
         (insert (format "  Author   %s\n"
                         (propertize author 'face 'octocat-pr-author)))
         (insert (format "  Branch   %s → %s\n"
@@ -340,9 +343,6 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
         (when (and closed (not (eq closed :null)) (not (string-empty-p closed))
                    (not (equal state "MERGED")))
           (insert (format "  Closed   %s\n" (octocat--format-ts-full closed))))
-        (let ((chips (octocat--format-labels (gethash "labels" pr))))
-          (unless (string-empty-p chips)
-            (insert (format "  Labels   %s\n" chips))))
         (magit-insert-section (pr-changes)
           (magit-insert-heading
             (let ((hint '(mouse-face magit-section-highlight
