@@ -841,8 +841,10 @@ below it.  An empty vector renders a dimmed \"(no comments)\" placeholder."
 
 ;;;; Markdown rendering
 
-(defconst octocat--quote-prefix (propertize "  | " 'face 'octocat-dimmed)
+(defconst octocat--quote-prefix (propertize "  │ " 'face 'octocat-dimmed)
   "Line prefix that marks PR/issue bodies and comments as quoted blocks.
+The bar is a box-drawing character, which joins vertically with the
+bars of neighbouring lines in GUI and terminal frames alike.
 The bar sits in column 2, under the first character of the comment
 author's handle (and of the \"Body\" heading's text indent), with the
 text two columns further right.")
