@@ -316,7 +316,7 @@ no gh call is made."
                           "{\"event\":\"commented\",\"created_at\":\"2026-01-02T10:00:00Z\"},"
                           "{\"event\":\"closed\",\"created_at\":\"2026-01-03T10:00:00Z\","
                           "\"actor\":{\"login\":\"ann\"},\"state_reason\":\"completed\"}]")))
-         (items (octocat-issue--timeline issue events)))
+         (items (octocat-timeline-items issue "opened this issue" events)))
     (should (equal (mapcar (lambda (i) (plist-get i :kind)) items)
                    '(post comment event event comment)))
     (should (equal (plist-get (nth 1 items) :actor) "@cy"))
@@ -326,14 +326,15 @@ no gh call is made."
 
 (ert-deftest octocat-test-issue-timeline-close-without-events ()
   "Before the events load, a close still shows, from `closedAt'."
-  (let ((items (octocat-issue--timeline (octocat-tests--json octocat-tests--issue-json) nil)))
+  (let ((items (octocat-timeline-items (octocat-tests--json octocat-tests--issue-json)
+                                       "opened this issue" nil)))
     (should (equal (mapcar (lambda (i) (plist-get i :kind)) items)
                    '(post comment event comment)))
     (should (equal (plist-get (nth 2 items) :actor) ""))))
 
 (ert-deftest octocat-test-issue-event-text ()
   "Events render as short phrases; unknown ones are skipped."
-  (let ((text (lambda (json) (octocat-issue--event-text (octocat-tests--json json)))))
+  (let ((text (lambda (json) (octocat-timeline--event-text (octocat-tests--json json)))))
     (should (equal (funcall text "{\"event\":\"assigned\",\"actor\":{\"login\":\"a\"},\"assignee\":{\"login\":\"a\"}}")
                    "self-assigned this"))
     (should (equal (funcall text "{\"event\":\"assigned\",\"actor\":{\"login\":\"a\"},\"assignee\":{\"login\":\"b\"}}")
@@ -349,14 +350,48 @@ no gh call is made."
   "A comment entry carries its target, a quote rail and its body."
   (let* ((comment (octocat-tests--json
                    "{\"author\":{\"login\":\"bob\"},\"body\":\"hi\\nthere\",\"createdAt\":\"2026-01-04T10:00:00Z\"}"))
-         (entry (octocat-issue--entry-string
+         (entry (octocat-timeline--entry-string
                  (list :time "2026-01-04T10:00:00Z" :kind 'comment :actor "@bob"
-                       :body "hi\nthere" :target comment)
+                       :verb "commented" :body "hi\nthere" :target comment)
                  t)))
     (should (string-match-p "@bob commented" entry))
-    (should (string-match-p "│   hi\n  │   there\\'" (substring-no-properties entry)))
-    (should (eq (get-text-property (1- (length entry)) 'octocat-issue-target entry)
+    (should (string-match-p "│ hi\n  │ there\\'" (substring-no-properties entry)))
+    (should (eq (get-text-property (1- (length entry)) 'octocat-timeline-target entry)
                 comment))))
+
+(ert-deftest octocat-test-timeline-merged-pr ()
+  "A merged PR shows its merge, not the close GitHub logs beside it."
+  (let* ((pr (octocat-tests--json
+              (concat "{\"body\":\"\",\"createdAt\":\"2026-01-01T10:00:00Z\","
+                      "\"mergedAt\":\"2026-01-02T10:00:00Z\",\"closedAt\":\"2026-01-02T10:00:00Z\","
+                      "\"author\":{\"login\":\"ann\"},\"comments\":[]}")))
+         (events (octocat-tests--json
+                  (concat "[{\"event\":\"closed\",\"created_at\":\"2026-01-02T10:00:00Z\"},"
+                          "{\"event\":\"merged\",\"created_at\":\"2026-01-02T10:00:00Z\","
+                          "\"actor\":{\"login\":\"ann\"}}]")))
+         (kinds (lambda (evs)
+                  (mapcar (lambda (i) (plist-get i :text))
+                          (cdr (octocat-timeline-items pr "opened this pull request" evs))))))
+    (should (equal (funcall kinds events) '("merged this")))
+    ;; Without events the merge still shows, from `mergedAt'.
+    (should (equal (funcall kinds nil) '("merged this")))))
+
+(ert-deftest octocat-test-timeline-post-leads ()
+  "The opening post comes first even if an extra item predates it."
+  (let* ((pr (octocat-tests--json
+              "{\"body\":\"x\",\"createdAt\":\"2026-01-02T10:00:00Z\",\"author\":{\"login\":\"ann\"},\"comments\":[]}"))
+         (items (octocat-timeline-items
+                 pr "opened this pull request" nil
+                 (list (list :time "2026-01-01T10:00:00Z" :kind 'commit :actor "" :text "c")))))
+    (should (equal (mapcar (lambda (i) (plist-get i :kind)) items) '(post commit)))))
+
+(ert-deftest octocat-test-timeline-review-events ()
+  "Review requests name a user or a team."
+  (let ((text (lambda (json) (octocat-timeline--event-text (octocat-tests--json json)))))
+    (should (equal (funcall text "{\"event\":\"review_requested\",\"requested_reviewer\":{\"login\":\"zed\"}}")
+                   "requested a review from @zed"))
+    (should (equal (funcall text "{\"event\":\"review_requested\",\"requested_team\":{\"name\":\"core\"}}")
+                   "requested a review from core"))))
 
 (ert-deftest octocat-test-markdown-string ()
   "Every line gets the indent and a wrap prefix; raw text is kept verbatim."

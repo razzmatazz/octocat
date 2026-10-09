@@ -324,5 +324,20 @@ then always fetch fresh data in the background."
              (octocat--render-checks result)
              (octocat--restore-point saved-point))))))))
 
+(defun octocat-checks-open (repo sha ref)
+  "Show the checks of commit SHA of REPO in their own buffer.
+REF is the branch the commit is the head of, or nil."
+  (let ((buf (get-buffer-create
+              (format "*octocat-checks: %s@%s*" repo
+                      (substring sha 0 (min 7 (length sha)))))))
+    (pop-to-buffer buf)
+    (unless (derived-mode-p 'octocat-checks-mode)
+      (octocat-checks-mode))
+    (setq octocat--checks-repo repo
+          octocat--checks-sha  sha
+          octocat--checks-ref  ref)
+    (octocat--render-checks-loading sha)
+    (octocat-checks-refresh)))
+
 (provide 'octocat-checks)
 ;;; octocat-checks.el ends here

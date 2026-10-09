@@ -38,9 +38,7 @@
 (declare-function octocat-repo--local-dir-for  "octocat-repo" (repo))
 (declare-function octocat-repo-refresh         "octocat-repo" (&optional _ignore-auto _noconfirm))
 (declare-function octocat-repo--current-repo   "octocat-repo" ())
-(declare-function octocat-pr-mode              "octocat-pr"   ())
-(declare-function octocat-pr-refresh           "octocat-pr"   (&optional _ignore-auto _noconfirm))
-(declare-function octocat--render-pr-loading   "octocat-pr"   (number title state))
+(declare-function octocat-pr-open              "octocat-pr"   (repo number))
 (declare-function octocat-issue-open           "octocat-issue" (repo number))
 (declare-function octocat-commit-mode          "octocat-commit" ())
 (declare-function octocat-commit-refresh       "octocat-commit" (&optional _ignore-auto _noconfirm))
@@ -1141,18 +1139,7 @@ shape (\"oid\", nested \"commit\") used in different parts of the codebase."
         (repo (plist-get item :repo)))
     (pcase type
       ('pr
-       (let* ((number   (plist-get item :number))
-              (title    (or (plist-get item :title) ""))
-              (state    (or (plist-get item :state) "OPEN"))
-              (buf-name (format "*octocat-pr: %s#%d*" repo number))
-              (buf      (get-buffer-create buf-name)))
-         (pop-to-buffer buf)
-         (unless (derived-mode-p 'octocat-pr-mode)
-           (octocat-pr-mode))
-         (setq octocat--pr-repo   repo
-               octocat--pr-number number)
-         (octocat--render-pr-loading number title state)
-         (octocat-pr-refresh)))
+       (octocat-pr-open repo (plist-get item :number)))
       ('issue
        (octocat-issue-open repo (plist-get item :number)))
       ('commit

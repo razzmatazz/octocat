@@ -347,6 +347,16 @@ in the Review Comments section while the second fetch is in flight."
          (setq comments-result result)
          (maybe-done))))))
 
+(defun octocat-pr-diff-open (repo number)
+  "Show the diff of pull request NUMBER of REPO in its own buffer."
+  (let ((buf (get-buffer-create (format "*octocat-pr-diff: %s#%d*" repo number))))
+    (pop-to-buffer buf)
+    (unless (derived-mode-p 'octocat-pr-diff-mode)
+      (octocat-pr-diff-mode))
+    (setq octocat--pr-diff-repo   repo
+          octocat--pr-diff-number number)
+    (octocat--render-pr-diff-loading number)
+    (octocat-pr-diff-refresh)))
 
 (provide 'octocat-pr-diff)
 ;;; octocat-pr-diff.el ends here

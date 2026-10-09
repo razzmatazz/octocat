@@ -97,18 +97,12 @@
 ;; functions not known to be defined" -- `make ci' compiles all files in
 ;; parallel, so a plain `require' does not guarantee the callee is already
 ;; compiled when this file is.
-(declare-function octocat-pr-mode                  "octocat-pr"       ())
-(declare-function octocat--render-pr-loading       "octocat-pr"       (number title state))
-(declare-function octocat-pr-refresh               "octocat-pr"       (&optional _ignore-auto _noconfirm))
 (declare-function octocat-workflow-mode            "octocat-workflow" ())
 (declare-function octocat--render-workflow-loading "octocat-workflow" (name))
 (declare-function octocat-workflow-refresh         "octocat-workflow" (&optional _ignore-auto _noconfirm))
 (declare-function octocat-run-mode                 "octocat-run"      ())
 (declare-function octocat--render-run-loading      "octocat-run"      (run-id))
 (declare-function octocat-run-refresh              "octocat-run"      (&optional _ignore-auto _noconfirm))
-(declare-function octocat-commit-mode              "octocat-commit"   ())
-(declare-function octocat--render-commit-loading   "octocat-commit"   (sha))
-(declare-function octocat-commit-refresh           "octocat-commit"   (&optional _ignore-auto _noconfirm))
 (declare-function octocat-tree-open                "octocat-tree"     ())
 (declare-function octocat-tree-find-file           "octocat-tree"     ())
 (declare-function octocat-issues                   "octocat"          ())
@@ -117,15 +111,11 @@
 
 ;; Buffer-locals this file `setq's in a *different* buffer (the target
 ;; detail buffer, after `pop-to-buffer') than the one that defines them.
-(defvar octocat--pr-repo)        ; defined as buffer-local in octocat-pr.el
-(defvar octocat--pr-number)      ; defined as buffer-local in octocat-pr.el
 (defvar octocat--workflow-repo)  ; defined as buffer-local in octocat-workflow.el
 (defvar octocat--workflow-id)    ; defined as buffer-local in octocat-workflow.el
 (defvar octocat--workflow-name)  ; defined as buffer-local in octocat-workflow.el
 (defvar octocat--run-repo)       ; defined as buffer-local in octocat-run.el
 (defvar octocat--run-id)         ; defined as buffer-local in octocat-run.el
-(defvar octocat--commit-repo)    ; defined as buffer-local in octocat-commit.el
-(defvar octocat--commit-sha)     ; defined as buffer-local in octocat-commit.el
 
 
 ;;;; User options
@@ -347,18 +337,7 @@ issue/PR-count lookups."
 
 (defun octocat-repo-vui--open-pr (repo pr)
   "Open the PR detail buffer for PR (a hash-table) in REPO."
-  (let* ((number   (gethash "number" pr))
-         (title    (or (gethash "title" pr) ""))
-         (state    (or (gethash "state" pr) "OPEN"))
-         (buf-name (format "*octocat-pr: %s#%d*" repo number))
-         (buf      (get-buffer-create buf-name)))
-    (pop-to-buffer buf)
-    (unless (derived-mode-p 'octocat-pr-mode)
-      (octocat-pr-mode))
-    (setq octocat--pr-repo repo
-          octocat--pr-number number)
-    (octocat--render-pr-loading number title state)
-    (octocat-pr-refresh)))
+  (octocat-pr-open repo (gethash "number" pr)))
 
 (defun octocat-repo-vui--open-issue (repo issue)
   "Open the issue detail buffer for ISSUE (a hash-table) in REPO."
@@ -366,17 +345,7 @@ issue/PR-count lookups."
 
 (defun octocat-repo-vui--open-commit (repo commit)
   "Open the commit detail buffer for COMMIT (a hash-table) in REPO."
-  (let* ((oid      (or (gethash "sha" commit) (gethash "oid" commit) ""))
-         (short    (substring oid 0 (min 7 (length oid))))
-         (buf-name (format "*octocat-commit: %s@%s*" repo short))
-         (buf      (get-buffer-create buf-name)))
-    (pop-to-buffer buf)
-    (unless (derived-mode-p 'octocat-commit-mode)
-      (octocat-commit-mode))
-    (setq octocat--commit-repo repo
-          octocat--commit-sha  oid)
-    (octocat--render-commit-loading oid)
-    (octocat-commit-refresh)))
+  (octocat-commit-open repo (or (gethash "sha" commit) (gethash "oid" commit) "")))
 
 (defun octocat-repo-vui--open-workflow (repo workflow)
   "Open the workflow detail buffer for WORKFLOW (a hash-table) in REPO."

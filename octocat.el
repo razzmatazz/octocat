@@ -40,6 +40,7 @@
 (require 'octocat-commit)
 (require 'octocat-pr-diff)
 (require 'octocat-issue)
+(require 'octocat-timeline)
 (require 'octocat-workflow)
 (require 'octocat-run)
 (require 'octocat-job)
@@ -51,9 +52,6 @@
 ;; Forward declarations for sub-module buffer-locals referenced by
 ;; octocat-visit (defined here).  These silence the byte-compiler.
 (defvar octocat--pr-repo)        ; defined as buffer-local in octocat-pr.el
-(defvar octocat--pr-number)      ; defined as buffer-local in octocat-pr.el
-(defvar octocat--pr-diff-repo)   ; defined as buffer-local in octocat-pr-diff.el
-(defvar octocat--pr-diff-number) ; defined as buffer-local in octocat-pr-diff.el
 (defvar octocat--issue-repo)     ; defined as buffer-local in octocat-issue.el
 (defvar octocat--issue-number)   ; defined as buffer-local in octocat-issue.el
 (defvar octocat--workflow-repo)  ; defined as buffer-local in octocat-workflow.el
@@ -67,9 +65,6 @@
 (defvar octocat--job-run-id)     ; defined as buffer-local in octocat-job.el
 (defvar octocat--job-id)         ; defined as buffer-local in octocat-job.el
 (defvar octocat--job-name)       ; defined as buffer-local in octocat-job.el
-(defvar octocat--checks-repo)    ; defined as buffer-local in octocat-checks.el
-(defvar octocat--checks-sha)     ; defined as buffer-local in octocat-checks.el
-(defvar octocat--checks-ref)     ; defined as buffer-local in octocat-checks.el
 
 ;; Also forward-declare octocat-repo--repo so octocat-visit can read it
 ;; when called from a repo buffer (it is defined as buffer-local in
@@ -97,17 +92,11 @@
 ;; byte-compiler when `octocat-evil' has not been loaded yet.
 (declare-function octocat-evil-setup "octocat-evil" ())
 
-;; Edit commands defined in octocat-pr.el / octocat-issue.el (already
-;; loaded via `require' above, but declare here so octocat-visit can call
-;; them without the byte-compiler warning about forward references).
-(declare-function octocat-pr-edit-body         "octocat-pr"      ())
-(declare-function octocat-pr-edit-title        "octocat-pr"      ())
-(declare-function octocat--render-pr-diff-loading "octocat-pr-diff" (number))
-(declare-function octocat-pr-diff-refresh      "octocat-pr-diff" (&optional _ignore-auto _noconfirm))
-(declare-function octocat--render-checks-loading "octocat-checks" (sha))
-(declare-function octocat-checks-refresh         "octocat-checks" (&optional _ignore-auto _noconfirm))
-(declare-function octocat-checks-mode            "octocat-checks" ())
-(declare-function octocat-commit-mode             "octocat-commit" ())
+;; Entry points of other files (already loaded via `require' above, but
+;; declared here so octocat-visit can call them without the byte-compiler
+;; warning about forward references).
+(declare-function octocat-checks-open            "octocat-checks" (repo sha ref))
+(declare-function octocat-commit-mode            "octocat-commit" ())
 (declare-function octocat-commit-refresh          "octocat-commit" (&optional _ignore-auto _noconfirm))
 (declare-function octocat--render-commit-loading  "octocat-commit" (sha))
 
@@ -140,20 +129,8 @@
                octocat-repo--local-dir (octocat-repo--local-dir-for full-name))
          (octocat-repo-refresh)))
       ('pr
-       (let* ((pr     (oref section value))
-              (number (gethash "number" pr))
-              (title  (or (gethash "title" pr) ""))
-              (state  (or (gethash "state" pr) "OPEN"))
-              (repo   (or octocat-repo--repo octocat--pr-repo))
-              (buf-name (format "*octocat-pr: %s#%d*" repo number))
-              (buf (get-buffer-create buf-name)))
-         (pop-to-buffer buf)
-         (unless (derived-mode-p 'octocat-pr-mode)
-           (octocat-pr-mode))
-         (setq octocat--pr-repo repo
-               octocat--pr-number number)
-         (octocat--render-pr-loading number title state)
-         (octocat-pr-refresh)))
+       (octocat-pr-open (or octocat-repo--repo octocat--pr-repo)
+                        (gethash "number" (oref section value))))
       ('octocat-commit
        (let* ((commit   (oref section value))
               (c        (gethash "commit" commit))
@@ -221,61 +198,12 @@
                octocat--run-id   run-id)
          (octocat--render-run-loading run-id)
          (octocat-run-refresh)))
-      ;; RET on the Title row inside the Info section edits the title.
-      ('pr-title    (octocat-pr-edit-title))
-      ;; RET on the Changes info field opens the full PR diff view.
-      ('pr-changes
-       (let* ((repo   octocat--pr-repo)
-              (number octocat--pr-number)
-              (buf-name (format "*octocat-pr-diff: %s#%d*" repo number))
-              (buf    (get-buffer-create buf-name)))
-         (pop-to-buffer buf)
-         (unless (derived-mode-p 'octocat-pr-diff-mode)
-           (octocat-pr-diff-mode))
-         (setq octocat--pr-diff-repo   repo
-               octocat--pr-diff-number number)
-         (octocat--render-pr-diff-loading number)
-         (octocat-pr-diff-refresh)))
-      ;; RET on an individual check-run row opens the checks detail buffer.
-      ;; Works from both commit buffers (sha is known directly) and PR
-      ;; buffers (sha is retrieved from the PR's head commit in the cache).
+      ;; RET on an individual check-run row of a commit buffer opens the
+      ;; checks detail buffer for that commit.  (The PR page opens its
+      ;; checks itself; see `octocat-pr--check-row'.)
       ('check-run
-       (let* (;; Commit buffer: sha and repo are directly available.
-              (commit-sha  (and (boundp 'octocat--commit-sha)  octocat--commit-sha))
-              (commit-repo (and (boundp 'octocat--commit-repo) octocat--commit-repo))
-              ;; PR buffer: look up the head SHA from the PR cache.
-              (pr-repo     octocat--pr-repo)
-              (pr-cache    (and pr-repo octocat--pr-number
-                                (octocat--detail-cache-load
-                                 pr-repo "pr" octocat--pr-number)))
-              (pr-commits  (and pr-cache
-                                (let ((v (gethash "commits" pr-cache)))
-                                  (when (and v (not (eq v :null))
-                                             (> (length v) 0))
-                                    v))))
-              (pr-head-sha (and pr-commits
-                                (gethash "oid"
-                                         (aref pr-commits
-                                               (1- (length pr-commits))))))
-              (pr-head-ref (and pr-cache
-                                (octocat--nonempty
-                                 (gethash "headRefName" pr-cache))))
-              ;; Resolve to whichever context is active.
-              (repo (or commit-repo pr-repo))
-              (sha  (or commit-sha pr-head-sha ""))
-              (ref  (unless commit-sha pr-head-ref))
-              (short (if (string-empty-p sha) ""
-                       (substring sha 0 (min 7 (length sha)))))
-              (buf-name (format "*octocat-checks: %s@%s*" repo short))
-              (buf      (get-buffer-create buf-name)))
-         (pop-to-buffer buf)
-         (unless (derived-mode-p 'octocat-checks-mode)
-           (octocat-checks-mode))
-         (setq octocat--checks-repo repo
-               octocat--checks-sha  sha
-               octocat--checks-ref  ref)
-         (octocat--render-checks-loading sha)
-         (octocat-checks-refresh)))
+       (when (and (boundp 'octocat--commit-sha) octocat--commit-sha)
+         (octocat-checks-open octocat--commit-repo octocat--commit-sha nil)))
       ;; RET on a feed-event row dispatches based on event type:
       ;;   PushEvent                      → octocat-commit for the head SHA
       ;;   PullRequestEvent / Review*     → octocat-pr for the PR number
@@ -316,22 +244,10 @@
                     (number (or (and (hash-table-p payload)
                                      (gethash "number" payload))
                                 (and (hash-table-p pr-obj)
-                                     (gethash "number" pr-obj))))
-                    (title  (or (and (hash-table-p pr-obj)
-                                     (octocat--nonempty (gethash "title" pr-obj)))
-                                ""))
-                    (buf    (and number
-                                 (get-buffer-create
-                                  (format "*octocat-pr: %s#%d*" full-name number)))))
+                                     (gethash "number" pr-obj)))))
                (if (not number)
                    (message "Octocat: No PR number in event payload")
-                 (pop-to-buffer buf)
-                 (unless (derived-mode-p 'octocat-pr-mode)
-                   (octocat-pr-mode))
-                 (setq octocat--pr-repo   full-name
-                       octocat--pr-number number)
-                 (octocat--render-pr-loading number title "OPEN")
-                 (octocat-pr-refresh))))
+                 (octocat-pr-open full-name number))))
             ;; ── Issue / comment events → issue buffer ─────────────────
             ((member type '("IssuesEvent" "IssueCommentEvent"))
              (let* ((issue-obj (and (hash-table-p payload)
@@ -406,7 +322,6 @@ Section types handled:
 
 Major-mode fallback (used when the section type does not have its own
 handler, e.g. point is on a title/header line):
-  `octocat-pr-mode'       → gh pr view --web
   `octocat-commit-mode'   → https://github.com/REPO/commit/SHA
   `octocat-workflow-mode' → https://github.com/REPO/actions/workflows/ID
   `octocat-run-mode'      → https://github.com/REPO/actions/runs/ID
@@ -496,13 +411,6 @@ handler, e.g. point is on a title/header line):
      ;; active at all.  Each branch uses the buffer-local vars set when the
      ;; detail buffer was opened.
      (cond
-      ((derived-mode-p 'octocat-pr-mode)
-       (when (and octocat--pr-repo octocat--pr-number)
-         (message "Octocat: Opening PR #%d in browser…" octocat--pr-number)
-         (start-process "octocat-browse" nil gh
-                        "pr" "view" "--web"
-                        (number-to-string octocat--pr-number)
-                        "--repo" octocat--pr-repo)))
       ((derived-mode-p 'octocat-commit-mode)
        (when (and octocat--commit-repo octocat--commit-sha)
          (let* ((sha octocat--commit-sha)

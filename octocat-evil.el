@@ -74,6 +74,7 @@
 (declare-function octocat-issue-add-comment  "octocat-issue"     ())
 (declare-function octocat-issue-edit-body    "octocat-issue"     ())
 (declare-function octocat-issue-browse       "octocat-issue"     ())
+(declare-function octocat-pr-browse          "octocat-pr"        ())
 (declare-function octocat-issue-edit         "octocat-issue"     ())
 (declare-function octocat-feed-load-more     "octocat"           ())
 (declare-function octocat-repo-browse        "octocat-repo"      ())
@@ -148,28 +149,18 @@
       (kbd "F")       #'octocat-vui-list-filter))
 
   ;; ── octocat-pr-mode ───────────────────────────────────────────────────
-  ;; Use define-key directly so all bindings (including RET) land in the
-  ;; same aux keymap slot.  See AGENTS.md "evil-define-key* aux-keymap slot
-  ;; divergence" for why evil-define-key* is not used here.
-  ;; The fourth argument t (IGNORE-PARENT) is critical: without it,
-  ;; evil-get-auxiliary-keymap returns the *parent* (magit-section-mode-map)
-  ;; aux keymap because child mode maps inherit the parent's normal-state slot.
-  ;; All define-key calls would then mutate the shared parent keymap, bleeding
-  ;; octocat bindings into every magit buffer.
-  (let ((aux   (evil-get-auxiliary-keymap octocat-pr-mode-map 'normal t t))
-        (aux-m (evil-get-auxiliary-keymap octocat-pr-mode-map 'motion t t)))
-    (define-key aux   (kbd "g")     nil)
-    (define-key aux   (kbd "RET")   #'octocat-visit)
-    (define-key aux   (kbd "C-c C-o") #'octocat-browse)
-    (define-key aux   (kbd "C-c C-a") #'octocat-pr-add-comment)
-    (define-key aux   (kbd "C-c C-e") #'octocat-pr-edit)
-    (define-key aux   (kbd "C-c C-v") #'octocat-toggle-markdown)
-    (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
-    (define-key aux   (kbd "C-c C-s") #'octocat-search-repo)
-    (define-key aux   (kbd "gs")    #'octocat-search-repo)
-    (define-key aux   (kbd "q")     #'quit-window)
-    (define-key aux   (kbd "gr")    #'octocat-pr-refresh)
-    (define-key aux-m (kbd "RET")   #'octocat-visit))
+  ;; vui.el-rendered like octocat-issue-mode: row RET actions come from
+  ;; per-row keymaps, so only the global commands are bound here.
+  (evil-define-key* 'normal octocat-pr-mode-map
+    (kbd "C-c C-o") #'octocat-pr-browse
+    (kbd "C-c C-a") #'octocat-pr-add-comment
+    (kbd "C-c C-e") #'octocat-pr-edit
+    (kbd "C-c C-v") #'octocat-toggle-markdown
+    (kbd "C-c C-r") #'octocat-switch-repo
+    (kbd "C-c C-s") #'octocat-search-repo
+    (kbd "gs")      #'octocat-search-repo
+    (kbd "gr")      #'octocat-pr-refresh
+    (kbd "q")       #'quit-window)
 
   ;; ── octocat-commit-mode ───────────────────────────────────────────────
   ;; Use define-key directly on the aux keymap retrieved by

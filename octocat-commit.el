@@ -618,5 +618,18 @@ data; their sections show Loading… placeholders until they arrive."
                                          (vconcat comments-result)))
            (maybe-done)))))))
 
+(defun octocat-commit-open (repo sha)
+  "Show commit SHA of REPO in its own buffer."
+  (let ((buf (get-buffer-create
+              (format "*octocat-commit: %s@%s*" repo
+                      (substring sha 0 (min 7 (length sha)))))))
+    (pop-to-buffer buf)
+    (unless (derived-mode-p 'octocat-commit-mode)
+      (octocat-commit-mode))
+    (setq octocat--commit-repo repo
+          octocat--commit-sha  sha)
+    (octocat--render-commit-loading sha)
+    (octocat-commit-refresh)))
+
 (provide 'octocat-commit)
 ;;; octocat-commit.el ends here
