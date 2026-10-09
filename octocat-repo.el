@@ -687,6 +687,8 @@ Everything but the commits comes from a single summary API call."
                    :face 'octocat-dimmed
                    :help-echo "RET: browse file tree"
                    :on-click (lambda () (octocat-tree-open))))
+     (octocat-repo-vui--summary-line summary)
+     (vui-newline)
      (when local-dir
        (vui-text
         (concat (propertize "Local Head:" 'face 'octocat-dimmed)
@@ -705,8 +707,6 @@ Everything but the commits comes from a single summary API call."
         (concat "Forked from  " (propertize fork-parent 'face 'octocat-repo) "\n")
         (lambda () (octocat-visit-repo fork-parent))
         "RET: open parent repo view"))
-     (vui-newline)
-     (octocat-repo-vui--summary-line summary)
      (vui-newline)
      (vui-component 'octocat-repo-vui--commits-section
                     :repo repo :default-branch default-branch
