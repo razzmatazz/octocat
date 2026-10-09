@@ -183,15 +183,17 @@ On someone else\\='s comment: signal an error."
 
 ;;;; Data fetching
 
-(defun octocat--list-prs (repo limit callback)
-  "Fetch up to LIMIT open PRs for REPO asynchronously and call CALLBACK.
+(defun octocat--list-prs (repo limit callback &optional filter)
+  "Fetch up to LIMIT PRs for REPO asynchronously and call CALLBACK.
+FILTER is a plist as described in `octocat--filter-args'; by default only
+open PRs are listed.
 CALLBACK is called with a list of PR hash-tables, or a cons \\=(error . MSG)."
   (octocat--run-gh "prs"
-                   (list "pr" "list"
-                         "--repo" repo
-                         "--state" "open"
-                         "--limit" (number-to-string limit)
-                         "--json" "number,title,author,state,statusCheckRollup,headRefName,labels")
+                   (append (list "pr" "list"
+                                 "--repo" repo)
+                           (octocat--filter-args filter)
+                           (list "--limit" (number-to-string limit)
+                                 "--json" "number,title,author,state,statusCheckRollup,headRefName,labels"))
                    #'octocat--parse-json-list
                    callback))
 
@@ -541,17 +543,19 @@ then always fetches fresh data in the background."
 ;; magit-section PR detail buffer above; see "UI frameworks" in
 ;; CONTRIBUTING.md.
 
-(vui-defcomponent octocat-pr--list-page (repo current-branch)
-  "Pull request list page for REPO."
+(vui-defcomponent octocat-pr--list-page (repo current-branch filter)
+  "Pull request list page for REPO, narrowed by FILTER (see octocat-core.el)."
   :state ((limit octocat-section-limit))
   :render
-  (let ((result (octocat-vui-use-async-sticky (list 'prs repo limit)
+  (let ((result (octocat-vui-use-async-sticky (list 'prs repo limit filter)
                   (lambda (resolve reject)
                     (octocat--list-prs
                      repo limit
-                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
+                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))
+                     filter)))))
     (vui-vstack
      (octocat-vui-list-header repo "Pull Requests")
+     (octocat-vui-list-filter-bar filter)
      (pcase (plist-get result :status)
        ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
        ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
@@ -559,7 +563,10 @@ then always fetches fresh data in the background."
         (let ((prs (plist-get result :data)))
           (vui-fragment
            (if (null prs)
-               (vui-text "  (no pull requests)\n" :face 'octocat-dimmed)
+               (vui-text (if (octocat-vui-list-filter-active-p filter)
+                             "  (no pull requests match the filters)\n"
+                           "  (no pull requests)\n")
+                         :face 'octocat-dimmed)
              (vui-list prs
                        (lambda (pr) (octocat-repo-vui--pr-row repo pr current-branch))
                        (lambda (pr) (gethash "number" pr))))
@@ -578,7 +585,8 @@ then always fetches fresh data in the background."
     (user-error "Octocat: Buffer is not associated with a repository"))
   (vui-mount (vui-component 'octocat-pr--list-page
                             :repo octocat-vui-list--repo
-                            :current-branch (plist-get (octocat--head-info) :branch))
+                            :current-branch (plist-get (octocat--head-info) :branch)
+                            :filter octocat-vui-list--filter)
              (buffer-name)))
 
 (define-derived-mode octocat-pr-list-mode octocat-vui-list-mode "Octocat-PRs"
@@ -586,6 +594,7 @@ then always fetches fresh data in the background."
 
 \\{octocat-pr-list-mode-map}"
   :group 'octocat
+  (setq-local octocat-vui-list--states '("open" "closed" "merged" "all"))
   (setq-local revert-buffer-function #'octocat-pr-list-refresh))
 
 (provide 'octocat-pr)

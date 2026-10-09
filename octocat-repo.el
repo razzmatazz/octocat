@@ -699,7 +699,6 @@ Everything but the commits comes from a single summary API call."
      (vui-newline)
      (octocat-repo-vui--summary-line summary)
      (vui-newline)
-     (vui-newline)
      (vui-component 'octocat-repo-vui--commits-section
                     :repo repo :default-branch default-branch
                     :current-branch current-branch :head-info head-info))))

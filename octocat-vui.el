@@ -163,5 +163,178 @@ button starts on a fresh line and carries the same two-space indent."
   (setq-local buffer-read-only t)
   (setq-local truncate-lines t))
 
+
+;;;; List filters
+;;
+;; Pages that support filtering (PRs, issues) set
+;; `octocat-vui-list--states' in their mode body, pass
+;; `octocat-vui-list--filter' to their component on every refresh, and
+;; show `octocat-vui-list-filter-bar'.  Changing a facet stores the new
+;; filter and refreshes the buffer.  The filter plist is described in
+;; octocat-core.el ("List filters").
+
+(declare-function octocat--list-labels "octocat-core" (repo callback))
+(declare-function octocat--list-people "octocat-core" (repo callback))
+
+(defvar-local octocat-vui-list--filter nil
+  "Current filter plist of this list buffer; nil means defaults.")
+
+(defvar-local octocat-vui-list--states nil
+  "State names this page can filter by, or nil when it has no filters.")
+
+(defconst octocat-vui-list--facets
+  '((:state "State" octocat-vui-list-set-state)
+    (:author "Author" octocat-vui-list-set-author)
+    (:assignee "Assignee" octocat-vui-list-set-assignee)
+    (:labels "Label" octocat-vui-list-set-labels)
+    (:search "Search" octocat-vui-list-set-search))
+  "Filter facets as (KEY LABEL COMMAND), in filter-bar order.")
+
+(defun octocat-vui-list--facet-value (filter key)
+  "Return the display string of facet KEY in FILTER, or nil when unset."
+  (let ((v (plist-get filter key)))
+    (pcase key
+      (:state  (or v "open"))
+      (:labels (and v (string-join v ",")))
+      (_       v))))
+
+(defun octocat-vui-list--facet-active-p (filter key)
+  "Return non-nil when facet KEY of FILTER differs from the default."
+  (let ((v (octocat-vui-list--facet-value filter key)))
+    (if (eq key :state) (not (equal v "open")) (and v t))))
+
+(defun octocat-vui-list-filter-active-p (filter)
+  "Return non-nil when FILTER constrains the list beyond the default."
+  (seq-some (lambda (facet) (octocat-vui-list--facet-active-p filter (car facet)))
+            octocat-vui-list--facets))
+
+(defun octocat-vui-list-filter-bar (filter)
+  "Return a vnode with one button per facet of FILTER, plus a clear button.
+Facets that differ from the default are highlighted."
+  (vui-fragment
+   (apply #'vui-hstack :spacing 2
+          (append
+           (mapcar
+            (lambda (facet)
+              (pcase-let ((`(,key ,label ,command) facet))
+                (vui-button
+                 (format "%s: %s" label
+                         (truncate-string-to-width
+                          (or (octocat-vui-list--facet-value filter key) "any")
+                          24 nil nil "…"))
+                 :no-decoration t
+                 :face (if (octocat-vui-list--facet-active-p filter key)
+                           'octocat-branch
+                         'octocat-dimmed)
+                 :key key
+                 :help-echo (format "RET: filter by %s" (downcase label))
+                 :on-click (lambda () (call-interactively command)))))
+            octocat-vui-list--facets)
+           (when (octocat-vui-list-filter-active-p filter)
+             (list (vui-button "[clear]"
+                               :no-decoration t
+                               :face 'octocat-dimmed
+                               :key :clear
+                               :help-echo "RET: clear all filters"
+                               :on-click #'octocat-vui-list-clear-filter)))))
+   (vui-newline)))
+
+(defun octocat-vui-list--check-filterable ()
+  "Signal a `user-error' unless the current buffer is a filterable list."
+  (unless octocat-vui-list--states
+    (user-error "Octocat: This page has no filters")))
+
+(defun octocat-vui-list--set (key value)
+  "Set filter facet KEY to VALUE (nil or empty clears it) and refresh."
+  (let ((filter (copy-sequence octocat-vui-list--filter)))
+    (setq octocat-vui-list--filter
+          (plist-put filter key (if (member value '(nil "" ("")))
+                                    nil
+                                  value)))
+    (revert-buffer nil t)))
+
+(defun octocat-vui-list--complete-async (fetch key prompt multiple extra)
+  "Fetch candidates with FETCH, prompt with PROMPT, then set facet KEY.
+FETCH is `octocat--list-labels' or `octocat--list-people'.  MULTIPLE
+non-nil reads several comma-separated values.  EXTRA is a list of
+candidates added to the fetched ones (e.g. \"@me\").  The fetch is
+asynchronous; the prompt opens once it completes, outside the process
+sentinel.  Candidates are only a convenience: free text is accepted, and
+a failed fetch just logs a message."
+  (let ((buf     (current-buffer))
+        (repo    octocat-vui-list--repo)
+        (initial (octocat-vui-list--facet-value octocat-vui-list--filter key)))
+    (funcall fetch repo
+             (lambda (result)
+               (when (buffer-live-p buf)
+                 (run-at-time
+                  0 nil
+                  (lambda ()
+                    (when (buffer-live-p buf)
+                      (with-current-buffer buf
+                        (let* ((names (if (eq (car-safe result) 'error)
+                                          (progn (message "Octocat: %s" (cdr result)) nil)
+                                        (append extra result)))
+                               (value (if multiple
+                                          (completing-read-multiple prompt names nil nil initial)
+                                        (completing-read prompt names nil nil initial))))
+                          (octocat-vui-list--set key value)))))))))))
+
+(defun octocat-vui-list-set-state ()
+  "Choose the state to list."
+  (interactive)
+  (octocat-vui-list--check-filterable)
+  (octocat-vui-list--set
+   :state (completing-read "State: " octocat-vui-list--states nil t
+                           nil nil (or (plist-get octocat-vui-list--filter :state) "open"))))
+
+(defun octocat-vui-list-set-author ()
+  "Filter by author; empty input clears the filter."
+  (interactive)
+  (octocat-vui-list--check-filterable)
+  (octocat-vui-list--complete-async
+   #'octocat--list-people :author "Author (empty clears): " nil '("@me")))
+
+(defun octocat-vui-list-set-assignee ()
+  "Filter by assignee; empty input clears the filter."
+  (interactive)
+  (octocat-vui-list--check-filterable)
+  (octocat-vui-list--complete-async
+   #'octocat--list-people :assignee "Assignee (empty clears): " nil '("@me")))
+
+(defun octocat-vui-list-set-labels ()
+  "Filter by labels (comma-separated, all must match); empty clears."
+  (interactive)
+  (octocat-vui-list--check-filterable)
+  (octocat-vui-list--complete-async
+   #'octocat--list-labels :labels "Labels (comma-separated, empty clears): " t nil))
+
+(defun octocat-vui-list-set-search ()
+  "Filter by free text in GitHub search syntax; empty input clears."
+  (interactive)
+  (octocat-vui-list--check-filterable)
+  (octocat-vui-list--set
+   :search (read-string "Search (GitHub syntax, empty clears): "
+                        (plist-get octocat-vui-list--filter :search))))
+
+(defun octocat-vui-list-clear-filter ()
+  "Reset all filters of the current list to the defaults."
+  (interactive)
+  (octocat-vui-list--check-filterable)
+  (setq octocat-vui-list--filter nil)
+  (revert-buffer nil t))
+
+(defun octocat-vui-list-filter ()
+  "Pick a filter facet to change, like GitHub's filter menu."
+  (interactive)
+  (octocat-vui-list--check-filterable)
+  (let* ((choices (append (mapcar (lambda (f) (cons (nth 1 f) (nth 2 f)))
+                                  octocat-vui-list--facets)
+                          '(("Clear" . octocat-vui-list-clear-filter))))
+         (choice  (completing-read "Filter: " (mapcar #'car choices) nil t)))
+    (call-interactively (cdr (assoc choice choices)))))
+
+(define-key octocat-vui-list-mode-map (kbd "/") #'octocat-vui-list-filter)
+
 (provide 'octocat-vui)
 ;;; octocat-vui.el ends here

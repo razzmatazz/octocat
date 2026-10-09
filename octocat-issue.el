@@ -186,15 +186,17 @@ On someone else\\='s comment: signal an error."
 
 ;;;; Data fetching
 
-(defun octocat--list-issues (repo limit callback)
-  "Fetch up to LIMIT open issues for REPO asynchronously and call CALLBACK.
+(defun octocat--list-issues (repo limit callback &optional filter)
+  "Fetch up to LIMIT issues for REPO asynchronously and call CALLBACK.
+FILTER is a plist as described in `octocat--filter-args'; by default only
+open issues are listed.
 CALLBACK is called with a list of issue hash-tables, or a cons \\=(error . MSG)."
   (octocat--run-gh "issues"
-                   (list "issue" "list"
-                         "--repo" repo
-                         "--state" "open"
-                         "--limit" (number-to-string limit)
-                         "--json" "number,title,author,state,labels")
+                   (append (list "issue" "list"
+                                 "--repo" repo)
+                           (octocat--filter-args filter)
+                           (list "--limit" (number-to-string limit)
+                                 "--json" "number,title,author,state,labels"))
                    #'octocat--parse-json-list
                    callback))
 
@@ -409,17 +411,19 @@ then always fetches fresh data in the background."
 ;; the magit-section issue detail buffer above; see "UI frameworks" in
 ;; CONTRIBUTING.md.
 
-(vui-defcomponent octocat-issue--list-page (repo)
-  "Issue list page for REPO."
+(vui-defcomponent octocat-issue--list-page (repo filter)
+  "Issue list page for REPO, narrowed by FILTER (see octocat-core.el)."
   :state ((limit octocat-section-limit))
   :render
-  (let ((result (octocat-vui-use-async-sticky (list 'issues repo limit)
+  (let ((result (octocat-vui-use-async-sticky (list 'issues repo limit filter)
                   (lambda (resolve reject)
                     (octocat--list-issues
                      repo limit
-                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
+                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))
+                     filter)))))
     (vui-vstack
      (octocat-vui-list-header repo "Issues")
+     (octocat-vui-list-filter-bar filter)
      (pcase (plist-get result :status)
        ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
        ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
@@ -427,7 +431,10 @@ then always fetches fresh data in the background."
         (let ((issues (plist-get result :data)))
           (vui-fragment
            (if (null issues)
-               (vui-text "  (no issues)\n" :face 'octocat-dimmed)
+               (vui-text (if (octocat-vui-list-filter-active-p filter)
+                             "  (no issues match the filters)\n"
+                           "  (no issues)\n")
+                         :face 'octocat-dimmed)
              (vui-list issues
                        (lambda (issue) (octocat-repo-vui--issue-row repo issue))
                        (lambda (issue) (gethash "number" issue))))
@@ -444,7 +451,9 @@ then always fetches fresh data in the background."
   (interactive)
   (unless octocat-vui-list--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
-  (vui-mount (vui-component 'octocat-issue--list-page :repo octocat-vui-list--repo)
+  (vui-mount (vui-component 'octocat-issue--list-page
+                            :repo octocat-vui-list--repo
+                            :filter octocat-vui-list--filter)
              (buffer-name)))
 
 (define-derived-mode octocat-issue-list-mode octocat-vui-list-mode "Octocat-Issues"
@@ -452,6 +461,7 @@ then always fetches fresh data in the background."
 
 \\{octocat-issue-list-mode-map}"
   :group 'octocat
+  (setq-local octocat-vui-list--states '("open" "closed" "all"))
   (setq-local revert-buffer-function #'octocat-issue-list-refresh))
 
 (provide 'octocat-issue)

@@ -160,5 +160,37 @@ no gh call is made."
                  '(:default-branch nil :fork-parent nil
                    :open-issues 0 :open-prs 0))))
 
+;;; List filters
+
+(ert-deftest octocat-test-filter-args-default ()
+  "No filter lists open items only."
+  (should (equal (octocat--filter-args nil) '("--state" "open"))))
+
+(ert-deftest octocat-test-filter-args-full ()
+  "Every facet maps to its gh flag; labels repeat the flag."
+  (should (equal (octocat--filter-args
+                  '(:state "all" :author "@me" :assignee "bob"
+                    :labels ("bug" "p1") :search "is:draft"))
+                 '("--state" "all" "--author" "@me" "--assignee" "bob"
+                   "--label" "bug" "--label" "p1" "--search" "is:draft"))))
+
+(ert-deftest octocat-test-filter-active-p ()
+  "Only non-default facets count as an active filter."
+  (should-not (octocat-vui-list-filter-active-p nil))
+  (should-not (octocat-vui-list-filter-active-p '(:state "open")))
+  (should (octocat-vui-list-filter-active-p '(:state "closed")))
+  (should (octocat-vui-list-filter-active-p '(:labels ("bug")))))
+
+(ert-deftest octocat-test-filter-set-clears-empty ()
+  "Setting a facet to empty input removes it and refreshes."
+  (with-temp-buffer
+    (let ((refreshed 0))
+      (cl-letf (((symbol-function 'revert-buffer)
+                 (lambda (&rest _) (cl-incf refreshed))))
+        (setq octocat-vui-list--filter '(:author "bob" :state "closed"))
+        (octocat-vui-list--set :author "")
+        (should (equal octocat-vui-list--filter '(:author nil :state "closed")))
+        (should (= refreshed 1))))))
+
 (provide 'octocat-tests)
 ;;; octocat-tests.el ends here

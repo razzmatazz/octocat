@@ -1265,5 +1265,51 @@ Prefix a hash (e.g. \"a1b2c3\") to narrow to a specific commit."
       (when item
         (octocat--search-open-item item)))))
 
+
+;;;; List filters
+;;
+;; A filter is a plist shared by the PR and issue list pages:
+;;   :state     "open" (default), "closed", "merged" (PRs only) or "all"
+;;   :author    login, or "@me"
+;;   :assignee  login, or "@me"
+;;   :labels    list of label names (all must match)
+;;   :search    free text, passed to `gh --search' (GitHub search syntax)
+;; Absent keys mean "no constraint".
+
+(defun octocat--filter-args (filter)
+  "Return the `gh pr/issue list' flags for FILTER (see \"List filters\")."
+  (append
+   (list "--state" (or (plist-get filter :state) "open"))
+   (when-let* ((author (plist-get filter :author)))
+     (list "--author" author))
+   (when-let* ((assignee (plist-get filter :assignee)))
+     (list "--assignee" assignee))
+   (mapcan (lambda (label) (list "--label" label))
+           (plist-get filter :labels))
+   (when-let* ((search (plist-get filter :search)))
+     (list "--search" search))))
+
+(defun octocat--list-labels (repo callback)
+  "Fetch the label names of REPO asynchronously and call CALLBACK.
+CALLBACK is called with a list of strings, or a cons \\=(error . MSG)."
+  (octocat--run-gh "labels"
+                   (list "label" "list"
+                         "--repo" repo
+                         "--limit" "200"
+                         "--json" "name")
+                   (lambda (output)
+                     (mapcar (lambda (h) (gethash "name" h))
+                             (octocat--parse-json-list output)))
+                   callback))
+
+(defun octocat--list-people (repo callback)
+  "Fetch the logins that can be assigned in REPO and call CALLBACK.
+CALLBACK is called with a list of strings, or a cons \\=(error . MSG)."
+  (octocat--run-gh "people"
+                   (list "api" (format "repos/%s/assignees?per_page=100" repo)
+                         "--jq" ".[].login")
+                   (lambda (output) (split-string output "\n" t))
+                   callback))
+
 (provide 'octocat-core)
 ;;; octocat-core.el ends here

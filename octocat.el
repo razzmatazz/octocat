@@ -1065,11 +1065,11 @@ mode with no local directory bound."
 
 (defun octocat--open-list (mode name path)
   "Open (or switch to) the list page for the current repository.
-MODE is the list major mode to enable, NAME its buffer-name prefix, and
-PATH the github.com sub-path `octocat-vui-list-browse' opens.  Inside an
-octocat repo or list buffer the page is for that buffer's repository
-(and local clone); elsewhere the repository is derived from the current
-git working tree."
+MODE is the list major mode to enable, NAME the prefix of the buffer
+name, and PATH the github.com sub-path `octocat-vui-list-browse' opens.
+Inside an octocat repo or list buffer the page is for that buffer's
+repository and local clone; elsewhere the repository is derived from
+the current git working tree."
   (let* ((repo      (cond ((derived-mode-p 'octocat-repo-mode) octocat-repo--repo)
                           ((derived-mode-p 'octocat-vui-list-mode) octocat-vui-list--repo)
                           (t (octocat-repo--current-repo))))
@@ -1100,7 +1100,7 @@ git working tree."
 
 ;;;###autoload
 (defun octocat-workflows ()
-  "Open the workflows and recent runs page for the current GitHub repository."
+  "Open the workflow list for the current GitHub repository."
   (interactive)
   (octocat--open-list #'octocat-workflow-list-mode "workflows" "actions"))
 
