@@ -123,7 +123,7 @@
 (defun octocat-visit ()
   "Open the detail view for the item at point."
   (interactive)
-  ;; Check for inline action text property first (e.g. [Browse files] token).
+  ;; Check for inline action text property first (e.g. [Code] token).
   (if (eq (get-text-property (point) 'octocat-action) 'browse-files)
       (octocat-tree-open)
     (let ((section (magit-current-section)))

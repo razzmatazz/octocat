@@ -315,7 +315,7 @@ Evil, whose state keymaps outrank text-property keymaps."
 
 (defun octocat-tree--header-line (repo branch &optional browse-token)
   "Return the tree header line for REPO on BRANCH (no trailing newline).
-With BROWSE-TOKEN, append the dimmed \"[Browse files]\" token."
+With BROWSE-TOKEN, append the dimmed \"[Code]\" token."
   (propertize
    (concat
     (propertize (or repo "") 'face 'octocat-repo)
@@ -325,7 +325,7 @@ With BROWSE-TOKEN, append the dimmed \"[Browse files]\" token."
     (propertize (or branch "") 'face 'octocat-branch)
     (when browse-token
       (concat "  "
-              (propertize "[Browse files]"
+              (propertize "[Code]"
                           'face            'octocat-dimmed
                           'mouse-face      'highlight
                           'help-echo       "RET: browse file tree"

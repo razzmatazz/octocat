@@ -646,16 +646,17 @@ plist from `octocat--head-info', used to highlight the local HEAD commit."
 
 (defun octocat-repo-vui--nav-buttons (summary)
   "Return a list of buttons opening the issue, PR and workflow pages.
-The issue and PR buttons show open counts from SUMMARY, the plist from
+The issue and PR buttons show their open counts, as GitHub's tabs do,
+from SUMMARY, the plist from
 `octocat-repo--fetch-summary', or an ellipsis while it is still loading."
   (let ((issues (plist-get summary :open-issues))
         (prs    (plist-get summary :open-prs)))
     (list
-     (vui-button (format "Issues (%s open)" (or issues "…"))
+     (vui-button (format "Issues (%s)" (or issues "…"))
                  :face 'octocat-dimmed
                  :help-echo "RET: list issues"
                  :on-click #'octocat-issues)
-     (vui-button (format "Pull requests (%s open)" (or prs "…"))
+     (vui-button (format "Pull requests (%s)" (or prs "…"))
                  :face 'octocat-dimmed
                  :help-echo "RET: list pull requests"
                  :on-click #'octocat-prs)
@@ -683,12 +684,11 @@ Everything but the commits comes from a single summary API call."
     (vui-vstack
      (apply #'vui-hstack :spacing 2
             (vui-text repo :face 'octocat-repo)
-            (vui-button "Browse files"
+            (vui-button "Code"
                         :face 'octocat-dimmed
                         :help-echo "RET: browse file tree"
                         :on-click (lambda () (octocat-tree-open)))
             (octocat-repo-vui--nav-buttons summary))
-     (vui-newline)
      (when local-dir
        (vui-text
         (concat (propertize "Local clone:" 'face 'octocat-dimmed)

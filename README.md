@@ -125,12 +125,12 @@ Each file entry is a collapsible section.  The diff hunks are rendered with
 
 ### File tree browser (`octocat-tree-mode`)
 
-From any per-repository buffer, press `C-c C-f` or `RET` on the **[Browse files]**
+From any per-repository buffer, press `C-c C-f` or `RET` on the **[Code]**
 token in the header to open an interactive file tree browser for the current
 branch.
 
 ```
-owner/repo  ⎇  main  [Browse files]
+owner/repo  ⎇  main  [Code]
 ▸ src/
 ▸ tests/
   .gitignore
