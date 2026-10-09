@@ -538,6 +538,63 @@ rows."
    (lambda () (octocat-repo-vui--open-issue repo issue))
    "RET: view issue"))
 
+;; The header of an issue or PR page is drawn like a regular list row (see
+;; above): where it lives, then the state before the title with the labels
+;; after it, then dimmed details lined up under the title.
+
+(defun octocat-repo-vui--detail-header (repo number state title chips on-edit-title)
+  "Return the header vnodes of an issue or PR page.
+REPO and NUMBER name the item (the first row opens the repo view).  STATE
+is its coloured state text (see `octocat-repo-vui--state-label'), TITLE
+its title and CHIPS its label chips, \"\" for none.  The title row is the
+`title' target of the page's edit command; RET on it calls ON-EDIT-TITLE."
+  (list
+   (octocat-vui-row
+    (concat (propertize repo 'face 'octocat-repo)
+            (propertize (format "#%d" number) 'face 'octocat-pr-number))
+    (lambda () (octocat-visit-repo repo))
+    "RET: open repo view")
+   (octocat-vui-row
+    (propertize (concat state "  " title
+                        (if (string-empty-p chips) "" (concat "  " chips)))
+                'octocat-timeline-target 'title)
+    on-edit-title
+    "RET: edit title")))
+
+(defun octocat-repo-vui--detail-fields (fields)
+  "Return a vnode listing FIELDS under the title, or nil when none has a value.
+FIELDS is a list of (LABEL . VALUE); a nil or empty VALUE is skipped.  The
+line is dimmed and lined up with the title column."
+  (let ((parts (delq nil
+                     (mapcar (lambda (f)
+                               (and (cdr f) (not (equal (cdr f) ""))
+                                    (concat (propertize (car f) 'face 'octocat-dimmed)
+                                            " " (cdr f))))
+                             fields))))
+    (and parts
+         (vui-text (concat (make-string (+ octocat-repo-vui--state-width 2) ?\s)
+                           (mapconcat #'identity parts
+                                      (propertize " · " 'face 'octocat-dimmed)))))))
+
+(defun octocat-repo-vui--logins (users)
+  "Return the \"@login\" names of USERS (a vector of user objects) joined, or nil."
+  (and (vectorp users) (> (length users) 0)
+       (mapconcat (lambda (u)
+                    (propertize (concat "@" (or (gethash "login" u) (gethash "name" u) ""))
+                                'face 'octocat-pr-author))
+                  users ", ")))
+
+(defun octocat-repo-vui--numbers (refs)
+  "Return the \"#N\" numbers of REFS (a vector of issue/PR objects) joined, or nil."
+  (and (vectorp refs) (> (length refs) 0)
+       (propertize (mapconcat (lambda (r) (format "#%d" (gethash "number" r))) refs " ")
+                   'face 'octocat-pr-number)))
+
+(defun octocat-repo-vui--milestone (item)
+  "Return the milestone title of ITEM, or nil."
+  (let ((m (gethash "milestone" item)))
+    (and (hash-table-p m) (octocat--nonempty (gethash "title" m)))))
+
 (defun octocat-repo-vui--workflow-row (repo workflow)
   "Return a row vnode for WORKFLOW in REPO."
   (let* ((name       (or (gethash "name"  workflow) ""))
@@ -589,10 +646,22 @@ WF-W is the column width to truncate/pad the workflow name to."
                      (lambda () (octocat-repo-vui--open-workflow-run repo run))
                      "RET: viewworkflow run")))
 
-(defun octocat-repo-vui--commit-row (repo commit head-info)
+(defconst octocat-repo-vui--author-max-width 30
+  "Widest author column of the commit list; longer names are truncated.")
+
+(defun octocat-repo-vui--author-width (commits)
+  "Return the width of the author column for COMMITS: the longest name.
+It is no wider than `octocat-repo-vui--author-max-width', so the dates
+line up with no more padding than the different names require."
+  (min octocat-repo-vui--author-max-width
+       (apply #'max 0 (mapcar (lambda (c) (string-width (octocat--commit-author c)))
+                              commits))))
+
+(defun octocat-repo-vui--commit-row (repo commit head-info author-w)
   "Return a row vnode for COMMIT in REPO.
 HEAD-INFO as in `octocat-repo-vui--commits-section'; the local HEAD
-commit is highlighted."
+commit is highlighted.  AUTHOR-W is the width of the author column, see
+`octocat-repo-vui--author-width'."
   (let* ((head-hash (and head-info (plist-get head-info :hash)))
          (sha       (or (gethash "sha" commit) ""))
          (short     (substring sha 0 (min 11 (length sha))))
@@ -618,7 +687,8 @@ commit is highlighted."
                  (concat (propertize text 'face 'octocat-branch-current) pad))
              (octocat--format-title subject))
            "  "
-           (propertize (format "%-16s" author) 'face 'octocat-pr-author)
+           (propertize (truncate-string-to-width author author-w nil ?\s "…")
+                       'face 'octocat-pr-author)
            "  "
            (propertize date 'face 'octocat-dimmed))))
     (octocat-vui-row line
@@ -682,10 +752,11 @@ plist from `octocat--head-info', used to highlight the local HEAD commit."
           (vui-fragment
            (if (null commits)
                (vui-text "  (no commits)\n" :face 'octocat-dimmed)
-             (vui-list commits
-                       (lambda (c)
-                         (octocat-repo-vui--commit-row repo c head-info))
-                       (lambda (c) (gethash "sha" c))))
+             (let ((author-w (octocat-repo-vui--author-width commits)))
+               (vui-list commits
+                         (lambda (c)
+                           (octocat-repo-vui--commit-row repo c head-info author-w))
+                         (lambda (c) (gethash "sha" c)))))
            (when (and commits
                       (or (>= (length commits) limit)
                           ;; Keep the button in place while a further page

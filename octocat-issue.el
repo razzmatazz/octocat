@@ -43,6 +43,12 @@
 (declare-function octocat-repo-vui--issue-row "octocat-repo" (repo issue layout))
 (declare-function octocat-repo-vui--cells "octocat-repo" (item current-branch repo))
 (declare-function octocat-repo-vui--layout "octocat-repo" (cells width))
+(declare-function octocat-repo-vui--state-label "octocat-repo" (state &optional draft))
+(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo number state title chips on-edit-title))
+(declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
+(declare-function octocat-repo-vui--logins "octocat-repo" (users))
+(declare-function octocat-repo-vui--numbers "octocat-repo" (refs))
+(declare-function octocat-repo-vui--milestone "octocat-repo" (item))
 (declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
 
 
@@ -247,7 +253,8 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
                          "--repo" repo
                          "--json" (concat "number,title,author,state,body,"
                                           "createdAt,closedAt,"
-                                          "labels,comments,url"))
+                                          "labels,comments,url,assignees,milestone,"
+                                          "closedByPullRequestsReferences"))
                    (lambda (output) (json-parse-string (string-trim output)))
                    callback))
 
@@ -255,30 +262,22 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
 ;;
 ;; The timeline itself (items, entries, rail) is in octocat-timeline.el.
 
-(defun octocat--issue-state-face (state)
-  "Return the face for issue STATE string."
-  (if (equal state "OPEN") 'octocat-pr-state-open 'octocat-pr-state-closed))
-
 (defun octocat-issue--header (repo issue)
   "Return the vnodes above the timeline: repo, title and labels of ISSUE in REPO."
   (let* ((number (gethash "number" issue))
          (state  (or (gethash "state" issue) "OPEN"))
          (title  (or (gethash "title" issue) ""))
          (chips  (octocat--format-labels (octocat-timeline--get issue "labels"))))
-    (list
-     (octocat-vui-row
-      (concat (propertize repo 'face 'octocat-repo)
-              "  " (propertize "issue" 'face 'octocat-dimmed)
-              " " (propertize (format "#%d" number) 'face 'octocat-pr-number)
-              "  " (propertize (downcase state) 'face (octocat--issue-state-face state)))
-      (lambda () (octocat-visit-repo repo))
-      "RET: open repo view")
-     (octocat-vui-row
-      (propertize (concat "  " title) 'octocat-timeline-target 'title)
-      #'octocat-issue-edit-title
-      "RET: edit title")
-     (and (not (string-empty-p chips))
-          (vui-text (concat "  " chips))))))
+    (append
+     (octocat-repo-vui--detail-header
+      repo number (octocat-repo-vui--state-label state) title chips
+      #'octocat-issue-edit-title)
+     (list
+      (octocat-repo-vui--detail-fields
+       (list (cons "Assignees" (octocat-repo-vui--logins (gethash "assignees" issue)))
+             (cons "Milestone" (octocat-repo-vui--milestone issue))
+             (cons "Fixed by"  (octocat-repo-vui--numbers
+                                (gethash "closedByPullRequestsReferences" issue)))))))))
 
 (vui-defcomponent octocat-issue--page (repo number raw)
   "Issue NUMBER of REPO as a timeline; RAW shows markdown bodies verbatim."

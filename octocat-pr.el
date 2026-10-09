@@ -44,6 +44,13 @@
 (declare-function octocat-repo-vui--pr-row "octocat-repo" (repo pr current-branch layout))
 (declare-function octocat-repo-vui--cells "octocat-repo" (item current-branch repo))
 (declare-function octocat-repo-vui--layout "octocat-repo" (cells width))
+(defvar octocat-repo-vui--state-width)  ; defconst in octocat-repo.el
+(declare-function octocat-repo-vui--state-label"octocat-repo" (state &optional draft))
+(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo number state title chips on-edit-title))
+(declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
+(declare-function octocat-repo-vui--logins "octocat-repo" (users))
+(declare-function octocat-repo-vui--numbers "octocat-repo" (refs))
+(declare-function octocat-repo-vui--milestone "octocat-repo" (item))
 (declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
 
 ;; The views the PR page opens; octocat.el loads them all.
@@ -251,18 +258,14 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
                                           "baseRefName,headRefName,"
                                           "additions,deletions,changedFiles,"
                                           "labels,reviewDecision,reviews,"
-                                          "comments,statusCheckRollup,url,commits"))
+                                          "comments,statusCheckRollup,url,commits,"
+                                          "assignees,milestone,latestReviews,"
+                                          "reviewRequests,closingIssuesReferences"))
                    (lambda (output) (json-parse-string (string-trim output)))
                    callback))
 
 
 ;;;; Rendering
-
-(defun octocat--pr-state-face (state)
-  "Return the face for PR STATE string."
-  (cond ((equal state "MERGED") 'octocat-pr-state-merged)
-        ((equal state "CLOSED") 'octocat-pr-state-closed)
-        (t                      'octocat-pr-state-open)))
 
 (defun octocat-pr--commit-items (repo pr)
   "Return a timeline item for each commit of PR (a hash-table) in REPO.
@@ -364,37 +367,61 @@ PR is the hash-table of the pull request in REPO."
          (base     (or (gethash "baseRefName" pr) ""))
          (local    (octocat--current-branch))
          (chips    (octocat--format-labels (octocat-timeline--get pr "labels")))
-         (changes  (concat "  Changes  "
+         (indent   (make-string (+ octocat-repo-vui--state-width 2) ?\s))
+         (changes  (concat indent
+                           (propertize "Changes" 'face 'octocat-dimmed) " "
                            (propertize (format "+%d" (or (gethash "additions" pr) 0))
                                        'face 'diff-added)
                            " "
                            (propertize (format "-%d" (or (gethash "deletions" pr) 0))
                                        'face 'diff-removed)
-                           (format "  across %d file(s)"
-                                   (or (gethash "changedFiles" pr) 0)))))
-    (list
-     (octocat-vui-row
-      (concat (propertize repo 'face 'octocat-repo)
-              "  " (propertize "PR" 'face 'octocat-dimmed)
-              " " (propertize (format "#%d" number) 'face 'octocat-pr-number)
-              "  " (propertize (downcase state) 'face (octocat--pr-state-face state)))
-      (lambda () (octocat-visit-repo repo))
-      "RET: open repo view")
-     (octocat-vui-row
-      (propertize (concat "  " title) 'octocat-timeline-target 'title)
-      #'octocat-pr-edit-title
-      "RET: edit title")
-     (vui-text (concat "  "
-                       (propertize head 'face (if (equal head local)
-                                                  'octocat-branch-current
-                                                'octocat-branch))
-                       " → "
-                       (propertize base 'face 'octocat-branch)))
-     (and (not (string-empty-p chips))
-          (vui-text (concat "  " chips)))
-     (octocat-vui-row changes
-                      (lambda () (octocat-pr-diff-open repo number))
-                      "RET: open diff view"))))
+                           (propertize (format " across %d file(s)"
+                                               (or (gethash "changedFiles" pr) 0))
+                                       'face 'octocat-dimmed)))
+         (reviewers (octocat-pr--reviewers pr)))
+    (append
+     (octocat-repo-vui--detail-header
+      repo number
+      (octocat-repo-vui--state-label state (gethash "isDraft" pr))
+      title chips #'octocat-pr-edit-title)
+     (list
+      (vui-text (concat indent
+                        (propertize head 'face (if (equal head local)
+                                                   'octocat-branch-current
+                                                 'octocat-branch))
+                        (propertize " → " 'face 'octocat-dimmed)
+                        (propertize base 'face 'octocat-branch)))
+      (octocat-repo-vui--detail-fields
+       (list (cons "Reviewers" reviewers)
+             (cons "Assignees" (octocat-repo-vui--logins (gethash "assignees" pr)))
+             (cons "Milestone" (octocat-repo-vui--milestone pr))
+             (cons "Closes"    (octocat-repo-vui--numbers
+                                (gethash "closingIssuesReferences" pr)))))
+      (octocat-vui-row changes
+                       (lambda () (octocat-pr-diff-open repo number))
+                       "RET: open diff view")))))
+
+(defun octocat-pr--reviewers (pr)
+  "Return the reviewers of PR as one string, or nil when there are none.
+Each is \"@login (state)\": the state of their latest review, or
+\"pending\" for a requested review not yet given."
+  (let* ((reviews  (octocat-timeline--get pr "latestReviews"))
+         (requests (octocat-timeline--get pr "reviewRequests"))
+         (parts
+          (append
+           (and (vectorp reviews)
+                (mapcar (lambda (r)
+                          (format "%s (%s)"
+                                  (octocat--author-login r)
+                                  (downcase (replace-regexp-in-string
+                                             "_" " " (or (gethash "state" r) "")))))
+                        reviews))
+           (and (vectorp requests)
+                (mapcar (lambda (u)
+                          (format "@%s (pending)"
+                                  (or (gethash "login" u) (gethash "name" u) "")))
+                        requests)))))
+    (and parts (mapconcat #'identity parts ", "))))
 
 (vui-defcomponent octocat-pr--page (repo number raw)
   "Pull request NUMBER of REPO as a timeline; RAW shows markdown verbatim."

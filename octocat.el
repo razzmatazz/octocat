@@ -884,19 +884,19 @@ the current git working tree."
 (defun octocat-prs ()
   "Open the pull request list for the current GitHub repository."
   (interactive)
-  (octocat--open-list #'octocat-pr-list-mode "prs" "pulls"))
+  (octocat--open-list #'octocat-pr-list-mode "pr-list" "pulls"))
 
 ;;;###autoload
 (defun octocat-issues ()
   "Open the issue list for the current GitHub repository."
   (interactive)
-  (octocat--open-list #'octocat-issue-list-mode "issues" "issues"))
+  (octocat--open-list #'octocat-issue-list-mode "issue-list" "issues"))
 
 ;;;###autoload
 (defun octocat-workflows ()
   "Open the workflow list for the current GitHub repository."
   (interactive)
-  (octocat--open-list #'octocat-workflow-list-mode "workflows" "actions"))
+  (octocat--open-list #'octocat-workflow-list-mode "workflow-list" "actions"))
 
 
 ;;;; Evil integration
