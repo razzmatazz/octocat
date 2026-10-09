@@ -73,6 +73,7 @@
 (declare-function octocat-issue-refresh      "octocat-issue"     (&optional _ignore-auto _noconfirm))
 (declare-function octocat-issue-add-comment  "octocat-issue"     ())
 (declare-function octocat-issue-edit-body    "octocat-issue"     ())
+(declare-function octocat-issue-browse       "octocat-issue"     ())
 (declare-function octocat-issue-edit         "octocat-issue"     ())
 (declare-function octocat-feed-load-more     "octocat"           ())
 (declare-function octocat-repo-browse        "octocat-repo"      ())
@@ -198,20 +199,18 @@
     (define-key aux (kbd "gr")      #'octocat-pr-diff-refresh))
 
   ;; ── octocat-issue-mode ────────────────────────────────────────────────
-  (let ((aux   (evil-get-auxiliary-keymap octocat-issue-mode-map 'normal t t))
-        (aux-m (evil-get-auxiliary-keymap octocat-issue-mode-map 'motion t t)))
-    (define-key aux   (kbd "g")     nil)
-    (define-key aux   (kbd "RET")   #'octocat-visit)
-    (define-key aux   (kbd "C-c C-o") #'octocat-browse)
-    (define-key aux   (kbd "C-c C-a") #'octocat-issue-add-comment)
-    (define-key aux   (kbd "C-c C-e") #'octocat-issue-edit)
-    (define-key aux   (kbd "C-c C-v") #'octocat-toggle-markdown)
-    (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
-    (define-key aux   (kbd "C-c C-s") #'octocat-search-repo)
-    (define-key aux   (kbd "gs")    #'octocat-search-repo)
-    (define-key aux   (kbd "q")     #'quit-window)
-    (define-key aux   (kbd "gr")    #'octocat-issue-refresh)
-    (define-key aux-m (kbd "RET")   #'octocat-visit))
+  ;; vui.el-rendered like octocat-repo-mode: row RET actions come from
+  ;; per-row keymaps, so only the global commands are bound here.
+  (evil-define-key* 'normal octocat-issue-mode-map
+    (kbd "C-c C-o") #'octocat-issue-browse
+    (kbd "C-c C-a") #'octocat-issue-add-comment
+    (kbd "C-c C-e") #'octocat-issue-edit
+    (kbd "C-c C-v") #'octocat-toggle-markdown
+    (kbd "C-c C-r") #'octocat-switch-repo
+    (kbd "C-c C-s") #'octocat-search-repo
+    (kbd "gs")      #'octocat-search-repo
+    (kbd "gr")      #'octocat-issue-refresh
+    (kbd "q")       #'quit-window)
 
   ;; ── octocat-workflow-mode ─────────────────────────────────────────────
   (let ((aux   (evil-get-auxiliary-keymap octocat-workflow-mode-map 'normal t t))

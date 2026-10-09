@@ -20,9 +20,12 @@
 
 ;;; Commentary:
 
-;; Issue data fetching, detail rendering, and the octocat-issue-mode major mode.
-;; Depends on octocat-core.el for shared infrastructure; must not depend on
-;; octocat.el to avoid a circular require.
+;; Issue data fetching, the issue timeline view, and the octocat-issue-mode
+;; major mode.  The detail view is vui.el-rendered as a GitHub-style
+;; timeline (opening post, comments and events in time order); see
+;; "Timeline model" below.  Depends on octocat-core.el for shared
+;; infrastructure; must not depend on octocat.el to avoid a circular
+;; require.
 
 ;;; Code:
 
@@ -39,10 +42,6 @@
 (declare-function octocat-repo-vui--issue-row "octocat-repo" (repo issue))
 (declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
 
-;; These commands are defined in octocat.el which loads this file, so we
-;; cannot require it here.  Declare them to silence the byte-compiler.
-(declare-function octocat-browse "octocat" ())
-(declare-function octocat-visit  "octocat" ())
 
 ;;;; Edit / comment commands — submit helpers
 
@@ -143,36 +142,61 @@ Calls ON-SUCCESS on completion or ON-ERROR with a message on failure."
              (when (buffer-live-p buf)
                (with-current-buffer buf (octocat-issue-refresh))))))))))
 
+(defun octocat-issue--target ()
+  "Return what the timeline entry at point stands for, or nil.
+It is the symbol `title' or `body', or a comment hash-table, as stored in
+the `octocat-issue-target' text property by the renderer."
+  (get-text-property (point) 'octocat-issue-target))
+
 (defun octocat-issue-edit ()
   "Edit the thing at point in the current issue buffer.
-On the body section: replace the issue body.
+On the title: rename the issue.
+On the opening post: replace the issue body.
 On a comment you authored: edit that comment.
 On someone else\\='s comment: signal an error."
   (interactive)
   (unless (and octocat--issue-repo octocat--issue-number)
     (user-error "Octocat: Buffer is not associated with an issue"))
-  (let* ((section (magit-current-section))
-         (type    (oref section type)))
-    (pcase type
-      ('issue-body
-       (octocat-issue-edit-body))
-      ('comment
-       (let* ((comment    (oref section value))
-              (authored   (eq (gethash "viewerDidAuthor" comment) t))
-              (comment-id (octocat--comment-numeric-id comment))
-              (body       (octocat--nonempty (gethash "body" comment))))
-         (unless authored
-           (user-error "Octocat: You can't edit someone else's comment"))
-         (unless comment-id
-           (user-error "Octocat: Could not determine comment ID from URL"))
-         (octocat--open-edit-buffer
-          (format "Edit comment on issue #%d" octocat--issue-number)
-          #'octocat-issue--submit-edit-comment
-          #'octocat-issue-refresh
-          body
-          (list :comment-id comment-id))))
-      (_
-       (user-error "Octocat: Nothing to edit here")))))
+  (let ((target (octocat-issue--target)))
+    (cond
+     ((eq target 'title) (octocat-issue-edit-title))
+     ((eq target 'body)  (octocat-issue-edit-body))
+     ((hash-table-p target)
+      (let* ((authored   (eq (gethash "viewerDidAuthor" target) t))
+             (comment-id (octocat--comment-numeric-id target))
+             (body       (octocat--nonempty (gethash "body" target))))
+        (unless authored
+          (user-error "Octocat: You can't edit someone else's comment"))
+        (unless comment-id
+          (user-error "Octocat: Could not determine comment ID from URL"))
+        (octocat--open-edit-buffer
+         (format "Edit comment on issue #%d" octocat--issue-number)
+         #'octocat-issue--submit-edit-comment
+         #'octocat-issue-refresh
+         body
+         (list :comment-id comment-id))))
+     (t
+      (user-error "Octocat: Nothing to edit here")))))
+
+(defun octocat-issue-browse ()
+  "Open the comment at point, or else the whole issue, in the browser."
+  (interactive)
+  (unless (and octocat--issue-repo octocat--issue-number)
+    (user-error "Octocat: Buffer is not associated with an issue"))
+  (let* ((target (octocat-issue--target))
+         (url    (and (hash-table-p target) (gethash "url" target)))
+         (gh     (executable-find "gh")))
+    (cond
+     ((stringp url)
+      (message "Octocat: Opening comment in browser…")
+      (browse-url url))
+     (gh
+      (message "Octocat: Opening issue #%d in browser…" octocat--issue-number)
+      (start-process "octocat-browse" nil gh
+                     "issue" "view" "--web"
+                     (number-to-string octocat--issue-number)
+                     "--repo" octocat--issue-repo))
+     (t (user-error "Octocat: `gh' executable not found")))))
 
 
 ;;;; Buffer-local declarations
@@ -213,193 +237,325 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
                    (lambda (output) (json-parse-string (string-trim output)))
                    callback))
 
+(defun octocat--fetch-issue-events (repo number callback)
+  "Fetch the timeline events of issue NUMBER in REPO asynchronously.
+Calls CALLBACK with a hash-table whose \"events\" key holds the vector of
+timeline events of all pages, or a cons \\=(error . MSG).  Comments are in
+there too; `octocat-issue--timeline' ignores them."
+  (octocat--run-gh "issue-events"
+                   (list "api" "--paginate" "--slurp"
+                         (format "repos/%s/issues/%d/timeline" repo number))
+                   (lambda (output)
+                     (let ((pages (json-parse-string (string-trim output)))
+                           (result (make-hash-table :test 'equal)))
+                       (puthash "events" (apply #'vconcat (append pages nil)) result)
+                       result))
+                   callback))
 
-;;;; Rendering helpers
+
+;;;; Timeline model
+;;
+;; The page reads like GitHub's: the opening post, every comment and the
+;; notable events (labels, assignments, close/reopen, ...) as one list
+;; ordered by time.  Comments come from `gh issue view'; the events come
+;; from the REST timeline endpoint (`octocat--fetch-issue-events'), whose
+;; own "commented" entries are ignored.  An item is a plist:
+;;
+;;   :time   ISO-8601 timestamp (these sort correctly as strings)
+;;   :kind   `post', `comment' or `event'
+;;   :actor  "@login", or "" when unknown
+;;   :text   what happened (events only)
+;;   :body   markdown text (post and comment)
+;;   :target value of the `octocat-issue-target' property: `body' or a
+;;           comment hash-table, so `octocat-issue-edit' knows what to edit
+
+(defun octocat-issue--get (obj &rest keys)
+  "Return the value under KEYS in the nested hash-table OBJ, or nil.
+Missing keys, non-table intermediates and JSON null all give nil."
+  (while (and keys (hash-table-p obj))
+    (setq obj (gethash (pop keys) obj)))
+  (and (null keys) (not (eq obj :null)) obj))
+
+(defun octocat-issue--actor (event)
+  "Return \"@LOGIN\" for the actor of timeline EVENT, or \"\"."
+  (let ((login (octocat-issue--get event "actor" "login")))
+    (if (stringp login) (concat "@" login) "")))
+
+(defun octocat-issue--event-text (event)
+  "Return what timeline EVENT did as a short string, or nil to skip it.
+The actor is not included; see `octocat-issue--actor'."
+  (let ((label (octocat-issue--get event "label"))
+        (actor (octocat-issue--get event "actor" "login"))
+        (who   (octocat-issue--get event "assignee" "login")))
+    (pcase (gethash "event" event)
+      ("labeled"   (and label (format "added the %s label" (octocat--format-label label))))
+      ("unlabeled" (and label (format "removed the %s label" (octocat--format-label label))))
+      ("assigned"   (and who (if (equal who actor)
+                                 "self-assigned this"
+                               (format "assigned @%s" who))))
+      ("unassigned" (and who (if (equal who actor)
+                                 "removed their assignment"
+                               (format "unassigned @%s" who))))
+      ("closed"   (pcase (octocat-issue--get event "state_reason")
+                    ("not_planned" "closed this as not planned")
+                    ("completed"   "closed this as completed")
+                    (_             "closed this")))
+      ("reopened" "reopened this")
+      ("renamed"  (format "changed the title %s → %s"
+                          (propertize (or (octocat-issue--get event "rename" "from") "")
+                                      'face 'octocat-dimmed)
+                          (or (octocat-issue--get event "rename" "to") "")))
+      ("milestoned"   (format "added this to the %s milestone"
+                              (octocat-issue--get event "milestone" "title")))
+      ("demilestoned" (format "removed this from the %s milestone"
+                              (octocat-issue--get event "milestone" "title")))
+      ("locked"   "locked this conversation")
+      ("unlocked" "unlocked this conversation")
+      ("cross-referenced"
+       (let ((num (octocat-issue--get event "source" "issue" "number")))
+         (and num (format "mentioned this in #%d %s" num
+                          (or (octocat-issue--get event "source" "issue" "title") "")))))
+      ("referenced"
+       (let ((sha (octocat-issue--get event "commit_id")))
+         (and (stringp sha)
+              (format "referenced this in commit %s"
+                      (propertize (substring sha 0 (min 7 (length sha)))
+                                  'face 'octocat-branch)))))
+      (_ nil))))
+
+(defun octocat-issue--timeline (issue events)
+  "Return the timeline items of ISSUE merged with EVENTS, oldest first.
+ISSUE is the hash-table from `octocat--fetch-issue' and EVENTS a vector
+of timeline events (see `octocat--fetch-issue-events'), or nil while they
+are not known.  Without EVENTS a close shows up from the issue's
+`closedAt' alone, without who did it."
+  (let* ((created (or (octocat-issue--get issue "createdAt") ""))
+         (closed  (octocat-issue--get issue "closedAt"))
+         (items
+          (append
+           (list (list :time created :kind 'post
+                       :actor (octocat--author-login issue)
+                       :body (or (octocat-issue--get issue "body") "")
+                       :target 'body))
+           (mapcar (lambda (comment)
+                     (list :time (or (gethash "createdAt" comment) "")
+                           :kind 'comment
+                           :actor (octocat--author-login comment)
+                           :body (or (gethash "body" comment) "")
+                           :target comment))
+                   (octocat-issue--get issue "comments"))
+           (if events
+               (delq nil
+                     (mapcar (lambda (event)
+                               (let ((text (octocat-issue--event-text event)))
+                                 (and text
+                                      (list :time (or (octocat-issue--get event "created_at") "")
+                                            :kind 'event
+                                            :actor (octocat-issue--actor event)
+                                            :text text
+                                            :state (gethash "event" event)))))
+                             events))
+             (and (stringp closed) (not (string-empty-p closed))
+                  (list (list :time closed :kind 'event :actor ""
+                              :text "closed this" :state "closed")))))))
+    ;; `sort' is stable, so the post stays ahead of anything stamped alike.
+    (sort items (lambda (a b) (string< (plist-get a :time) (plist-get b :time))))))
+
+
+;;;; Rendering
+
+(defconst octocat-issue--rail (propertize "  │" 'face 'octocat-dimmed)
+  "The timeline's vertical line, drawn between two entries.")
+
+(defconst octocat-issue--body-prefix (propertize "  │   " 'face 'octocat-dimmed)
+  "Prefix of a post or comment body: the rail, then the text indented.")
 
 (defun octocat--issue-state-face (state)
   "Return the face for issue STATE string."
   (if (equal state "OPEN") 'octocat-pr-state-open 'octocat-pr-state-closed))
 
+(defun octocat-issue--entry-string (item raw)
+  "Return the text of timeline ITEM, without a final newline.
+ITEM is as described under \"Timeline model\".  RAW non-nil shows markdown
+bodies verbatim.  The text carries ITEM's target in the
+`octocat-issue-target' property."
+  (let* ((kind  (plist-get item :kind))
+         (actor (propertize (plist-get item :actor) 'face 'octocat-pr-author))
+         (date  (propertize (octocat--format-ts-full (plist-get item :time))
+                            'face 'octocat-dimmed))
+         (text
+          (if (eq kind 'event)
+              (concat "  "
+                      (propertize "○" 'face (if (equal (plist-get item :state) "closed")
+                                                'octocat-pr-state-closed
+                                              'octocat-dimmed))
+                      " " actor (if (string-empty-p actor) "" " ")
+                      (plist-get item :text) "  " date)
+            (let ((body (plist-get item :body)))
+              (concat "  " (propertize "●" 'face 'octocat-dimmed) " " actor " "
+                      (propertize (if (eq kind 'post) "opened this issue" "commented")
+                                  'face 'octocat-dimmed)
+                      "  " date "\n"
+                      (if (string-empty-p (string-trim body))
+                          (concat octocat-issue--body-prefix
+                                  (propertize (if (eq kind 'post) "(no description)" "(empty)")
+                                              'face 'octocat-dimmed))
+                        (string-remove-suffix
+                         "\n" (octocat--markdown-string
+                               body octocat-issue--body-prefix raw))))))))
+    (when-let* ((target (plist-get item :target)))
+      (put-text-property 0 (length text) 'octocat-issue-target target text))
+    text))
 
-;;;; Rendering
+(defun octocat-issue--entries (issue events raw)
+  "Return the vnodes of the timeline of ISSUE and EVENTS, rail lines included.
+RAW is as for `octocat-issue--entry-string'."
+  (let (nodes)
+    (dolist (item (octocat-issue--timeline issue events))
+      (when nodes (push (vui-text octocat-issue--rail) nodes))
+      (push (vui-text (octocat-issue--entry-string item raw)) nodes))
+    (nreverse nodes)))
 
-(defun octocat--render-issue-loading (number title state)
-  "Render a loading skeleton for issue NUMBER with TITLE and STATE."
-  (let ((inhibit-read-only t))
-    (erase-buffer)
-    (magit-insert-section (octocat-issue-root)
-      (magit-insert-heading
-        (concat (propertize (or octocat--issue-repo "") 'face 'octocat-repo)
-                "  "
-                (propertize "issue" 'face 'octocat-dimmed)
-                " "
-                (propertize (format "#%d" number) 'face 'octocat-pr-number)
-                "  "
-                title
-                "  "
-                (propertize (downcase state) 'face (octocat--issue-state-face state))))
-      (magit-insert-section (issue-meta)
-        (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))
-        (let ((hint (list 'mouse-face 'magit-section-highlight
-                          'help-echo  "RET: open repo view")))
-          (magit-insert-section (repo-nav octocat--issue-repo)
-            (magit-insert-heading
-              (concat (apply #'propertize "  Repo     " hint)
-                      (apply #'propertize (or octocat--issue-repo "")
-                             'face 'octocat-repo hint)
-                      (apply #'propertize "\n" hint)))))
-        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
-      (insert "\n")
-      (magit-insert-section (issue-body)
-        (magit-insert-heading (propertize "Body" 'face 'octocat-section-heading))
-        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
-      (insert "\n")
-      (magit-insert-section (issue-comments)
-        (magit-insert-heading (propertize "Comments" 'face 'octocat-section-heading))
-        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))))
+(defun octocat-issue--header (repo issue)
+  "Return the vnodes above the timeline: repo, title and labels of ISSUE in REPO."
+  (let* ((number (gethash "number" issue))
+         (state  (or (gethash "state" issue) "OPEN"))
+         (title  (or (gethash "title" issue) ""))
+         (chips  (octocat--format-labels (octocat-issue--get issue "labels"))))
+    (list
+     (octocat-vui-row
+      (concat (propertize repo 'face 'octocat-repo)
+              "  " (propertize "issue" 'face 'octocat-dimmed)
+              " " (propertize (format "#%d" number) 'face 'octocat-pr-number)
+              "  " (propertize (downcase state) 'face (octocat--issue-state-face state)))
+      (lambda () (octocat-visit-repo repo))
+      "RET: open repo view")
+     (octocat-vui-row
+      (propertize (concat "  " title) 'octocat-issue-target 'title)
+      #'octocat-issue-edit-title
+      "RET: edit title")
+     (and (not (string-empty-p chips))
+          (vui-text (concat "  " chips))))))
 
-(defun octocat--render-issue (issue)
-  "Erase the current buffer and render issue detail from hash-table ISSUE."
-  (let* ((number   (gethash "number"    issue))
-         (title    (or (gethash "title"  issue) ""))
-         (state    (or (gethash "state"  issue) "OPEN"))
-         (author   (octocat--author-login issue))
-         (body     (or (gethash "body" issue) ""))
-         (created  (or (gethash "createdAt" issue) ""))
-         (closed   (gethash "closedAt" issue))
-         (labels   (let ((v (gethash "labels" issue)))
-                     (if (or (null v) (eq v :null)) [] v)))
-         (comments (let ((v (gethash "comments" issue)))
-                     (if (or (null v) (eq v :null)) [] v)))
-         (inhibit-read-only t))
-    (erase-buffer)
-    (magit-insert-section (octocat-issue-root)
-      ;; ── Header ────────────────────────────────────────────────────────
-      (magit-insert-heading
-        (concat (propertize (or octocat--issue-repo "") 'face 'octocat-repo)
-                "  "
-                (propertize "issue" 'face 'octocat-dimmed)
-                " "
-                (propertize (format "#%d" number) 'face 'octocat-pr-number)
-                "  "
-                title
-                "  "
-                (propertize (downcase state)
-                            'face (octocat--issue-state-face state))))
-      ;; ── Info ──────────────────────────────────────────────────────────
-      (magit-insert-section (issue-meta)
-        (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))
-        (let ((hint (list 'mouse-face 'magit-section-highlight
-                          'help-echo  "RET: open repo view")))
-          (magit-insert-section (repo-nav octocat--issue-repo)
-            (magit-insert-heading
-              (concat (apply #'propertize "  Repo     " hint)
-                      (apply #'propertize (or octocat--issue-repo "")
-                             'face 'octocat-repo hint)
-                      (apply #'propertize "\n" hint)))))
-        (magit-insert-section (issue-title)
-          (magit-insert-heading
-            (let ((hint '(mouse-face magit-section-highlight
-                          help-echo  "RET: edit title")))
-              (concat (apply #'propertize "  Title    " hint)
-                      (apply #'propertize title hint)
-                      (apply #'propertize "\n" hint)))))
-        (let ((chips (octocat--format-labels labels)))
-          (unless (string-empty-p chips)
-            (insert (make-string 11 ?\s) chips "\n")))
-        (insert (format "  Author   %s\n"
-                        (propertize author 'face 'octocat-pr-author)))
-        (insert (format "  Created  %s\n" (octocat--format-ts-full created)))
-        (when (and closed (not (eq closed :null)) (not (string-empty-p closed)))
-          (insert (format "  Closed   %s\n" (octocat--format-ts-full closed)))))
-      ;; ── Body ──────────────────────────────────────────────────────────
-      (insert "\n")
-      (magit-insert-section (issue-body)
-        (magit-insert-heading (propertize "Body" 'face 'octocat-section-heading))
-        (if (string-empty-p (string-trim body))
-            (insert (propertize "  (no description)\n" 'face 'octocat-dimmed))
-          (octocat--insert-markdown body octocat--quote-prefix)))
-      ;; ── Comments ──────────────────────────────────────────────────────
-      (insert "\n")
-      (magit-insert-section (issue-comments)
-        (magit-insert-heading
-          (propertize (format "Comments (%d)" (length comments))
-                      'face 'octocat-section-heading))
-        (octocat--render-comments comments)))))
+(vui-defcomponent octocat-issue--page (repo number raw)
+  "Issue NUMBER of REPO as a timeline; RAW shows markdown bodies verbatim."
+  :state ((spin 0))
+  :render
+  (let* ((cached        (vui-use-memo (repo number)
+                          (octocat--detail-cache-load repo "issue" number)))
+         (cached-events (vui-use-memo (repo number)
+                          (octocat--detail-cache-load repo "issue-events" number)))
+         (async  (vui-use-async (list 'issue repo number)
+                   (lambda (resolve reject)
+                     (octocat--fetch-issue
+                      repo number
+                      (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
+         (events-async (vui-use-async (list 'issue-events repo number)
+                         (lambda (resolve reject)
+                           (octocat--fetch-issue-events
+                            repo number
+                            (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
+         (fresh        (and (eq (plist-get async :status) 'ready)
+                            (plist-get async :data)))
+         (fresh-events (and (eq (plist-get events-async :status) 'ready)
+                            (plist-get events-async :data)))
+         ;; Cached data shows until the fresh data arrives.
+         (result (octocat-vui-with-stale async cached))
+         (events (gethash "events" (or fresh-events cached-events (make-hash-table))))
+         (loading (or (plist-get result :refreshing)
+                      (and (not fresh-events) (eq (plist-get events-async :status) 'pending))))
+         (entries (vui-use-memo (result events raw)
+                    (and (eq (plist-get result :status) 'ready)
+                         (octocat-issue--entries (plist-get result :data) events raw)))))
+    (vui-use-effect (fresh)
+      (when fresh (octocat--detail-cache-save repo "issue" number fresh))
+      nil)
+    (vui-use-effect (fresh-events)
+      (when fresh-events (octocat--detail-cache-save repo "issue-events" number fresh-events))
+      nil)
+    (octocat-vui-use-spinner loading)
+    (pcase (plist-get result :status)
+      ('pending (vui-text (concat "  " repo " #" (number-to-string number) "  (loading…)")
+                          :face 'octocat-dimmed))
+      ('error   (vui-text (format "  Error: %s" (plist-get result :error)) :face 'error))
+      ('ready
+       (let ((issue (plist-get result :data)))
+         (apply #'vui-vstack
+                (append
+                 (delq nil (octocat-issue--header repo issue))
+                 (list (vui-text (octocat-vui-loading-suffix
+                                  (and loading '(:refreshing t)) spin))
+                       (vui-newline))
+                 entries
+                 (list (vui-text octocat-issue--rail)
+                       (vui-hstack :spacing 0
+                         (vui-text "  ")
+                         (vui-button "[+] Add a comment"
+                                     :no-decoration t
+                                     :face 'octocat-dimmed
+                                     :key 'add-comment
+                                     :help-echo "RET: write a comment"
+                                     :on-click #'octocat-issue-add-comment))))))))))
 
 
 ;;;; Major mode
 
 (defvar octocat-issue-mode-map
-  (let ((map (make-sparse-keymap))
-        (g   (make-sparse-keymap)))   ; "g" prefix — lets evil's "gg" through
-    (set-keymap-parent map magit-section-mode-map)
-    (define-key map (kbd "q")       #'quit-window)
-    (define-key map (kbd "RET")     #'octocat-visit)
-    (define-key map (kbd "C-c C-o") #'octocat-browse)
-    (define-key map (kbd "C-c C-a") #'octocat-issue-add-comment)
-    (define-key map (kbd "C-c C-e") #'octocat-issue-edit)
-    (define-key map (kbd "C-c C-v") #'octocat-toggle-markdown)
-    (define-key map (kbd "C-c C-r") #'octocat-switch-repo)
-    (define-key map (kbd "C-c C-s") #'octocat-search-repo)
-    ;; Shadow magit-section-mode-map's "g" → revert-buffer with a prefix map.
-    (define-key map (kbd "g")  g)
-    (define-key map (kbd "gr") #'octocat-issue-refresh)
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-issue-mode'.")
+(define-key octocat-issue-mode-map (kbd "q") #'quit-window)
+(define-key octocat-issue-mode-map (kbd "g") #'revert-buffer)
+(define-key octocat-issue-mode-map (kbd "C-c C-o") #'octocat-issue-browse)
+(define-key octocat-issue-mode-map (kbd "C-c C-a") #'octocat-issue-add-comment)
+(define-key octocat-issue-mode-map (kbd "C-c C-e") #'octocat-issue-edit)
+(define-key octocat-issue-mode-map (kbd "C-c C-v") #'octocat-toggle-markdown)
+(define-key octocat-issue-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-issue-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 
-(define-derived-mode octocat-issue-mode magit-section-mode "Octocat-Issue"
-  "Major mode for viewing a GitHub Issue.
+(define-derived-mode octocat-issue-mode vui-mode "Octocat-Issue"
+  "Major mode for viewing a GitHub Issue as a timeline.
 
 \\{octocat-issue-mode-map}"
   :group 'octocat
   (setq-local buffer-read-only t)
   (setq-local truncate-lines nil)
   (setq-local revert-buffer-function #'octocat-issue-refresh)
-  (setq-local octocat--refresh-fn #'octocat-issue-refresh)
-  (font-lock-mode -1))
+  (setq-local octocat--refresh-fn #'octocat-issue-refresh))
 
 
 ;;;; Refresh
 
 (defun octocat-issue-refresh (&optional _ignore-auto _noconfirm)
-  "Refresh the current issue detail buffer asynchronously.
-Renders a disk cache immediately (stale-while-revalidate) when available,
-then always fetches fresh data in the background."
+  "Refresh the current issue buffer.
+Mounts the vui.el page for the issue, which paints the disk cache at once
+(stale-while-revalidate) and then fetches fresh data in the background."
   (interactive)
   (unless (and octocat--issue-repo octocat--issue-number)
     (user-error "Octocat: Buffer is not associated with an issue"))
-  (let* ((buf         (current-buffer))
-         (repo        octocat--issue-repo)
-         (num         octocat--issue-number)
-         (saved-point (octocat--save-point))
-         (cache       (octocat--detail-cache-load repo "issue" num)))
-    (when cache
-      (octocat--render-issue cache)
-      (octocat--restore-point saved-point))
-    (setq mode-line-process " [refreshing…]")
-    (octocat--fetch-issue repo num
-                          (lambda (result)
-                            (when (buffer-live-p buf)
-                              (with-current-buffer buf
-                                (setq mode-line-process nil)
-                                (if (eq (car-safe result) 'error)
-                                    (let ((inhibit-read-only t))
-                                      (erase-buffer)
-                                      (insert (propertize
-                                               (format "  Error: %s\n" (cdr result))
-                                               'face 'error)))
-                                  (octocat--detail-cache-save repo "issue" num result)
-                                  (octocat--render-issue result)
-                                  (octocat--restore-point saved-point))))))))
+  (vui-mount (vui-component 'octocat-issue--page
+                            :repo octocat--issue-repo
+                            :number octocat--issue-number
+                            :raw octocat--markdown-raw)
+             (buffer-name)))
+
+(defun octocat-issue-open (repo number)
+  "Show issue NUMBER of REPO in its own buffer."
+  (let ((buf (get-buffer-create (format "*octocat-issue: %s#%d*" repo number))))
+    (pop-to-buffer buf)
+    (unless (derived-mode-p 'octocat-issue-mode)
+      (octocat-issue-mode))
+    (setq octocat--issue-repo   repo
+          octocat--issue-number number)
+    (octocat-issue-refresh)))
 
 
 
 ;;;; Issue list page
 ;;
-;; Opened by `M-x octocat-issues' (octocat.el).  vui.el-rendered, unlike
-;; the magit-section issue detail buffer above; see "UI frameworks" in
-;; CONTRIBUTING.md.
+;; Opened by `M-x octocat-issues' (octocat.el).  vui.el-rendered like the
+;; issue detail buffer above; see "UI frameworks" in CONTRIBUTING.md.
 
 (vui-defcomponent octocat-issue--list-page (repo query)
   "Issue list page for REPO, narrowed by the search QUERY."

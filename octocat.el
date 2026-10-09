@@ -102,8 +102,6 @@
 ;; them without the byte-compiler warning about forward references).
 (declare-function octocat-pr-edit-body         "octocat-pr"      ())
 (declare-function octocat-pr-edit-title        "octocat-pr"      ())
-(declare-function octocat-issue-edit-body      "octocat-issue"   ())
-(declare-function octocat-issue-edit-title     "octocat-issue"   ())
 (declare-function octocat--render-pr-diff-loading "octocat-pr-diff" (number))
 (declare-function octocat-pr-diff-refresh      "octocat-pr-diff" (&optional _ignore-auto _noconfirm))
 (declare-function octocat--render-checks-loading "octocat-checks" (sha))
@@ -193,20 +191,8 @@
          (octocat--render-commit-loading oid)
          (octocat-commit-refresh)))
       ('issue
-       (let* ((issue  (oref section value))
-              (number (gethash "number" issue))
-              (title  (or (gethash "title" issue) ""))
-              (state  (or (gethash "state" issue) "OPEN"))
-              (repo   (or octocat-repo--repo octocat--issue-repo))
-              (buf-name (format "*octocat-issue: %s#%d*" repo number))
-              (buf (get-buffer-create buf-name)))
-         (pop-to-buffer buf)
-         (unless (derived-mode-p 'octocat-issue-mode)
-           (octocat-issue-mode))
-         (setq octocat--issue-repo repo
-               octocat--issue-number number)
-         (octocat--render-issue-loading number title state)
-         (octocat-issue-refresh)))
+       (octocat-issue-open (or octocat-repo--repo octocat--issue-repo)
+                           (gethash "number" (oref section value))))
       ('workflow
        (let* ((wf   (oref section value))
               (id   (gethash "id"   wf))
@@ -237,7 +223,6 @@
          (octocat-run-refresh)))
       ;; RET on the Title row inside the Info section edits the title.
       ('pr-title    (octocat-pr-edit-title))
-      ('issue-title (octocat-issue-edit-title))
       ;; RET on the Changes info field opens the full PR diff view.
       ('pr-changes
        (let* ((repo   octocat--pr-repo)
@@ -352,22 +337,10 @@
              (let* ((issue-obj (and (hash-table-p payload)
                                     (gethash "issue" payload)))
                     (number    (and (hash-table-p issue-obj)
-                                    (gethash "number" issue-obj)))
-                    (title     (or (and (hash-table-p issue-obj)
-                                        (octocat--nonempty (gethash "title" issue-obj)))
-                                   ""))
-                    (buf       (and number
-                                    (get-buffer-create
-                                     (format "*octocat-issue: %s#%d*" full-name number)))))
+                                    (gethash "number" issue-obj))))
                (if (not number)
                    (message "Octocat: No issue number in event payload")
-                 (pop-to-buffer buf)
-                 (unless (derived-mode-p 'octocat-issue-mode)
-                   (octocat-issue-mode))
-                 (setq octocat--issue-repo   full-name
-                       octocat--issue-number number)
-                 (octocat--render-issue-loading number title "OPEN")
-                 (octocat-issue-refresh))))
+                 (octocat-issue-open full-name number))))
             ;; ── Everything else → repo buffer ─────────────────────────
             (t
              (let ((buf (get-buffer-create
@@ -434,7 +407,6 @@ Section types handled:
 Major-mode fallback (used when the section type does not have its own
 handler, e.g. point is on a title/header line):
   `octocat-pr-mode'       → gh pr view --web
-  `octocat-issue-mode'    → gh issue view --web
   `octocat-commit-mode'   → https://github.com/REPO/commit/SHA
   `octocat-workflow-mode' → https://github.com/REPO/actions/workflows/ID
   `octocat-run-mode'      → https://github.com/REPO/actions/runs/ID
@@ -531,13 +503,6 @@ handler, e.g. point is on a title/header line):
                         "pr" "view" "--web"
                         (number-to-string octocat--pr-number)
                         "--repo" octocat--pr-repo)))
-      ((derived-mode-p 'octocat-issue-mode)
-       (when (and octocat--issue-repo octocat--issue-number)
-         (message "Octocat: Opening issue #%d in browser…" octocat--issue-number)
-         (start-process "octocat-browse" nil gh
-                        "issue" "view" "--web"
-                        (number-to-string octocat--issue-number)
-                        "--repo" octocat--issue-repo)))
       ((derived-mode-p 'octocat-commit-mode)
        (when (and octocat--commit-repo octocat--commit-sha)
          (let* ((sha octocat--commit-sha)

@@ -79,14 +79,17 @@ they can be inspected directly.  Do **not** hardcode
 octocat uses two UI frameworks, split by buffer type:
 
 - **vui.el** — the repo overview buffer (`octocat-repo.el`,
-  `octocat-repo-mode`) and the PR, issue and workflow list pages
+  `octocat-repo-mode`), the issue detail view (`octocat-issue-mode`, a
+  GitHub-style timeline of the opening post, comments and events; what
+  point is on is carried by the `octocat-issue-target` text property, not a
+  section) and the PR, issue and workflow list pages
   (`octocat-pr-list-mode`, `octocat-issue-list-mode`,
   `octocat-workflow-list-mode`, defined next to the matching detail views and
   deriving from `octocat-vui-list-mode`).  The repo overview is a dashboard of independent async sections, each
   with its own fetch (`vui-use-async`), pagination counter (`:state`) and
   collapse state (`vui-collapsible`).  `octocat-repo-mode` does **not** derive
   from `magit-section-mode`.
-- **magit-section** — every other view (PR, issue, commit, diff, workflow,
+- **magit-section** — every other view (PR, commit, diff, workflow,
   run, job, checks).  These are document-style buffers (markdown bodies,
   diffs, comments) where the section tree fits well.  See
   [docs/magit-section.md](docs/magit-section.md) for the section tree

@@ -100,9 +100,6 @@
 (declare-function octocat-pr-mode                  "octocat-pr"       ())
 (declare-function octocat--render-pr-loading       "octocat-pr"       (number title state))
 (declare-function octocat-pr-refresh               "octocat-pr"       (&optional _ignore-auto _noconfirm))
-(declare-function octocat-issue-mode               "octocat-issue"    ())
-(declare-function octocat--render-issue-loading    "octocat-issue"    (number title state))
-(declare-function octocat-issue-refresh            "octocat-issue"    (&optional _ignore-auto _noconfirm))
 (declare-function octocat-workflow-mode            "octocat-workflow" ())
 (declare-function octocat--render-workflow-loading "octocat-workflow" (name))
 (declare-function octocat-workflow-refresh         "octocat-workflow" (&optional _ignore-auto _noconfirm))
@@ -122,8 +119,6 @@
 ;; detail buffer, after `pop-to-buffer') than the one that defines them.
 (defvar octocat--pr-repo)        ; defined as buffer-local in octocat-pr.el
 (defvar octocat--pr-number)      ; defined as buffer-local in octocat-pr.el
-(defvar octocat--issue-repo)     ; defined as buffer-local in octocat-issue.el
-(defvar octocat--issue-number)   ; defined as buffer-local in octocat-issue.el
 (defvar octocat--workflow-repo)  ; defined as buffer-local in octocat-workflow.el
 (defvar octocat--workflow-id)    ; defined as buffer-local in octocat-workflow.el
 (defvar octocat--workflow-name)  ; defined as buffer-local in octocat-workflow.el
@@ -367,18 +362,7 @@ issue/PR-count lookups."
 
 (defun octocat-repo-vui--open-issue (repo issue)
   "Open the issue detail buffer for ISSUE (a hash-table) in REPO."
-  (let* ((number   (gethash "number" issue))
-         (title    (or (gethash "title" issue) ""))
-         (state    (or (gethash "state" issue) "OPEN"))
-         (buf-name (format "*octocat-issue: %s#%d*" repo number))
-         (buf      (get-buffer-create buf-name)))
-    (pop-to-buffer buf)
-    (unless (derived-mode-p 'octocat-issue-mode)
-      (octocat-issue-mode))
-    (setq octocat--issue-repo repo
-          octocat--issue-number number)
-    (octocat--render-issue-loading number title state)
-    (octocat-issue-refresh)))
+  (octocat-issue-open repo (gethash "number" issue)))
 
 (defun octocat-repo-vui--open-commit (repo commit)
   "Open the commit detail buffer for COMMIT (a hash-table) in REPO."

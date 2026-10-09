@@ -290,5 +290,79 @@ no gh call is made."
                   "{\"data\":{\"repository\":{\"open\":{\"totalCount\":2},\"closed\":{\"totalCount\":5}}}}")
                  '(:open 2 :closed 5))))
 
+
+;;; Issue timeline
+
+(defun octocat-tests--json (string)
+  "Parse the JSON STRING the way the gh helpers do."
+  (json-parse-string string))
+
+(defconst octocat-tests--issue-json
+  (concat "{\"number\":7,\"state\":\"CLOSED\",\"body\":\"opening\","
+          "\"createdAt\":\"2026-01-01T10:00:00Z\",\"closedAt\":\"2026-01-03T10:00:00Z\","
+          "\"author\":{\"login\":\"ann\"},\"labels\":[],"
+          "\"comments\":[{\"author\":{\"login\":\"bob\"},\"body\":\"later\","
+          "\"createdAt\":\"2026-01-04T10:00:00Z\"},"
+          "{\"author\":{\"login\":\"cy\"},\"body\":\"first\","
+          "\"createdAt\":\"2026-01-02T10:00:00Z\"}]}")
+  "A closed issue with two comments, the later one listed first.")
+
+(ert-deftest octocat-test-issue-timeline-orders-by-time ()
+  "Post, comments and events interleave by timestamp."
+  (let* ((issue  (octocat-tests--json octocat-tests--issue-json))
+         (events (octocat-tests--json
+                  (concat "[{\"event\":\"labeled\",\"created_at\":\"2026-01-02T12:00:00Z\","
+                          "\"actor\":{\"login\":\"ann\"},\"label\":{\"name\":\"bug\",\"color\":\"d73a4a\"}},"
+                          "{\"event\":\"commented\",\"created_at\":\"2026-01-02T10:00:00Z\"},"
+                          "{\"event\":\"closed\",\"created_at\":\"2026-01-03T10:00:00Z\","
+                          "\"actor\":{\"login\":\"ann\"},\"state_reason\":\"completed\"}]")))
+         (items (octocat-issue--timeline issue events)))
+    (should (equal (mapcar (lambda (i) (plist-get i :kind)) items)
+                   '(post comment event event comment)))
+    (should (equal (plist-get (nth 1 items) :actor) "@cy"))
+    (should (equal (plist-get (nth 3 items) :text) "closed this as completed"))
+    (should (eq (plist-get (car items) :target) 'body))
+    (should (hash-table-p (plist-get (nth 1 items) :target)))))
+
+(ert-deftest octocat-test-issue-timeline-close-without-events ()
+  "Before the events load, a close still shows, from `closedAt'."
+  (let ((items (octocat-issue--timeline (octocat-tests--json octocat-tests--issue-json) nil)))
+    (should (equal (mapcar (lambda (i) (plist-get i :kind)) items)
+                   '(post comment event comment)))
+    (should (equal (plist-get (nth 2 items) :actor) ""))))
+
+(ert-deftest octocat-test-issue-event-text ()
+  "Events render as short phrases; unknown ones are skipped."
+  (let ((text (lambda (json) (octocat-issue--event-text (octocat-tests--json json)))))
+    (should (equal (funcall text "{\"event\":\"assigned\",\"actor\":{\"login\":\"a\"},\"assignee\":{\"login\":\"a\"}}")
+                   "self-assigned this"))
+    (should (equal (funcall text "{\"event\":\"assigned\",\"actor\":{\"login\":\"a\"},\"assignee\":{\"login\":\"b\"}}")
+                   "assigned @b"))
+    (should (equal (substring-no-properties
+                    (funcall text "{\"event\":\"renamed\",\"rename\":{\"from\":\"x\",\"to\":\"y\"}}"))
+                   "changed the title x → y"))
+    (should (equal (funcall text "{\"event\":\"reopened\"}") "reopened this"))
+    (should-not (funcall text "{\"event\":\"subscribed\"}"))
+    (should-not (funcall text "{\"event\":\"labeled\",\"label\":null}"))))
+
+(ert-deftest octocat-test-issue-entry-string ()
+  "A comment entry carries its target, a quote rail and its body."
+  (let* ((comment (octocat-tests--json
+                   "{\"author\":{\"login\":\"bob\"},\"body\":\"hi\\nthere\",\"createdAt\":\"2026-01-04T10:00:00Z\"}"))
+         (entry (octocat-issue--entry-string
+                 (list :time "2026-01-04T10:00:00Z" :kind 'comment :actor "@bob"
+                       :body "hi\nthere" :target comment)
+                 t)))
+    (should (string-match-p "@bob commented" entry))
+    (should (string-match-p "│   hi\n  │   there\\'" (substring-no-properties entry)))
+    (should (eq (get-text-property (1- (length entry)) 'octocat-issue-target entry)
+                comment))))
+
+(ert-deftest octocat-test-markdown-string ()
+  "Every line gets the indent and a wrap prefix; raw text is kept verbatim."
+  (let ((out (octocat--markdown-string "a *b*\r\nc" "> " t)))
+    (should (equal (substring-no-properties out) "> a *b*\n> c\n"))
+    (should (equal (get-text-property 0 'wrap-prefix out) "> "))))
+
 (provide 'octocat-tests)
 ;;; octocat-tests.el ends here

@@ -41,9 +41,7 @@
 (declare-function octocat-pr-mode              "octocat-pr"   ())
 (declare-function octocat-pr-refresh           "octocat-pr"   (&optional _ignore-auto _noconfirm))
 (declare-function octocat--render-pr-loading   "octocat-pr"   (number title state))
-(declare-function octocat-issue-mode           "octocat-issue" ())
-(declare-function octocat-issue-refresh        "octocat-issue" (&optional _ignore-auto _noconfirm))
-(declare-function octocat--render-issue-loading "octocat-issue" (number title state))
+(declare-function octocat-issue-open           "octocat-issue" (repo number))
 (declare-function octocat-commit-mode          "octocat-commit" ())
 (declare-function octocat-commit-refresh       "octocat-commit" (&optional _ignore-auto _noconfirm))
 (declare-function octocat--render-commit-loading "octocat-commit" (sha))
@@ -882,40 +880,45 @@ When nil (the default) `octocat--insert-markdown' processes text through
 Each markdown-displaying mode sets this to its own refresh command so the
 toggle can re-render the buffer after flipping `octocat--markdown-raw'.")
 
-(defun octocat--insert-markdown (text &optional indent)
-  "Insert TEXT rendered via `gfm-view-mode' font-lock into the current buffer.
-Each line is prefixed with INDENT (a string, default \"  \"), which is
-also repeated on the wrapped continuation lines of long lines.
-Windows-style CR characters are stripped before rendering.
+(defun octocat--markdown-string (text &optional indent raw)
+  "Return TEXT rendered via `gfm-view-mode' font-lock, one line per row.
+Each line is prefixed with INDENT (a string, default \"  \") and ends in a
+newline; INDENT is also repeated on the wrapped continuation lines of
+long lines.  Windows-style CR characters are stripped before rendering.
 Markup delimiters are hidden and syntax is highlighted using the
 faces from `markdown-mode', which is a declared dependency.
 
-When `octocat--markdown-raw' is non-nil in the current buffer the text is
-inserted verbatim without any font-lock rendering."
+When RAW is non-nil the text is returned verbatim, without any
+font-lock rendering."
   (let* ((indent (or indent "  "))
          (text (replace-regexp-in-string "\r" "" text))
-         (insert-line (lambda (line)
-                        ;; `wrap-prefix' repeats INDENT (a quote bar, say) on
-                        ;; the continuation lines of a long, wrapped line.
-                        (let ((start (point)))
-                          (insert indent line "\n")
-                          (put-text-property start (point) 'wrap-prefix indent)))))
-    (if octocat--markdown-raw
-        (dolist (line (split-string text "\n"))
-          (funcall insert-line line))
-      (let ((rendered
-             (condition-case _err
-                 (with-temp-buffer
-                   (insert text)
-                   (gfm-view-mode)
-                   (font-lock-ensure)
-                   (buffer-string))
-               ;; gfm-mode can crash on malformed input (e.g. unterminated
-               ;; code fences).  Fall back to the raw text so the caller
-               ;; always gets something sensible.
-               (error text))))
-        (dolist (line (split-string rendered "\n"))
-          (funcall insert-line line))))))
+         (rendered
+          (if raw
+              text
+            (condition-case _err
+                (with-temp-buffer
+                  (insert text)
+                  (gfm-view-mode)
+                  (font-lock-ensure)
+                  (buffer-string))
+              ;; gfm-mode can crash on malformed input (e.g. unterminated
+              ;; code fences).  Fall back to the raw text so the caller
+              ;; always gets something sensible.
+              (error text)))))
+    (mapconcat (lambda (line)
+                 ;; `wrap-prefix' repeats INDENT (a quote bar, say) on the
+                 ;; continuation lines of a long, wrapped line.
+                 (let ((full (concat indent line "\n")))
+                   (put-text-property 0 (length full) 'wrap-prefix indent full)
+                   full))
+               (split-string rendered "\n")
+               "")))
+
+(defun octocat--insert-markdown (text &optional indent)
+  "Insert TEXT rendered by `octocat--markdown-string' into the current buffer.
+When `octocat--markdown-raw' is non-nil in the current buffer the text is
+inserted verbatim without any font-lock rendering."
+  (insert (octocat--markdown-string text indent octocat--markdown-raw)))
 
 (defun octocat-toggle-markdown ()
   "Toggle between rendered and raw markdown display in the current buffer.
@@ -1151,18 +1154,7 @@ shape (\"oid\", nested \"commit\") used in different parts of the codebase."
          (octocat--render-pr-loading number title state)
          (octocat-pr-refresh)))
       ('issue
-       (let* ((number   (plist-get item :number))
-              (title    (or (plist-get item :title) ""))
-              (state    (or (plist-get item :state) "OPEN"))
-              (buf-name (format "*octocat-issue: %s#%d*" repo number))
-              (buf      (get-buffer-create buf-name)))
-         (pop-to-buffer buf)
-         (unless (derived-mode-p 'octocat-issue-mode)
-           (octocat-issue-mode))
-         (setq octocat--issue-repo   repo
-               octocat--issue-number number)
-         (octocat--render-issue-loading number title state)
-         (octocat-issue-refresh)))
+       (octocat-issue-open repo (plist-get item :number)))
       ('commit
        (let* ((sha      (plist-get item :sha))
               (short    (substring sha 0 (min 7 (length sha))))
