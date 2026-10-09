@@ -193,7 +193,7 @@ CALLBACK is called with a list of PR hash-tables, or a cons \\=(error . MSG)."
                                  "--repo" repo)
                            (octocat--filter-args query)
                            (list "--limit" (number-to-string limit)
-                                 "--json" "number,title,author,state,statusCheckRollup,headRefName,labels"))
+                                 "--json" "number,title,author,state,isDraft,statusCheckRollup,headRefName,labels"))
                    #'octocat--parse-json-list
                    callback))
 

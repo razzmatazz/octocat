@@ -211,6 +211,14 @@ no gh call is made."
   (should (equal (octocat-vui-list--with-state "is:open label:x" "all")
                  "label:x")))
 
+(ert-deftest octocat-test-state-label ()
+  "State labels are fixed-width words; only open PRs can be drafts."
+  (should (equal (substring-no-properties (octocat-repo-vui--state-label "OPEN")) "open  "))
+  (should (equal (substring-no-properties (octocat-repo-vui--state-label "CLOSED")) "closed"))
+  (should (equal (substring-no-properties (octocat-repo-vui--state-label "MERGED" t)) "merged"))
+  (should (equal (substring-no-properties (octocat-repo-vui--state-label "OPEN" t)) "draft "))
+  (should (equal (substring-no-properties (octocat-repo-vui--state-label "OPEN" :false)) "open  ")))
+
 (ert-deftest octocat-test-counts-query-and-parse ()
   "Pull requests also count merged; the response parses to a plist."
   (should (string-match-p "merged:pullRequests(states:MERGED)"

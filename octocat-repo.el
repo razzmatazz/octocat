@@ -408,18 +408,28 @@ issue/PR-count lookups."
 (defconst octocat-repo-vui--number-width 6
   "Display width of the right-aligned #NUMBER column in PR and issue rows.")
 
-(defconst octocat-repo-vui--detail-indent
-  (+ 2 1 1 octocat-repo-vui--number-width 2)
-  "Column where titles, and the second detail line, start in PR/issue rows.
-Margin, state glyph, space, number column, gap.")
+(defconst octocat-repo-vui--state-width 6
+  "Display width of the state column (\"closed\", \"merged\") in PR and issue rows.")
 
-(defun octocat-repo-vui--state-glyph (state)
-  "Return a coloured one-character glyph for PR/issue STATE (any case).
-The shapes deliberately differ from the CI glyphs (✓ ✗ ●)."
-  (let ((state (downcase (or state "open"))))
-    (cond ((equal state "merged") (propertize "◆" 'face 'octocat-pr-state-merged))
-          ((equal state "closed") (propertize "⊘" 'face 'octocat-pr-state-closed))
-          (t                      (propertize "◉" 'face 'octocat-pr-state-open)))))
+(defconst octocat-repo-vui--detail-indent
+  (+ 2 octocat-repo-vui--state-width 1 octocat-repo-vui--number-width 2)
+  "Column where titles, and the second detail line, start in PR/issue rows.
+Margin, state column, space, number column, gap.")
+
+(defun octocat-repo-vui--state-label (state &optional draft)
+  "Return the coloured, padded state text for a PR/issue STATE (any case).
+DRAFT is the JSON isDraft value; t shows an open pull request as \"draft\"."
+  (let* ((state (downcase (or state "open")))
+         (text  (cond ((equal state "merged") "merged")
+                      ((equal state "closed") "closed")
+                      ((eq draft t) "draft")
+                      (t "open")))
+         (face  (cond ((equal text "merged") 'octocat-pr-state-merged)
+                      ((equal text "closed") 'octocat-pr-state-closed)
+                      ((equal text "draft")  'octocat-dimmed)
+                      (t                     'octocat-pr-state-open))))
+    (propertize (format (format "%%-%ds" octocat-repo-vui--state-width) text)
+                'face face)))
 
 (defun octocat-repo-vui--detail-line (item &optional leading trailing)
   "Return a second row line for ITEM, or \"\" when there is nothing to show.
@@ -454,7 +464,8 @@ PR branch is highlighted with `octocat-branch-current'."
          (line
           (concat
            "  "
-           (octocat-repo-vui--state-glyph (gethash "state" pr))
+           (octocat-repo-vui--state-label (gethash "state" pr)
+                                          (gethash "isDraft" pr))
            " "
            (propertize number 'face 'octocat-pr-number)
            "  "
@@ -479,7 +490,7 @@ PR branch is highlighted with `octocat-branch-current'."
          (line
           (concat
            "  "
-           (octocat-repo-vui--state-glyph (gethash "state" issue))
+           (octocat-repo-vui--state-label (gethash "state" issue))
            " "
            (propertize number 'face 'octocat-pr-number)
            "  "
@@ -544,18 +555,11 @@ WF-W is the column width to truncate/pad the workflow name to."
                      (lambda () (octocat-repo-vui--open-workflow-run repo run))
                      "RET: viewworkflow run")))
 
-(defun octocat-repo-vui--commit-row (repo commit default-branch current-branch head-info)
+(defun octocat-repo-vui--commit-row (repo commit head-info)
   "Return a row vnode for COMMIT in REPO.
-DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
-`octocat-repo-vui--commits-section'."
-  (let* ((branch-label (and (stringp default-branch)
-                            (not (string-empty-p (or default-branch "")))
-                            default-branch))
-         (label-face   (if (and branch-label current-branch
-                                (string= branch-label current-branch))
-                           'octocat-branch-current
-                         'octocat-branch))
-         (head-hash (and head-info (plist-get head-info :hash)))
+HEAD-INFO as in `octocat-repo-vui--commits-section'; the local HEAD
+commit is highlighted."
+  (let* ((head-hash (and head-info (plist-get head-info :hash)))
          (sha       (or (gethash "sha" commit) ""))
          (short     (substring sha 0 (min 11 (length sha))))
          (is-head   (and head-hash
@@ -570,12 +574,6 @@ DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
                      (or (and ca (gethash "date" ca)) "")))
          (line
           (concat
-           "  "
-           (if branch-label
-               (let* ((name (truncate-string-to-width branch-label octocat-branch-max-width nil nil "…"))
-                      (pad  (make-string (- octocat-branch-max-width (string-width name)) ?\s)))
-                 (concat (propertize name 'face label-face) pad))
-             (make-string octocat-branch-max-width ?\s))
            "  "
            (propertize (format "%-11s" short)
                        'face (if is-head 'octocat-branch-current 'octocat-commit-sha))
@@ -603,7 +601,11 @@ DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
 ;; walk in the previous magit-section implementation.
 
 (vui-defcomponent octocat-repo-vui--commits-section (repo default-branch current-branch head-info)
-  "Commits section for REPO."
+  "Commits section for REPO.
+The commits are those of the default branch (the API call names no other),
+so DEFAULT-BRANCH appears once in the title instead of on every row; it is
+highlighted when it is also the local CURRENT-BRANCH.  HEAD-INFO is the
+plist from `octocat--head-info', used to highlight the local HEAD commit."
   :state ((limit octocat-section-limit))
   :render
   (let ((result (octocat-vui-use-async-sticky (list 'commits repo limit)
@@ -612,7 +614,14 @@ DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
                      repo limit
                      (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
     (vui-collapsible
-     :title "Commits" :key 'commits :initially-expanded t :indent 0
+     :title (if (and (stringp default-branch) (not (string-empty-p default-branch)))
+                (concat "Commits on "
+                        (propertize default-branch 'face
+                                    (if (equal default-branch current-branch)
+                                        'octocat-branch-current
+                                      'octocat-branch)))
+              "Commits")
+     :key 'commits :initially-expanded t :indent 0
      (pcase (plist-get result :status)
        ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
        ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
@@ -623,7 +632,7 @@ DEFAULT-BRANCH, CURRENT-BRANCH, HEAD-INFO as in
                (vui-text "  (no commits)\n" :face 'octocat-dimmed)
              (vui-list commits
                        (lambda (c)
-                         (octocat-repo-vui--commit-row repo c default-branch current-branch head-info))
+                         (octocat-repo-vui--commit-row repo c head-info))
                        (lambda (c) (gethash "sha" c))))
            (when (and commits (or (plist-get result :refreshing)
                                  (>= (length commits) limit)))
