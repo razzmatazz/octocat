@@ -267,7 +267,10 @@ no gh call is made."
     (let ((ready '(:status ready :data (3))))
       (should (eq (octocat-vui-with-stale ready '(1 2)) ready))))
   (should (equal (octocat-vui-loading-suffix '(:refreshing t))
-                 "  loading…"))
+                 "  (loading…)"))
+  (should (equal (octocat-vui-loading-suffix '(:refreshing t) 0) "  (loading… ⠋)"))
+  (should (equal (octocat-vui-loading-suffix '(:refreshing t) 11) "  (loading… ⠙)"))
+  (should (equal (octocat-vui-loading-suffix '(:status ready) 3) ""))
   (should (equal (octocat-vui-loading-suffix '(:status ready)) "")))
 
 (ert-deftest octocat-test-state-label ()

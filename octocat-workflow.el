@@ -388,18 +388,20 @@ then always fetches fresh data in the background."
 
 (vui-defcomponent octocat-workflow--runs-section (repo current-branch)
   "Workflow Runs section for REPO."
-  :state ((limit octocat-section-limit))
+  :state ((limit octocat-section-limit) (spin 0))
   :render
-  (let ((result (octocat-vui-use-async-sticky (list 'recent-runs repo limit)
-                  (lambda (resolve reject)
-                    (octocat-repo--list-recent-runs
-                     repo limit
-                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
+  (let* ((result  (octocat-vui-use-async-sticky (list 'recent-runs repo limit)
+                    (lambda (resolve reject)
+                      (octocat-repo--list-recent-runs
+                       repo limit
+                       (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
+         (loading (and (plist-get result :refreshing) t)))
+    (octocat-vui-use-spinner loading)
     (vui-collapsible
-     :title (concat "Workflow Runs" (octocat-vui-loading-suffix result))
+     :title (concat "Workflow Runs" (octocat-vui-loading-suffix result spin))
      :key 'workflow-runs :initially-expanded t :indent 0
      (pcase (plist-get result :status)
-       ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
+       ('pending (vui-text "  (loading…)\n" :face 'octocat-dimmed))
        ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
         (let* ((runs (plist-get result :data))
@@ -434,7 +436,7 @@ then always fetches fresh data in the background."
     (vui-collapsible
      :title "Workflows" :key 'workflows :initially-expanded t :indent 0
      (pcase (plist-get result :status)
-       ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
+       ('pending (vui-text "  (loading…)\n" :face 'octocat-dimmed))
        ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
         (let ((workflows (plist-get result :data)))

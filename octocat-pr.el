@@ -581,7 +581,7 @@ then always fetches fresh data in the background."
                     :loading (and (plist-get result :refreshing) t))
      (octocat-vui-list-filter-bar query)
      (pcase (plist-get result :status)
-       ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
+       ('pending (vui-text "  (loading…)\n" :face 'octocat-dimmed))
        ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
         (let ((prs (plist-get result :data)))

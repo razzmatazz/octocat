@@ -123,12 +123,37 @@ button starts on a fresh line and carries the same two-space indent."
                :help-echo (if loading nil help-echo)
                :on-click on-click)))
 
-(defun octocat-vui-loading-suffix (result)
-  "Return a dimmed \"loading…\" marker for a section heading, or \"\".
+(defconst octocat-vui-spinner-frames
+  ["⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏"]
+  "Frames of the loading spinner, shown inside \"(loading… )\".")
+
+(defmacro octocat-vui-use-spinner (active)
+  "Advance the component's `spin' state ten times a second while ACTIVE.
+ACTIVE is a variable, true while something is loading.  The component
+must declare a `(spin 0)' entry in its `:state'; pass that value as the
+SPIN argument of `octocat-vui-loading-suffix' to draw the frame.  The
+timer only exists while ACTIVE, and is cancelled when it turns nil or the
+component unmounts."
+  `(vui-use-effect (,active)
+     (when ,active
+       (let ((timer (run-with-timer 0.1 0.1
+                                    (vui-with-async-context
+                                      (vui-set-state :spin #'1+)))))
+         (lambda () (cancel-timer timer))))))
+
+(defun octocat-vui-loading-suffix (result &optional spin)
+  "Return a dimmed \"(loading…)\" marker for a section heading, or \"\".
 It is shown while RESULT (see `octocat-vui-use-async-sticky') displays
-earlier or cached data that a fetch is about to replace."
+earlier or cached data that a fetch is about to replace.  SPIN, the
+component's `spin' counter (see `octocat-vui-use-spinner'), picks the
+spinner frame appended to the marker."
   (if (plist-get result :refreshing)
-      (propertize "  loading…" 'face 'octocat-dimmed)
+      (propertize (concat "  (loading…"
+                          (when spin
+                            (concat " " (aref octocat-vui-spinner-frames
+                                              (mod spin (length octocat-vui-spinner-frames)))))
+                          ")")
+                  'face 'octocat-dimmed)
     ""))
 
 
@@ -187,7 +212,9 @@ earlier or cached data that a fetch is about to replace."
   "Header line for a list page: REPO, TITLE and, for KIND, item counts.
 KIND is `issues' or `pulls' to show \"N open · M closed\" (plus merged
 for pulls) from one API call, or nil for no counts.  A non-nil LOADING
-adds a \"loading…\" marker: the list below is stale data being refreshed."
+adds an animated \"(loading…)\" marker: the list below is stale data being
+refreshed."
+  :state ((spin 0))
   :render
   (let* ((cached (vui-use-memo (repo kind)
                    (and kind (octocat--counts-cache-load repo kind))))
@@ -207,6 +234,7 @@ adds a \"loading…\" marker: the list below is stale data being refreshed."
       (when (and kind fresh)
         (octocat--counts-cache-save repo kind fresh))
       nil)
+    (octocat-vui-use-spinner loading)
     (vui-fragment
      (vui-hstack :spacing 2
        (vui-text repo :face 'octocat-repo)
@@ -221,7 +249,8 @@ adds a \"loading…\" marker: the list below is stale data being refreshed."
                     " · ")
                    :face 'octocat-dimmed))
        (when loading
-         (vui-text "loading…" :face 'octocat-dimmed)))
+         (vui-text (string-trim-left
+                    (octocat-vui-loading-suffix '(:refreshing t) spin)))))
      (vui-newline))))
 
 

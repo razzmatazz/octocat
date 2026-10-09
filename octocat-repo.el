@@ -626,7 +626,7 @@ The commits are those of the default branch (the API call names no other),
 so DEFAULT-BRANCH appears once in the title instead of on every row; it is
 highlighted when it is also the local CURRENT-BRANCH.  HEAD-INFO is the
 plist from `octocat--head-info', used to highlight the local HEAD commit."
-  :state ((limit octocat-section-limit))
+  :state ((limit octocat-section-limit) (spin 0))
   :render
   (let* ((cached (vui-use-memo (repo)
                    (octocat--items-cache-load repo "commits" "default")))
@@ -641,8 +641,10 @@ plist from `octocat--head-info', used to highlight the local HEAD commit."
                       (not (plist-get sticky :refreshing))
                       (plist-get sticky :data)))
          (result (octocat-vui-with-stale sticky stale))
+         (loading (and (plist-get result :refreshing) t))
          ;; The cached list is labelled with the branch it was fetched for.
          (branch (if (eq result sticky) default-branch (plist-get cached :branch))))
+    (octocat-vui-use-spinner loading)
     (vui-use-effect (fresh default-branch)
       (when (and fresh default-branch (= limit octocat-section-limit))
         (octocat--items-cache-save repo "commits" "default" fresh default-branch))
@@ -656,10 +658,10 @@ plist from `octocat--head-info', used to highlight the local HEAD commit."
                                          'octocat-branch-current
                                        'octocat-branch)))
                "Commits")
-             (octocat-vui-loading-suffix result))
+             (octocat-vui-loading-suffix result spin))
      :key 'commits :initially-expanded t :indent 0
      (pcase (plist-get result :status)
-       ('pending (vui-text "  Loading…\n" :face 'octocat-dimmed))
+       ('pending (vui-text "  (loading…)\n" :face 'octocat-dimmed))
        ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
         (let ((commits (plist-get result :data)))
