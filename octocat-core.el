@@ -841,10 +841,11 @@ below it.  An empty vector renders a dimmed \"(no comments)\" placeholder."
 
 ;;;; Markdown rendering
 
-(defconst octocat--quote-prefix (propertize "| " 'face 'octocat-dimmed)
+(defconst octocat--quote-prefix (propertize "  | " 'face 'octocat-dimmed)
   "Line prefix that marks PR/issue bodies and comments as quoted blocks.
-Two columns wide, like the default indent of `octocat--insert-markdown',
-so the text stays aligned with the rest of the buffer.")
+The bar sits in column 2, under the first character of the comment
+author's handle (and of the \"Body\" heading's text indent), with the
+text two columns further right.")
 
 (defvar-local octocat--markdown-raw nil
   "Non-nil means show markdown body text verbatim instead of rendered.
@@ -858,7 +859,8 @@ toggle can re-render the buffer after flipping `octocat--markdown-raw'.")
 
 (defun octocat--insert-markdown (text &optional indent)
   "Insert TEXT rendered via `gfm-view-mode' font-lock into the current buffer.
-Each line is prefixed with INDENT (a string, default \"  \").
+Each line is prefixed with INDENT (a string, default \"  \"), which is
+also repeated on the wrapped continuation lines of long lines.
 Windows-style CR characters are stripped before rendering.
 Markup delimiters are hidden and syntax is highlighted using the
 faces from `markdown-mode', which is a declared dependency.
@@ -866,10 +868,16 @@ faces from `markdown-mode', which is a declared dependency.
 When `octocat--markdown-raw' is non-nil in the current buffer the text is
 inserted verbatim without any font-lock rendering."
   (let* ((indent (or indent "  "))
-         (text (replace-regexp-in-string "\r" "" text)))
+         (text (replace-regexp-in-string "\r" "" text))
+         (insert-line (lambda (line)
+                        ;; `wrap-prefix' repeats INDENT (a quote bar, say) on
+                        ;; the continuation lines of a long, wrapped line.
+                        (let ((start (point)))
+                          (insert indent line "\n")
+                          (put-text-property start (point) 'wrap-prefix indent)))))
     (if octocat--markdown-raw
         (dolist (line (split-string text "\n"))
-          (insert indent line "\n"))
+          (funcall insert-line line))
       (let ((rendered
              (condition-case _err
                  (with-temp-buffer
@@ -882,7 +890,7 @@ inserted verbatim without any font-lock rendering."
                ;; always gets something sensible.
                (error text))))
         (dolist (line (split-string rendered "\n"))
-          (insert indent line "\n"))))))
+          (funcall insert-line line))))))
 
 (defun octocat-toggle-markdown ()
   "Toggle between rendered and raw markdown display in the current buffer.

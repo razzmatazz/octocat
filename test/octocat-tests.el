@@ -212,12 +212,15 @@ no gh call is made."
                  "label:x")))
 
 (ert-deftest octocat-test-quote-prefix-marks-every-line ()
-  "Bodies rendered with the quote prefix start every line, blanks included, with \"| \"."
+  "Bodies rendered with the quote prefix start every line, blanks included, with \"  | \"."
   (with-temp-buffer
     (setq octocat--markdown-raw t)
     (octocat--insert-markdown "first\n\nthird" octocat--quote-prefix)
     (should (equal (buffer-substring-no-properties (point-min) (point-max))
-                   "| first\n| \n| third\n"))))
+                   "  | first\n  | \n  | third\n"))
+    ;; Wrapped continuation lines repeat the prefix.
+    (should (equal (get-text-property (point-min) 'wrap-prefix) octocat--quote-prefix))
+    (should (equal (get-text-property (1- (point-max)) 'wrap-prefix) octocat--quote-prefix))))
 
 (ert-deftest octocat-test-state-label ()
   "State labels are fixed-width words; only open PRs can be drafts."
