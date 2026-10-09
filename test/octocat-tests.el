@@ -163,34 +163,62 @@ no gh call is made."
 ;;; List filters
 
 (ert-deftest octocat-test-filter-args-default ()
-  "No filter lists open items only."
-  (should (equal (octocat--filter-args nil) '("--state" "open"))))
+  "No query lists open items via the default query."
+  (should (equal (octocat--filter-args nil)
+                 '("--state" "all" "--search" "is:open"))))
 
-(ert-deftest octocat-test-filter-args-full ()
-  "Every facet maps to its gh flag; labels repeat the flag."
-  (should (equal (octocat--filter-args
-                  '(:state "all" :author "@me" :assignee "bob"
-                    :labels ("bug" "p1") :search "is:draft"))
-                 '("--state" "all" "--author" "@me" "--assignee" "bob"
-                   "--label" "bug" "--label" "p1" "--search" "is:draft"))))
+(ert-deftest octocat-test-filter-args-query ()
+  "The query goes to --search unchanged; gh's own state never competes."
+  (should (equal (octocat--filter-args "is:closed author:@me -label:wip")
+                 '("--state" "all" "--search" "is:closed author:@me -label:wip"))))
+
+(ert-deftest octocat-test-filter-args-empty-query ()
+  "An empty query lists everything, with no --search."
+  (should (equal (octocat--filter-args "  ") '("--state" "all"))))
 
 (ert-deftest octocat-test-filter-active-p ()
-  "Only non-default facets count as an active filter."
+  "Only a query other than the default counts as an active filter."
   (should-not (octocat-vui-list-filter-active-p nil))
-  (should-not (octocat-vui-list-filter-active-p '(:state "open")))
-  (should (octocat-vui-list-filter-active-p '(:state "closed")))
-  (should (octocat-vui-list-filter-active-p '(:labels ("bug")))))
+  (should-not (octocat-vui-list-filter-active-p " is:open "))
+  (should (octocat-vui-list-filter-active-p "is:closed"))
+  (should (octocat-vui-list-filter-active-p "")))
 
-(ert-deftest octocat-test-filter-set-clears-empty ()
-  "Setting a facet to empty input removes it and refreshes."
-  (with-temp-buffer
-    (let ((refreshed 0))
-      (cl-letf (((symbol-function 'revert-buffer)
-                 (lambda (&rest _) (cl-incf refreshed))))
-        (setq octocat-vui-list--filter '(:author "bob" :state "closed"))
-        (octocat-vui-list--set :author "")
-        (should (equal octocat-vui-list--filter '(:author nil :state "closed")))
-        (should (= refreshed 1))))))
+(ert-deftest octocat-test-filter-tokenize-keeps-quotes ()
+  "Quoted values stay in one token."
+  (should (equal (octocat-vui-list--tokenize "is:open label:\"good first issue\" bob")
+                 '("is:open" "label:\"good first issue\"" "bob"))))
+
+(ert-deftest octocat-test-filter-values-unquotes ()
+  "Qualifier values are returned unquoted, negated qualifiers excluded."
+  (should (equal (octocat-vui-list--values
+                  "label:bug label:\"good first issue\" -label:wip" "label:")
+                 '("bug" "good first issue"))))
+
+(ert-deftest octocat-test-filter-with-values ()
+  "Setting a qualifier replaces its tokens and quotes values with spaces."
+  (should (equal (octocat-vui-list--with-values
+                  "is:open label:old -label:wip" "label:" '("a b" "c"))
+                 "is:open -label:wip label:\"a b\" label:c"))
+  (should (equal (octocat-vui-list--with-values "is:open author:x" "author:" nil)
+                 "is:open")))
+
+(ert-deftest octocat-test-filter-state ()
+  "The state token is read, replaced and removed (\"all\")."
+  (should (equal (octocat-vui-list--state "label:x is:closed") "closed"))
+  (should (equal (octocat-vui-list--state "label:x") "all"))
+  (should (equal (octocat-vui-list--with-state "is:open label:x" "merged")
+                 "is:merged label:x"))
+  (should (equal (octocat-vui-list--with-state "is:open label:x" "all")
+                 "label:x")))
+
+(ert-deftest octocat-test-counts-query-and-parse ()
+  "Pull requests also count merged; the response parses to a plist."
+  (should (string-match-p "merged:pullRequests(states:MERGED)"
+                          (octocat--counts-query 'pulls)))
+  (should-not (string-match-p "merged" (octocat--counts-query 'issues)))
+  (should (equal (octocat--parse-counts
+                  "{\"data\":{\"repository\":{\"open\":{\"totalCount\":2},\"closed\":{\"totalCount\":5}}}}")
+                 '(:open 2 :closed 5))))
 
 (provide 'octocat-tests)
 ;;; octocat-tests.el ends here

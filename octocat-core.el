@@ -1268,26 +1268,58 @@ Prefix a hash (e.g. \"a1b2c3\") to narrow to a specific commit."
 
 ;;;; List filters
 ;;
-;; A filter is a plist shared by the PR and issue list pages:
-;;   :state     "open" (default), "closed", "merged" (PRs only) or "all"
-;;   :author    login, or "@me"
-;;   :assignee  login, or "@me"
-;;   :labels    list of label names (all must match)
-;;   :search    free text, passed to `gh --search' (GitHub search syntax)
-;; Absent keys mean "no constraint".
+;; The PR and issue list pages are filtered by a GitHub search query
+;; string such as \"is:open author:@me label:bug -label:wontfix\".  The
+;; state is part of the query (is:open / is:closed / is:merged); a query
+;; without a state token matches every state.
 
-(defun octocat--filter-args (filter)
-  "Return the `gh pr/issue list' flags for FILTER (see \"List filters\")."
-  (append
-   (list "--state" (or (plist-get filter :state) "open"))
-   (when-let* ((author (plist-get filter :author)))
-     (list "--author" author))
-   (when-let* ((assignee (plist-get filter :assignee)))
-     (list "--assignee" assignee))
-   (mapcan (lambda (label) (list "--label" label))
-           (plist-get filter :labels))
-   (when-let* ((search (plist-get filter :search)))
-     (list "--search" search))))
+(defconst octocat--default-list-query "is:open"
+  "Query a PR or issue list starts with.")
+
+(defun octocat--filter-args (query)
+  "Return the `gh pr/issue list' flags that apply the search QUERY.
+A nil QUERY means `octocat--default-list-query'.  gh's own --state is
+always \"all\" so that it cannot contradict a state token in QUERY."
+  (let ((query (string-trim (or query octocat--default-list-query))))
+    (append (list "--state" "all")
+            (unless (string-empty-p query)
+              (list "--search" query)))))
+
+(defun octocat--counts-query (kind)
+  "Return the GraphQL query counting items of KIND (`issues' or `pulls')."
+  (let ((field (if (eq kind 'pulls) "pullRequests" "issues"))
+        (states (if (eq kind 'pulls)
+                    '(("open" . "OPEN") ("closed" . "CLOSED") ("merged" . "MERGED"))
+                  '(("open" . "OPEN") ("closed" . "CLOSED")))))
+    (format "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){%s}}"
+            (mapconcat (lambda (s)
+                         (format "%s:%s(states:%s){totalCount}" (car s) field (cdr s)))
+                       states " "))))
+
+(defun octocat--parse-counts (json-string)
+  "Parse the GraphQL counts response JSON-STRING into a plist.
+Keys: :open, :closed and, for pull requests, :merged."
+  (let ((repo (gethash "repository"
+                       (gethash "data" (json-parse-string json-string :null-object nil)))))
+    (apply #'append
+           (mapcar (lambda (key)
+                     (let ((entry (gethash (substring (symbol-name key) 1) repo)))
+                       (and entry (list key (gethash "totalCount" entry)))))
+                   '(:open :closed :merged)))))
+
+(defun octocat--fetch-counts (repo kind callback)
+  "Fetch the open/closed(/merged) counts of KIND in REPO asynchronously.
+KIND is `issues' or `pulls'.  CALLBACK is called with the plist described
+in `octocat--parse-counts', or a cons \\=(error . MSG).  One API call."
+  (let ((parts (split-string repo "/")))
+    (octocat--run-gh
+     "counts"
+     (list "api" "graphql"
+           "-f" (concat "query=" (octocat--counts-query kind))
+           "-F" (concat "owner=" (car parts))
+           "-F" (concat "name=" (cadr parts)))
+     #'octocat--parse-counts
+     callback)))
 
 (defun octocat--list-labels (repo callback)
   "Fetch the label names of REPO asynchronously and call CALLBACK.

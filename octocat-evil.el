@@ -78,6 +78,7 @@
 (declare-function octocat-repo-browse        "octocat-repo"      ())
 (declare-function octocat-vui-list-browse    "octocat-vui"       ())
 (declare-function octocat-vui-list-filter    "octocat-vui"       ())
+(declare-function octocat-vui-list-edit-query "octocat-vui"      ())
 (declare-function octocat-workflow-load-more "octocat-workflow"  ())
 (declare-function octocat-workflow-refresh   "octocat-workflow"  (&optional _ignore-auto _noconfirm))
 (declare-function octocat-workflow-visit     "octocat-workflow"  ())
@@ -138,10 +139,12 @@
       (kbd "C-c C-s") #'octocat-search-repo
       (kbd "gs")      #'octocat-search-repo
       (kbd "gr")      #'revert-buffer
-      (kbd "/")       #'octocat-vui-list-filter
+      (kbd "/")       #'octocat-vui-list-edit-query
+      (kbd "F")       #'octocat-vui-list-filter
       (kbd "q")       #'quit-window)
     (evil-define-key* 'motion map
-      (kbd "/")       #'octocat-vui-list-filter))
+      (kbd "/")       #'octocat-vui-list-edit-query
+      (kbd "F")       #'octocat-vui-list-filter))
 
   ;; ── octocat-pr-mode ───────────────────────────────────────────────────
   ;; Use define-key directly so all bindings (including RET) land in the

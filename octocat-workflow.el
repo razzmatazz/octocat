@@ -447,7 +447,7 @@ then always fetches fresh data in the background."
   "Combined workflows + runs page for REPO."
   :render
   (vui-vstack
-   (octocat-vui-list-header repo "Workflows")
+   (vui-component 'octocat-vui-list-header :repo repo :title "Workflows")
    (vui-component 'octocat-workflow--list-section :repo repo)
    (vui-newline)
    (vui-component 'octocat-workflow--runs-section
