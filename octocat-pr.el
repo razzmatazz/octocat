@@ -542,15 +542,15 @@ background."
                     :loading (and (plist-get result :refreshing) t))
      (octocat-vui-list-filter-bar query)
      (pcase (plist-get result :status)
-       ('pending (vui-text "  (loading…)\n" :face 'octocat-dimmed))
-       ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
+       ('pending (vui-text "(loading…)\n" :face 'octocat-dimmed))
+       ('error   (vui-text (format "%s\n" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
         (let ((prs (plist-get result :data)))
           (vui-fragment
            (if (null prs)
                (vui-text (if (octocat-vui-list-filter-active-p query)
-                             "  (no pull requests match the filters)\n"
-                           "  (no pull requests)\n")
+                             "(no pull requests match the filters)\n"
+                           "(no pull requests)\n")
                          :face 'octocat-dimmed)
              (let ((layout (octocat-repo-vui--layout
                             (mapcar (lambda (pr)
@@ -571,7 +571,7 @@ background."
               'load-more-prs octocat-section-limit
               "RET: load more pull requests"
               (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
-              (plist-get result :refreshing))))))))))
+              (plist-get result :refreshing) 0)))))))))
 
 (defun octocat-pr-list-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current PR list buffer."

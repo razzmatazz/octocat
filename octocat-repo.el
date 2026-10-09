@@ -385,9 +385,9 @@ issue/PR-count lookups."
   "Display width of the state column (\"closed\", \"merged\") in PR and issue rows.")
 
 (defconst octocat-repo-vui--detail-indent
-  (+ 2 octocat-repo-vui--state-width 1 octocat-repo-vui--number-width 2)
-  "Column where titles, and the second detail line, start in PR/issue rows.
-Margin, state column, space, number column, gap.")
+  (+ octocat-repo-vui--state-width 1 octocat-repo-vui--number-width 2)
+  "Column where titles start in the compact PR/issue rows.
+State column, space, number column, gap.")
 
 (defun octocat-repo-vui--state-label (state &optional draft)
   "Return the coloured, padded state text for a PR/issue STATE (any case).
@@ -492,23 +492,23 @@ HELP are as for `octocat-vui-row'."
       (octocat-vui-row
        (if (plist-get layout :single)
            ;; Compact: every column padded, so they line up.
-           (concat "  " state " "
+           (concat state " "
                    (propertize number 'face 'octocat-pr-number)
                    "  " (pad :title)
                    (mapconcat (lambda (key) (if (wide key) (concat "  " (pad key)) ""))
                               '(:chips :branch :ci :author :prs :comments) ""))
          ;; Regular: title and labels, then a line about where it lives.
          (let* ((chips (or (plist-get cells :chips) ""))
-                (room  (max 10 (- (plist-get layout :width) 4 (length state)
+                (room  (max 10 (- (plist-get layout :width) 2 (length state)
                                   (if (string-empty-p chips) 0 (+ 2 (string-width chips))))))
                 (title (truncate-string-to-width (plist-get cells :title) room nil nil "…"))
                 (more  (seq-remove (lambda (s) (or (null s) (string-empty-p s)))
                                    (mapcar (lambda (key) (plist-get cells key))
                                            '(:ref :author :date :branch :ci :prs :comments)))))
-           (concat "  " state "  " title
+           (concat state "  " title
                    (if (string-empty-p chips) "" (concat "  " chips))
                    "\n"
-                   (make-string (+ 2 octocat-repo-vui--state-width 2) ?\s)
+                   (make-string (+ octocat-repo-vui--state-width 2) ?\s)
                    (mapconcat #'identity more dot))))
        on-visit help))))
 
@@ -545,7 +545,6 @@ rows."
          (state-face (if (equal state "active") 'success 'octocat-dimmed))
          (line
           (concat
-           "  "
            (truncate-string-to-width name 40 nil nil "…")
            "  "
            (propertize state 'face state-face))))
@@ -571,7 +570,6 @@ WF-W is the column width to truncate/pad the workflow name to."
          (icon       (octocat--workflow-run-icon status conclusion))
          (line
           (concat
-           "  "
            (let* ((name (truncate-string-to-width branch octocat-branch-max-width nil nil "…"))
                   (pad  (make-string (- octocat-branch-max-width (string-width name)) ?\s)))
              (concat (propertize name 'face b-face) pad))

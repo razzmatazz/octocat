@@ -211,6 +211,11 @@ with a floor of 1."
   "Face for secondary / de-emphasised text in octocat buffers."
   :group 'octocat)
 
+(defface octocat-filter-input
+  '((t :inherit secondary-selection :extend nil))
+  "Face for the search query field of the list pages, drawn like an input box."
+  :group 'octocat)
+
 (defface octocat-pr-state-open
   '((t :inherit success))
   "Face for an open PR state badge."

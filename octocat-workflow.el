@@ -401,8 +401,8 @@ then always fetches fresh data in the background."
      :title (concat "Workflow Runs" (octocat-vui-loading-suffix result spin))
      :key 'workflow-runs :initially-expanded t :indent 0
      (pcase (plist-get result :status)
-       ('pending (vui-text "  (loading…)\n" :face 'octocat-dimmed))
-       ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
+       ('pending (vui-text "(loading…)\n" :face 'octocat-dimmed))
+       ('error   (vui-text (format "%s\n" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
         (let* ((runs (plist-get result :data))
                (wf-w (if runs
@@ -412,7 +412,7 @@ then always fetches fresh data in the background."
                        1)))
           (vui-fragment
            (if (null runs)
-               (vui-text "  (no workflow runs)\n" :face 'octocat-dimmed)
+               (vui-text "(no workflow runs)\n" :face 'octocat-dimmed)
              (vui-list runs
                        (lambda (r) (octocat-repo-vui--workflow-run-row repo r current-branch wf-w))
                        (lambda (r) (gethash "databaseId" r))))
@@ -422,7 +422,7 @@ then always fetches fresh data in the background."
               'load-more-runs octocat-section-limit
               "RET: load more runs"
               (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
-              (plist-get result :refreshing))))))))))
+              (plist-get result :refreshing) 0)))))))))
 
 (vui-defcomponent octocat-workflow--list-section (repo)
   "Workflows section for REPO (no pagination: run history lives in
@@ -436,12 +436,12 @@ then always fetches fresh data in the background."
     (vui-collapsible
      :title "Workflows" :key 'workflows :initially-expanded t :indent 0
      (pcase (plist-get result :status)
-       ('pending (vui-text "  (loading…)\n" :face 'octocat-dimmed))
-       ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
+       ('pending (vui-text "(loading…)\n" :face 'octocat-dimmed))
+       ('error   (vui-text (format "%s\n" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
         (let ((workflows (plist-get result :data)))
           (if (null workflows)
-              (vui-text "  (no workflows)\n" :face 'octocat-dimmed)
+              (vui-text "(no workflows)\n" :face 'octocat-dimmed)
             (vui-list workflows
                       (lambda (wf) (octocat-repo-vui--workflow-row repo wf))
                       (lambda (wf) (gethash "id" wf))))))))))

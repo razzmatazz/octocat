@@ -101,7 +101,7 @@ fresh data arrives, instead of flashing a \"Loading…\" placeholder."
       (list :status 'ready :data stale :refreshing t)
     result))
 
-(defun octocat-vui-load-more-button (key count help-echo on-click &optional loading)
+(defun octocat-vui-load-more-button (key count help-echo on-click &optional loading indent)
   "Return a \"Load COUNT more…\" vui-button with HELP-ECHO, invoking ON-CLICK.
 KEY is a per-section symbol: it is the button's cursor identity, so point
 stays on this section's button when growing the list re-renders it
@@ -111,10 +111,11 @@ When LOADING is non-nil (a page is being fetched, see
 triggered twice; its label stays put, since the section heading shows
 the activity (see `octocat-vui-loading-suffix').
 Rows carry no trailing newline (`vui-list' only separates them), so the
-button starts on a fresh line and carries the same two-space indent."
+button starts on a fresh line and carries the same indent, INDENT columns
+\(default two).  The flush-left list pages pass 0."
   (vui-fragment
    (vui-newline)
-   (vui-text "  ")
+   (vui-text (make-string (or indent 2) ?\s))
    (vui-button (format "[+] Load %d more…" count)
                :no-decoration t
                :face 'octocat-dimmed
@@ -519,18 +520,27 @@ as the way to enter a value."
 The query line is highlighted when it differs from the default."
   (let ((active (octocat-vui-list-filter-active-p query)))
     (vui-fragment
-     (vui-hstack :spacing 1
-       (vui-text "  Filter:" :face 'octocat-dimmed)
-       (vui-button (let ((q (string-trim (or query ""))))
-                     (if (string-empty-p q) "(everything)" q))
+     ;; The label and the facet row's indent are both as wide as "Filter"
+     ;; (plus the stack's spacing), so the query box and the facet buttons
+     ;; start in the same column.
+     (vui-hstack :spacing 2
+       (vui-text "Filter" :face 'octocat-dimmed)
+       (vui-button (let* ((q     (string-trim (or query "")))
+                          (shown (if (string-empty-p q) "(everything)" q)))
+                     ;; Drawn as an input box: padded, with a search mark.
+                     (truncate-string-to-width
+                      (concat "⌕ " shown) (max 40 (+ 3 (string-width shown)))
+                      nil ?\s))
                    :no-decoration t
-                   :face (if active 'octocat-branch 'default)
+                   :face (if active
+                             '(octocat-branch octocat-filter-input)
+                           'octocat-filter-input)
                    :key :query
-                   :help-echo "RET: edit the search query"
+                   :help-echo "RET or /: edit the search query"
                    :on-click #'octocat-vui-list-edit-query))
      (vui-newline)
      (apply #'vui-hstack :spacing 2
-            (vui-text "  ")
+            (vui-text "      ")
             (append
              (mapcar (lambda (facet)
                        (vui-button (format "[%s]" (car facet))

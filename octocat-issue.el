@@ -417,15 +417,15 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
                     :loading (and (plist-get result :refreshing) t))
      (octocat-vui-list-filter-bar query)
      (pcase (plist-get result :status)
-       ('pending (vui-text "  (loading…)\n" :face 'octocat-dimmed))
-       ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
+       ('pending (vui-text "(loading…)\n" :face 'octocat-dimmed))
+       ('error   (vui-text (format "%s\n" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
         (let ((issues (plist-get result :data)))
           (vui-fragment
            (if (null issues)
                (vui-text (if (octocat-vui-list-filter-active-p query)
-                             "  (no issues match the filters)\n"
-                           "  (no issues)\n")
+                             "(no issues match the filters)\n"
+                           "(no issues)\n")
                          :face 'octocat-dimmed)
              (let ((layout (octocat-repo-vui--layout
                             (mapcar (lambda (issue)
@@ -446,7 +446,7 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
               'load-more-issues octocat-section-limit
               "RET: load more issues"
               (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
-              (plist-get result :refreshing))))))))))
+              (plist-get result :refreshing) 0)))))))))
 
 (defun octocat-issue-list-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current issue list buffer."
