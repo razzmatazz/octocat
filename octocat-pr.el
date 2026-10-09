@@ -372,15 +372,25 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
                       'face 'octocat-section-heading))
         (if (zerop (length commits))
             (insert (propertize "  (no commits)\n" 'face 'octocat-dimmed))
-          (let ((head-oid (or (gethash "oid" (aref commits (1- (length commits)))) "")))
+          (cl-flet ((author-of (commit)
+                      (let ((authors (gethash "authors" commit)))
+                        (or (and authors
+                                 (> (length authors) 0)
+                                 (gethash "name" (aref authors 0)))
+                            ""))))
+            (let* ((head-oid  (or (gethash "oid" (aref commits (1- (length commits)))) ""))
+                   ;; Size the subject and author columns to the longest
+                   ;; value (capped), so short subjects don't leave a wide gap.
+                   (subject-w (min 50 (apply #'max 1
+                                             (cl-loop for c across commits
+                                                      collect (string-width (or (gethash "messageHeadline" c) ""))))))
+                   (author-w  (min 16 (apply #'max 1
+                                             (cl-loop for c across commits
+                                                      collect (string-width (author-of c)))))))
             (cl-loop for commit across commits do
                      (let* ((oid     (or (gethash "oid"             commit) ""))
                             (subject (or (gethash "messageHeadline" commit) ""))
-                            (commit-authors (gethash "authors" commit))
-                            (author  (or (and commit-authors
-                                             (> (length commit-authors) 0)
-                                             (gethash "name" (aref commit-authors 0)))
-                                         ""))
+                            (author  (author-of commit))
                             (date    (octocat--format-ts
                                       (or (gethash "committedDate" commit) "")))
                             (short   (substring oid 0 (min 7 (length oid))))
@@ -391,16 +401,16 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
                             "  "
                             (propertize short 'face 'octocat-commit-sha)
                             "  "
-                            (truncate-string-to-width
-                             (format "%-50s" subject) 50 nil ?\s "…")
+                            (truncate-string-to-width subject subject-w nil ?\s "…")
                             "  "
-                            (propertize (format "%-16s" author)
+                            (propertize (truncate-string-to-width
+                                         author author-w nil ?\s "…")
                                         'face 'octocat-pr-author)
                             "  "
                             (propertize date 'face 'octocat-dimmed)
                             (when headp
                               (concat "  " (octocat--ci-label pr)))
-                            "\n"))))))))
+                            "\n")))))))))
       ;; ── Checks ──────────────────────────────────────────────────────────
       (insert "\n")
       (magit-insert-section (pr-checks)
