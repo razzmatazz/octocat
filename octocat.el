@@ -48,6 +48,7 @@
 (require 'octocat-vui)
 (require 'octocat-repo)
 (require 'octocat-tree)
+(require 'octocat-search)
 
 ;; Forward declarations for sub-module buffer-locals referenced by
 ;; octocat-visit (defined here).  These silence the byte-compiler.

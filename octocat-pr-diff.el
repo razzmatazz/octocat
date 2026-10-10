@@ -50,7 +50,7 @@
 (declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
 (declare-function octocat-visit-repo "octocat-core" (repo))
 (declare-function octocat-switch-repo "octocat-core" ())
-(declare-function octocat-search-repo "octocat-core" ())
+(declare-function octocat-search-repo "octocat-search" ())
 
 
 ;;;; Buffer-local declarations

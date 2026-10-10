@@ -134,7 +134,7 @@ string rather than `ok` is an error — fix it before proceeding):
                    "octocat-workflow.el" "octocat-pr-diff.el" "octocat-vui.el"
                    "octocat-timeline.el" "octocat-pr.el" "octocat-issue.el"
                    "octocat-checks.el" "octocat-tree.el" "octocat-repo.el"
-                   "octocat-evil.el" "octocat.el"))
+                   "octocat-search.el" "octocat-evil.el" "octocat.el"))
     (condition-case err
         (with-temp-buffer
           (insert-file-contents (expand-file-name f "/Users/bob/src/octocat"))

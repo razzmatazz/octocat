@@ -199,7 +199,7 @@ spinner frame appended to the marker."
 (declare-function octocat--list-labels "octocat-core" (repo callback))
 (declare-function octocat--list-people "octocat-core" (repo callback))
 (declare-function octocat-switch-repo "octocat-core" ())
-(declare-function octocat-search-repo "octocat-core" ())
+(declare-function octocat-search-repo "octocat-search" ())
 
 (defvar-local octocat-vui-list--repo nil
   "The \"owner/repo\" string this list buffer is tracking.")
