@@ -47,6 +47,7 @@
 (require 'octocat-checks)
 (require 'octocat-vui)
 (require 'octocat-repo)
+(require 'octocat-user)
 (require 'octocat-tree)
 (require 'octocat-search)
 
@@ -779,7 +780,12 @@ the fresh data arrives (stale-while-revalidate)."
         (vui-fragment
          (vui-list data #'octocat--dashboard-feed-row
                    (lambda (ev) (gethash "id" ev)))
-         (when (>= (length data) feed-limit)
+         (when (or (>= (length data) feed-limit)
+                   ;; Keep the button in place while a further page
+                   ;; loads (the limit has already grown), but not for
+                   ;; the first, cached paint.
+                   (and (plist-get feed :refreshing)
+                        (> feed-limit octocat-feed-limit)))
            (octocat-vui-load-more-button
             'load-more-feed octocat-feed-limit
             "RET / +: load more feed events"
@@ -857,6 +863,16 @@ mode with no local directory bound."
           octocat-repo--local-dir (and local-dir
                                        (expand-file-name local-dir)))
     (octocat-repo-refresh)))
+
+;;;###autoload
+(defun octocat-user (login)
+  "Open the page of the GitHub user or organization LOGIN, e.g. \"@octocat\".
+Interactively, prompt for the handle; a leading \"@\" is optional."
+  (interactive
+   (list (read-string "GitHub user or organization: "
+                      (and (derived-mode-p 'octocat-user-mode)
+                           octocat-user--login))))
+  (octocat-user-open login))
 
 (defun octocat--open-list (mode name path)
   "Open (or switch to) the list page for the current repository.

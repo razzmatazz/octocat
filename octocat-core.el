@@ -992,10 +992,19 @@ from the process sentinel when results arrive."
                      (make-process
                       :name            "octocat-search-repos"
                       :buffer          proc-buf
-                      :command         (list "gh" "search" "repos"
-                                             "--limit" "30"
-                                             "--json" "fullName"
-                                             action)
+                      :command         (if (string-prefix-p "@" action)
+                                           ;; `gh search' has no users
+                                           ;; subcommand; -X GET keeps -f
+                                           ;; fields in the query string.
+                                           (list "gh" "api" "-X" "GET"
+                                                 "search/users"
+                                                 "-f" (concat "q=" (substring action 1))
+                                                 "-f" "per_page=15"
+                                                 "--jq" "[.items[] | {login}]")
+                                         (list "gh" "search" "repos"
+                                               "--limit" "30"
+                                               "--json" "fullName"
+                                               action))
                       :connection-type 'pipe
                       :noquery         t
                       :sentinel
@@ -1005,7 +1014,10 @@ from the process sentinel when results arrive."
                           (let ((candidates
                                  (condition-case _
                                      (with-current-buffer (process-buffer p)
-                                       (mapcar (lambda (r) (gethash "fullName" r))
+                                       (mapcar (lambda (r)
+                                                 (if-let* ((login (gethash "login" r)))
+                                                     (concat "@" login)
+                                                   (gethash "fullName" r)))
                                                (octocat--parse-json-list
                                                 (buffer-string))))
                                    (error nil))))
@@ -1029,16 +1041,21 @@ from the process sentinel when results arrive."
           ;; All other actions (setup, flush, vectors, …) — pass through.
           (_ (funcall sink action)))))))
 
+(declare-function octocat-user-open "octocat-user" (login))
+
 (defun octocat-switch-repo ()
-  "Search GitHub repositories interactively with live API queries.
+  "Search GitHub repositories or users interactively with live API queries.
 Each keystroke (debounced by `consult-async-input-debounce') calls
-`gh search repos' against GitHub's global search index.  Results update
-in place as you type — no pre-fetching, no blocking wait.
+`gh search repos' against GitHub's global search index.  Input starting
+with \"@\" searches users and organizations instead (the `search/users'
+API).
+Results update in place as you type — no pre-fetching, no blocking wait.
 
 Uses `consult--read' with a custom async pipeline so Vertico, Embark,
 Marginalia, and other consult-aware packages integrate seamlessly.
 
-The selected repository is opened via `octocat-visit-repo'."
+The selected repository is opened via `octocat-visit-repo', a selected
+\"@login\" via `octocat-user-open'."
   (interactive)
   (let ((repo
          (consult--read
@@ -1046,11 +1063,14 @@ The selected repository is opened via `octocat-visit-repo'."
            (consult--async-min-input 2)
            (consult--async-throttle)
            (octocat--async-search-repos))
-          :prompt   "Search GitHub repos: "
+          :prompt   "Search GitHub repos (@ for users): "
           :category 'octocat-repo
           :sort     nil)))          ; preserve server-side ranking
     (when (and repo (not (string-empty-p (string-trim repo))))
-      (octocat-visit-repo (string-trim repo)))))
+      (let ((choice (string-trim repo)))
+        (if (string-prefix-p "@" choice)
+            (octocat-user-open choice)
+          (octocat-visit-repo choice))))))
 
 
 (defun octocat-visit-repo (repo)

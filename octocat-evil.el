@@ -36,6 +36,8 @@
 
 (defvar octocat-mode-map)
 (defvar octocat-repo-mode-map)
+(defvar octocat-user-mode-map)
+(declare-function octocat-user-browse "octocat-user" ())
 (defvar octocat-pr-list-mode-map)
 (defvar octocat-issue-list-mode-map)
 (defvar octocat-workflow-list-mode-map)
@@ -121,6 +123,14 @@
     (kbd "C-c C-r") #'octocat-switch-repo
     (kbd "C-c C-s") #'octocat-search-repo
     (kbd "gs")      #'octocat-search-repo
+    (kbd "gr")      #'revert-buffer
+    (kbd "q")       #'quit-window)
+
+  ;; ── octocat-user-mode ─────────────────────────────────────────────────
+  ;; vui.el-rendered like octocat-repo-mode: rows bind their own RET.
+  (evil-define-key* 'normal octocat-user-mode-map
+    (kbd "C-c C-o") #'octocat-user-browse
+    (kbd "C-c C-r") #'octocat-switch-repo
     (kbd "gr")      #'revert-buffer
     (kbd "q")       #'quit-window)
 
