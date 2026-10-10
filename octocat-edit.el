@@ -100,7 +100,10 @@ Type your markdown text, then:
   :group 'octocat
   ;; Install our keymap as the local map after the parent mode has set up
   ;; its own, so C-c C-c / C-c C-k take precedence.
-  (use-local-map octocat-edit-mode-map))
+  (use-local-map octocat-edit-mode-map)
+  ;; Highlight the markdown source with the renderer's own faces.
+  (setq-local font-lock-defaults '(octocat-markdown-font-lock-keywords t)
+              font-lock-multiline t))
 
 
 ;;;; Internal helpers

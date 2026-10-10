@@ -40,29 +40,31 @@ dependency; the edit buffer is now a plain `text-mode`).  `octocat-markdown-rend
 now renders headings, emphasis, inline code and code fences, lists and task
 lists, quotes and alerts, links, tables, `@mentions` and `#123` references.
 
-Design goal: render as tightly as possible, to save vertical space.  Done
-for the top level: blank source lines beside blocks that stand out on their
-own (rules, tables, headings, quotes) are dropped, so `*bold* **italic**`,
-`---`, then a code fence is 3 rows, not 5.  A blank row between two plain
-paragraphs, and the one after a code box, are kept for readability.  Not yet
-tightened: blank rows inside list items and quotes, and around lists.
+Design goal: render as tightly as possible, to save vertical space.  Blank
+source lines beside blocks that stand out on their own (rules, tables,
+headings, quotes, lists) are dropped, also inside list items and quotes.  A
+blank row between two plain paragraphs, and the one around a code box, are
+kept for readability.
 
-Still to do: make links and `#123` references RET-able (links already carry an
-`octocat-markdown-url` property), syntax-highlight fenced code by language,
-setext headings, indented code blocks, and give `octocat-edit-mode` markdown
-font-lock from the same module.
+Done since: RET-able links, `#123`, `owner/repo#123`, commit SHAs and
+`owner/repo@sha` (a `keymap` text property, so it works in vui, magit-section
+and Evil buffers alike; a number is opened as a PR or an issue after asking
+the API which it is); `@mentions` link to the profile; syntax-highlighted
+fences (`octocat-markdown-language-modes`); setext headings; indented code;
+reference-style links and footnotes; `:emoji:` shortcodes; `<img>` and `<kbd>`;
+lazy list continuation; collapsible `<details>` (RET on the summary); inline
+`$math$` and `math` fences as Unicode; terminal-friendly h1/h2 faces; markdown
+font-lock in `octocat-edit-mode`.
 
-Also not handled yet:
+Still to do:
 
-- h1/h2 only look bold in a terminal (the larger font height is ignored).
-- `<details>`/`<summary>`: the tags are stripped and the content always shows;
-  could become a collapsible section.
-- Reference-style links (`[text][1]`), footnotes, `:emoji:` shortcodes and
-  `<img>` tags (stripped; a markdown image shows as `[image: alt]`).
-- Short commit SHAs and `owner/repo@sha` are not recognised as references.
-- mermaid and math fences render as plain code.
-- List items continued without indentation, and `|` inside a code span in a
-  table cell.
+- mermaid fences are shown as labelled source, not drawn.
+- TeX is approximated (fractions, roots, scripts and symbols only).
+- `<details>` folds are not remembered across a refresh, and a `<details>`
+  inside another one is shown flat.
+- A bare `|` inside a code span in a table cell splits the cell, as on GitHub
+  (write `\|`); only the escaped form stays in the cell.
+- Setext headings are one line only.
 
 ## ~~Render Markdown in a better way~~
 

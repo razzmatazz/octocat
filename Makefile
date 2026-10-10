@@ -35,7 +35,7 @@ lint: deps
 	$(DOCKER_RUN) sh -c "eask lint checkdoc && eask lint package"
 
 test: deps
-	$(DOCKER_RUN) sh -c "eask test ert test/octocat-tests.el && eask test ert test/octocat-evil-repo-tests.el"
+	$(DOCKER_RUN) sh -c 'for f in test/*-tests.el; do eask test ert "$$f" || exit 1; done'
 
 # compile, lint and test are independent, so run them in parallel.
 ci: clean

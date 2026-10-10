@@ -40,6 +40,7 @@
 (declare-function octocat-repo--current-repo   "octocat-repo" ())
 (declare-function octocat-pr-open              "octocat-pr"   (repo number))
 (declare-function octocat-issue-open           "octocat-issue" (repo number))
+(declare-function octocat-commit-open          "octocat-commit" (repo sha))
 (declare-function octocat-commit-mode          "octocat-commit" ())
 (declare-function octocat-commit-refresh       "octocat-commit" (&optional _ignore-auto _noconfirm))
 (declare-function octocat--render-commit-loading "octocat-commit" (sha))
@@ -906,7 +907,31 @@ selected window), less one column so a full line does not wrap."
   "Insert TEXT rendered by `octocat--markdown-string' into the current buffer.
 When `octocat--markdown-raw' is non-nil in the current buffer the text is
 inserted verbatim without any font-lock rendering."
+  (octocat-markdown--ensure-invisibility)
   (insert (octocat--markdown-string text indent octocat--markdown-raw)))
+
+(defun octocat--markdown-open-ref (kind repo id)
+  "Open the reference of KIND (`issue' or `commit') ID in REPO.
+A nil REPO means the repository of the current buffer.  An issue number
+may belong to a pull request, which the GitHub API tells apart, so that
+is asked first and the matching view opened."
+  (let ((repo (or repo (octocat--search-repo--current-repo)
+                  (user-error "Octocat: no repository to look %s up in" id))))
+    (pcase kind
+      ('commit (octocat-commit-open repo id))
+      ('issue
+       (message "Octocat: opening %s#%d…" repo id)
+       (octocat--run-gh
+        "resolve-ref"
+        (list "api" (format "repos/%s/issues/%d" repo id) "--jq" ".pull_request != null")
+        #'string-trim
+        (lambda (result)
+          (cond ((eq (car-safe result) 'error)
+                 (message "Octocat: cannot open %s#%d: %s" repo id (cdr result)))
+                ((equal result "true") (octocat-pr-open repo id))
+                (t (octocat-issue-open repo id)))))))))
+
+(setq octocat-markdown-ref-function #'octocat--markdown-open-ref)
 
 (defun octocat-toggle-markdown ()
   "Toggle between rendered and raw markdown display in the current buffer.
