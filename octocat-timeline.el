@@ -461,18 +461,29 @@ folds it back."
 RAW is as for `octocat-timeline--entry-string'; WIDTH only invalidates the
 rendered text when the window is resized."
   :render
-  (let* ((lines (vui-use-memo (item raw width)
-                  (split-string (octocat-timeline--entry-string item raw) "\n")))
+  (let* ((cut (vui-use-memo (item raw width)
+                ;; Cut the text by position, not by splitting and joining
+                ;; it, so a folded <details> row keeps its invisible newline.
+                (let ((string (octocat-timeline--entry-string item raw))
+                      (start 0) ends)
+                  (while (string-match "\n" string start)
+                    (push (match-beginning 0) ends)
+                    (setq start (match-end 0)))
+                  (cons string (nreverse ends)))))
+         (full  (car cut))
+         (ends  (cdr cut))
          (visit (plist-get item :on-visit)))
     (vui-component
      'octocat-timeline-fold
-     :total (1- (length lines))
+     :total (length ends)
      :limit limit
      :noun "lines"
      :key (intern (format "fold-%d" index))
      :prefix octocat-timeline--body-prefix
      :render (lambda (shown)
-               (let ((text (mapconcat #'identity (seq-take lines (1+ shown)) "\n")))
+               (let ((text (substring full 0 (if (< shown (length ends))
+                                                 (nth shown ends)
+                                               (length full)))))
                  (if visit
                      (octocat-vui-row text visit (plist-get item :help))
                    (vui-text text)))))))

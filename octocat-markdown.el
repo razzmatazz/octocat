@@ -179,7 +179,9 @@ and Evil state maps, so RET works in every buffer a rendered string lands in.")
 
 (defun octocat-markdown--ensure-invisibility ()
   "Make folded <details> bodies invisible in the current buffer."
-  (add-to-invisibility-spec 'octocat-markdown-details))
+  (unless (and (listp buffer-invisibility-spec)
+               (memq 'octocat-markdown-details buffer-invisibility-spec))
+    (add-to-invisibility-spec 'octocat-markdown-details)))
 
 (defun octocat-markdown-toggle-details (&optional pos)
   "Expand or collapse the <details> whose summary is at POS (default point)."
@@ -1145,6 +1147,10 @@ Markup is replaced by faces; see the Commentary for what is understood."
          (rows (octocat-markdown--blocks
                 (octocat-markdown--extract-definitions
                  (octocat-markdown--lines text)))))
+    ;; Folded bodies are `invisible' by a symbol that must be in the
+    ;; buffer's invisibility spec from the start, not only once a
+    ;; summary has been toggled, or they show while the arrow says ▸.
+    (octocat-markdown--ensure-invisibility)
     (octocat-markdown--finish
      (or (octocat-markdown--tidy (append rows (octocat-markdown--footnote-rows)))
          (list (cons "" 0)))

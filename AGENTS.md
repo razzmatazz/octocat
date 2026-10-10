@@ -104,7 +104,22 @@ Load order: `octocat-mermaid.el` first (standalone), then
 `octocat-evil-setup`, and `require` is a no-op on an already-provided
 feature, so a stale evil file silently wins).
 
-**Call 1 — kill display buffers** (stale keymaps stick to live buffers):
+**Do not kill the user's buffers by default.**  Calls 1 and 2 close their
+open octocat buffers and visited source files, which loses their place.
+Run only Call 3 (and Call 4 to verify) unless killing is actually
+necessary, and tell the user to `gr` any already-open buffer to re-render
+it with the new code.  Kill buffers only when the change would otherwise
+not take effect, e.g.:
+
+- a keymap or `evil` binding changed (stale keymaps stick to live
+  buffers; also `makunbound` the affected map, see below);
+- a source buffer is visited and stale on disk, or a stale `.elc`
+  shadows the source (Call 2).
+
+Mention in the final reply whether you killed anything and why.
+
+**Call 1 — kill display buffers** (only when necessary, see above; stale
+keymaps stick to live buffers):
 ```elisp
 (dolist (buf (buffer-list))
   (when (string-match-p "\\*octocat" (buffer-name buf))
@@ -113,7 +128,7 @@ feature, so a stale evil file silently wins).
 ```
 
 **Call 2 — kill visited source buffers and delete `.elc` files**
-(`insert-file-contents` prefers the visited buffer over disk; `.elc` shadows
+(only when necessary, see above; `insert-file-contents` prefers the visited buffer over disk; `.elc` shadows
 source; `make ci` recreates `.elc`, so always delete even after a CI run):
 ```elisp
 (dolist (f (directory-files "/Users/bob/src/octocat" t "\\.el$"))
