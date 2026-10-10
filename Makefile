@@ -11,24 +11,32 @@ DOCKER_RUN = $(DOCKER) run --rm \
                -w $(SRC) \
                $(LOCAL_IMAGE)
 
-.PHONY: image compile lint test ci clean
+.PHONY: image deps compile lint test ci clean
 
 image:
 	$(DOCKER) build -t $(LOCAL_IMAGE) .
 
+# Installing dependencies is slow, so only do it when Eask changes.
+.eask/deps: Eask | image
+	$(DOCKER_RUN) sh -c "eask install-deps --dev"
+	touch .eask/deps
+
+deps: .eask/deps
+
 clean:
 	find . -maxdepth 1 -name '*.elc' -delete
 
-compile: image clean
-	$(DOCKER_RUN) sh -c "eask install-deps --dev && eask compile --strict"
+# Compile a copy, so the .elc files do not land next to the sources while
+# lint and test run alongside.
+compile: deps
+	$(DOCKER_RUN) sh -c "cp -a /src /tmp/build && cd /tmp/build && eask compile --strict"
 
-lint: image
-	$(DOCKER_RUN) sh -c "eask install-deps --dev && eask lint checkdoc && eask lint package"
+lint: deps
+	$(DOCKER_RUN) sh -c "eask lint checkdoc && eask lint package"
 
-test: image
-	$(DOCKER_RUN) sh -c "eask install-deps --dev && eask test ert test/octocat-tests.el && eask test ert test/octocat-evil-repo-tests.el"
+test: deps
+	$(DOCKER_RUN) sh -c "eask test ert test/octocat-tests.el && eask test ert test/octocat-evil-repo-tests.el"
 
-# compile, lint and test each spin up their own container and are independent
-# of each other once the image exists — run them in parallel with -j3.
-ci: image
-	$(MAKE) compile lint test
+# compile, lint and test are independent, so run them in parallel.
+ci: clean
+	$(MAKE) -j3 compile lint test
