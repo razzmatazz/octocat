@@ -664,7 +664,7 @@ commit is highlighted.  AUTHOR-W is the width of the author column, see
 `octocat-repo-vui--author-width'."
   (let* ((head-hash (and head-info (plist-get head-info :hash)))
          (sha       (or (gethash "sha" commit) ""))
-         (short     (substring sha 0 (min 11 (length sha))))
+         (short     (substring sha 0 (min 7 (length sha))))
          (is-head   (and head-hash
                         (>= (length sha) (length head-hash))
                         (string-prefix-p head-hash sha)))
@@ -677,8 +677,7 @@ commit is highlighted.  AUTHOR-W is the width of the author column, see
                      (or (and ca (gethash "date" ca)) "")))
          (line
           (concat
-           "  "
-           (propertize (format "%-11s" short)
+           (propertize (format "%-7s" short)
                        'face (if is-head 'octocat-branch-current 'octocat-commit-sha))
            "  "
            (if is-head
@@ -733,25 +732,24 @@ plist from `octocat--head-info', used to highlight the local HEAD commit."
       (when (and fresh default-branch (= limit octocat-section-limit))
         (octocat--items-cache-save repo "commits" "default" fresh default-branch))
       nil)
-    (vui-collapsible
-     :title (concat
-             (if (and (stringp branch) (not (string-empty-p branch)))
-                 (concat "Commits on "
-                         (propertize branch 'face
-                                     (if (equal branch current-branch)
-                                         'octocat-branch-current
-                                       'octocat-branch)))
-               "Commits")
-             (octocat-vui-loading-suffix result spin))
-     :key 'commits :initially-expanded t :indent 0
+    (vui-vstack
+     (vui-text (concat
+                (if (and (stringp branch) (not (string-empty-p branch)))
+                    (concat (propertize "Commits on " 'face 'octocat-section-heading)
+                            (propertize branch 'face
+                                        (if (equal branch current-branch)
+                                            'octocat-branch-current
+                                          'octocat-branch)))
+                  (propertize "Commits" 'face 'octocat-section-heading))
+                (octocat-vui-loading-suffix result spin)))
      (pcase (plist-get result :status)
-       ('pending (vui-text "  (loading…)\n" :face 'octocat-dimmed))
-       ('error   (vui-text (format "  %s\n" (plist-get result :error)) :face 'octocat-dimmed))
+       ('pending (vui-text "(loading…)" :face 'octocat-dimmed))
+       ('error   (vui-text (format "%s" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
         (let ((commits (plist-get result :data)))
           (vui-fragment
            (if (null commits)
-               (vui-text "  (no commits)\n" :face 'octocat-dimmed)
+               (vui-text "(no commits)" :face 'octocat-dimmed)
              (let ((author-w (octocat-repo-vui--author-width commits)))
                (vui-list commits
                          (lambda (c)
@@ -767,7 +765,7 @@ plist from `octocat--head-info', used to highlight the local HEAD commit."
               'load-more-commits octocat-section-limit
               "RET: load more commits"
               (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
-              (plist-get result :refreshing))))))))))
+              (plist-get result :refreshing) 0)))))))))
 
 ;;;; Root
 
