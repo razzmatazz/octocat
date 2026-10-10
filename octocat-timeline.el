@@ -30,8 +30,8 @@
 ;;
 ;;   :time    ISO-8601 timestamp (these sort correctly as strings)
 ;;   :kind    `comment' or `review' (a box with a markdown body), `post'
-;;            (the opening post: a body of its own, off the rail, from
-;;            which the rail flows), or `event' or `commit' (a single line)
+;;            (the opening post: a box like any comment, but first and
+;;            folded later), or `event' or `commit' (a single line)
 ;;   :actor   "@login", or "" when unknown
 ;;
 ;; and, optionally,
@@ -337,9 +337,6 @@ single entry such as \"added the A B labels\"."
   "Prefix of a box body: the rail, then the text.
 The text lines up with the author's handle in the heading above it.")
 
-(defconst octocat-timeline--post-prefix ""
-  "Prefix of the opening post's body: none, the text starts at the left edge.")
-
 (defun octocat-timeline--bullet-face (state)
   "Return the face of the bullet of an entry in STATE (see \"Model\")."
   (pcase state
@@ -354,9 +351,6 @@ ITEM is as described in the Commentary.  RAW non-nil shows markdown
 bodies verbatim.  The text carries ITEM's target in the
 `octocat-timeline-target' property."
   (let* ((line  (memq (plist-get item :kind) '(event commit)))
-         ;; The opening post is not an entry on the rail: like GitHub's
-         ;; page, its body stands on its own and the rail flows from it.
-         (post  (eq (plist-get item :kind) 'post))
          (actor (propertize (plist-get item :actor) 'face 'octocat-pr-author))
          (date  (propertize (octocat--format-ts-full (plist-get item :time))
                             'face 'octocat-dimmed))
@@ -368,10 +362,8 @@ bodies verbatim.  The text carries ITEM's target in the
                       (plist-get item :text) "  " date (plist-get item :suffix))
             (let ((body   (plist-get item :body))
                   (empty  (plist-get item :empty))
-                  (prefix (if post
-                              octocat-timeline--post-prefix
-                            octocat-timeline--body-prefix)))
-              (concat "  " (unless post (concat bullet " ")) actor " "
+                  (prefix octocat-timeline--body-prefix))
+              (concat "  " bullet " " actor " "
                       (propertize (plist-get item :verb) 'face 'octocat-dimmed)
                       "  " date
                       (cond
@@ -478,9 +470,7 @@ rendered text when the window is resized."
      :limit limit
      :noun "lines"
      :key (intern (format "fold-%d" index))
-     :prefix (if (eq (plist-get item :kind) 'post)
-                 "  "
-               octocat-timeline--body-prefix)
+     :prefix octocat-timeline--body-prefix
      :render (lambda (shown)
                (let ((text (mapconcat #'identity (seq-take lines (1+ shown)) "\n")))
                  (if visit

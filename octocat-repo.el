@@ -539,27 +539,48 @@ rows."
    "RET: view issue"))
 
 ;; The header of an issue or PR page is drawn like a regular list row (see
-;; above): where it lives, then the state before the title with the labels
-;; after it, then dimmed details lined up under the title.
+;; above), so the page continues the list it was opened from: the state
+;; before the title with the labels after it, then a dimmed line with where
+;; it lives and who opened it.
 
-(defun octocat-repo-vui--detail-header (repo number state title chips on-edit-title)
-  "Return the header vnodes of an issue or PR page.
-REPO and NUMBER name the item (the first row opens the repo view).  STATE
-is its coloured state text (see `octocat-repo-vui--state-label'), TITLE
-its title and CHIPS its label chips, \"\" for none.  The title row is the
-`title' target of the page's edit command; RET on it calls ON-EDIT-TITLE."
-  (list
-   (octocat-vui-row
-    (concat (propertize repo 'face 'octocat-repo)
-            (propertize (format "#%d" number) 'face 'octocat-pr-number))
-    (lambda () (octocat-visit-repo repo))
-    "RET: open repo view")
-   (octocat-vui-row
-    (propertize (concat state "  " title
-                        (if (string-empty-p chips) "" (concat "  " chips)))
-                'octocat-timeline-target 'title)
-    on-edit-title
-    "RET: edit title")))
+(defun octocat-repo-vui--detail-header (repo item state on-edit-title &optional branch omit)
+  "Return the header vnodes of the issue or PR ITEM of REPO.
+STATE is its coloured state text (see `octocat-repo-vui--state-label').
+The first row is the repo and number, as in every other view; RET on it
+opens the repo view.  The second is the title and labels, the `title'
+target of the page's edit command; RET on it calls ON-EDIT-TITLE.  The
+third, dimmed row reads like the list's: author, age, branch, ...; RET
+on it edits the title too.  BRANCH, when non-nil, replaces the
+branch cell.  OMIT is a list of cell keys (see `octocat-repo-vui--cells')
+to leave out."
+  (let* ((cells (octocat-repo-vui--cells item nil repo))
+         (chips (or (plist-get cells :chips) ""))
+         (more  (seq-remove (lambda (s) (or (null s) (string-empty-p s)))
+                            (mapcar (lambda (key)
+                                      (if (and branch (eq key :branch))
+                                          branch
+                                        (plist-get cells key)))
+                                    (seq-difference
+                                     '(:author :date :branch :ci :prs :comments)
+                                     omit)))))
+    (list
+     (octocat-vui-row
+      (concat (propertize repo 'face 'octocat-repo)
+              (propertize (format "#%d" (gethash "number" item))
+                          'face 'octocat-pr-number))
+      (lambda () (octocat-visit-repo repo))
+      "RET: open repo view")
+     (octocat-vui-row
+      (propertize (concat state "  " (plist-get cells :title)
+                          (if (string-empty-p chips) "" (concat "  " chips)))
+                  'octocat-timeline-target 'title)
+      on-edit-title
+      "RET: edit title")
+     (octocat-vui-row
+      (concat (make-string (+ octocat-repo-vui--state-width 2) ?\s)
+              (mapconcat #'identity more (propertize " · " 'face 'octocat-dimmed)))
+      on-edit-title
+      "RET: edit title"))))
 
 (defun octocat-repo-vui--detail-fields (fields)
   "Return a vnode listing FIELDS under the title, or nil when none has a value.

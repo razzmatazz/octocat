@@ -46,7 +46,7 @@
 (declare-function octocat-repo-vui--layout "octocat-repo" (cells width))
 (defvar octocat-repo-vui--state-width)  ; defconst in octocat-repo.el
 (declare-function octocat-repo-vui--state-label"octocat-repo" (state &optional draft))
-(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo number state title chips on-edit-title))
+(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title &optional branch omit))
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
 (declare-function octocat-repo-vui--logins "octocat-repo" (users))
 (declare-function octocat-repo-vui--numbers "octocat-repo" (refs))
@@ -402,11 +402,9 @@ The rest expands on RET.  Nil never folds."
 PR is the hash-table of the pull request in REPO."
   (let* ((number   (gethash "number" pr))
          (state    (or (gethash "state" pr) "OPEN"))
-         (title    (or (gethash "title" pr) ""))
-         (head     (or (gethash "headRefName" pr) ""))
+         (head    (or (gethash "headRefName" pr) ""))
          (base     (or (gethash "baseRefName" pr) ""))
          (local    (octocat--current-branch))
-         (chips    (octocat--format-labels (octocat-timeline--get pr "labels")))
          (indent   (make-string (+ octocat-repo-vui--state-width 2) ?\s))
          (changes  (concat indent
                            (propertize "Changes" 'face 'octocat-dimmed) " "
@@ -421,16 +419,18 @@ PR is the hash-table of the pull request in REPO."
          (reviewers (octocat-pr--reviewers pr)))
     (append
      (octocat-repo-vui--detail-header
-      repo number
+      repo pr
       (octocat-repo-vui--state-label state (gethash "isDraft" pr))
-      title chips #'octocat-pr-edit-title)
+      #'octocat-pr-edit-title
+      ;; Where the list shows the branch, show where it merges to as well.
+      (concat (propertize head 'face (if (equal head local)
+                                         'octocat-branch-current
+                                       'octocat-branch))
+              (propertize " → " 'face 'octocat-dimmed)
+              (propertize base 'face 'octocat-branch))
+      ;; The checks and comments are further down the page.
+      '(:ci :comments))
      (list
-      (vui-text (concat indent
-                        (propertize head 'face (if (equal head local)
-                                                   'octocat-branch-current
-                                                 'octocat-branch))
-                        (propertize " → " 'face 'octocat-dimmed)
-                        (propertize base 'face 'octocat-branch)))
       (octocat-repo-vui--detail-fields
        (list (cons "Reviewers" reviewers)
              (cons "Assignees" (octocat-repo-vui--logins (gethash "assignees" pr)))
@@ -439,7 +439,8 @@ PR is the hash-table of the pull request in REPO."
                                 (gethash "closingIssuesReferences" pr)))))
       (octocat-vui-row changes
                        (lambda () (octocat-pr-diff-open repo number))
-                       "RET: open diff view")))))
+                       "RET: open diff view")
+      (vui-newline)))))
 
 (defun octocat-pr--reviewers (pr)
   "Return the reviewers of PR as one string, or nil when there are none.

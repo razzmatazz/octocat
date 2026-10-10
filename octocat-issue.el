@@ -44,7 +44,7 @@
 (declare-function octocat-repo-vui--cells "octocat-repo" (item current-branch repo))
 (declare-function octocat-repo-vui--layout "octocat-repo" (cells width))
 (declare-function octocat-repo-vui--state-label "octocat-repo" (state &optional draft))
-(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo number state title chips on-edit-title))
+(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title &optional branch omit))
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
 (declare-function octocat-repo-vui--logins "octocat-repo" (users))
 (declare-function octocat-repo-vui--numbers "octocat-repo" (refs))
@@ -264,20 +264,18 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
 
 (defun octocat-issue--header (repo issue)
   "Return the vnodes above the timeline: repo, title and labels of ISSUE in REPO."
-  (let* ((number (gethash "number" issue))
-         (state  (or (gethash "state" issue) "OPEN"))
-         (title  (or (gethash "title" issue) ""))
-         (chips  (octocat--format-labels (octocat-timeline--get issue "labels"))))
+  (let ((state (or (gethash "state" issue) "OPEN")))
     (append
      (octocat-repo-vui--detail-header
-      repo number (octocat-repo-vui--state-label state) title chips
-      #'octocat-issue-edit-title)
+      repo issue (octocat-repo-vui--state-label state)
+      #'octocat-issue-edit-title nil '(:comments))
      (list
       (octocat-repo-vui--detail-fields
        (list (cons "Assignees" (octocat-repo-vui--logins (gethash "assignees" issue)))
              (cons "Milestone" (octocat-repo-vui--milestone issue))
              (cons "Fixed by"  (octocat-repo-vui--numbers
-                                (gethash "closedByPullRequestsReferences" issue)))))))))
+                                (gethash "closedByPullRequestsReferences" issue)))))
+      (vui-newline)))))
 
 (vui-defcomponent octocat-issue--page (repo number raw)
   "Issue NUMBER of REPO as a timeline; RAW shows markdown bodies verbatim."
