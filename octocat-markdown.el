@@ -35,7 +35,8 @@
 ;; `code', **bold**, *italic*, ~~strike~~, inline and reference-style
 ;; links, images, autolinks, @mentions, #123 and commit references,
 ;; :emoji: shortcodes and $math$.  HTML comments are dropped and other
-;; HTML tags are stripped, keeping their content.
+;; HTML tags are stripped, keeping their content.  Mermaid fences are
+;; drawn by `octocat-mermaid' to fit the width.
 ;;
 ;; Links, #123 and commit references and <details> summaries are
 ;; interactive: they carry a `keymap' text property binding RET and
@@ -51,6 +52,7 @@
 (require 'cl-lib)
 (require 'seq)
 (require 'subr-x)
+(require 'octocat-mermaid)
 
 ;;;; Faces
 
@@ -744,17 +746,22 @@ with its hooks suppressed, and only the faces are kept."
 
 (defun octocat-markdown--code-block (code &optional lang)
   "Return the lines of fenced CODE (a list of strings) as a padded block.
-LANG is the fence's language, which picks the syntax highlighting; a
-`math' fence is shown as Unicode text and a `mermaid' one is labelled as
-the diagram source it is."
+LANG is the fence's language, which picks the syntax highlighting.  A
+`math' fence is shown as Unicode text.  A `mermaid' one is drawn by
+`octocat-mermaid-render' to fit the width available; when that cannot
+draw it, the source is shown, labelled as such."
   (let* ((lang (and lang (car (split-string lang))))
-         (code (if (member lang '("math" "latex-math"))
-                   (split-string (octocat-markdown--tex (string-join code "\n")) "\n")
-                 code))
-         (code (or (octocat-markdown--highlight code lang) code))
+         (diagram (and (equal lang "mermaid")
+                       (octocat-mermaid-render
+                        code (and octocat-markdown--avail (- octocat-markdown--avail 2)))))
+         (code (cond (diagram diagram)
+                     ((member lang '("math" "latex-math"))
+                      (split-string (octocat-markdown--tex (string-join code "\n")) "\n"))
+                     (t code)))
+         (code (or (and (not diagram) (octocat-markdown--highlight code lang)) code))
          (width (apply #'max 0 (mapcar #'string-width code))))
     (append
-     (when (equal lang "mermaid")
+     (when (and (equal lang "mermaid") (not diagram))
        (list (cons (octocat-markdown--face "mermaid diagram (source)"
                                            'octocat-markdown-dimmed 'italic)
                    0)))

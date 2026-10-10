@@ -30,6 +30,12 @@ WIDTH is passed on to `octocat-markdown-render'."
     (should (equal (substring-no-properties out) "> a *b*\n> c\n"))
     (should (equal (get-text-property 0 'wrap-prefix out) "> "))))
 
+(ert-deftest octocat-markdown-test-width-is-the-full-line ()
+  "Rendered markdown may use every column Emacs can show, not one less."
+  (with-temp-buffer
+    (should (= (octocat--markdown-width)
+               (window-max-chars-per-line (selected-window))))))
+
 (ert-deftest octocat-markdown-test-insert-allows-folding ()
   "Inserting markdown lets folded <details> bodies be invisible."
   (with-temp-buffer

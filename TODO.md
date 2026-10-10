@@ -58,7 +58,16 @@ font-lock in `octocat-edit-mode`.
 
 Still to do:
 
-- mermaid fences are shown as labelled source, not drawn.
+- Mermaid (`octocat-mermaid.el`) draws flowcharts/graphs, sequence diagrams,
+  state diagrams (transitions only) and pie charts, to fit the window: labels
+  wrap, a left-to-right chart turns top-down, sequence diagrams squeeze.  Not
+  drawn (shown as labelled source): nested subgraphs, edges to a subgraph
+  itself, a subgraph that would have to take in a node of another one (e.g.
+  `A --> C --> B` with only A and B in it), self-loops, composite states,
+  class/ER/gantt/journey/git graphs, and anything that does not fit the width
+  even squeezed.  Dense flowcharts with many back-edges come out cramped
+  (arrows share the row below a node), and edges that cross merge into
+  junctions rather than hopping.
 - TeX is approximated (fractions, roots, scripts and symbols only).
 - `<details>` folds are not remembered across a refresh, and a `<details>`
   inside another one is shown flat.

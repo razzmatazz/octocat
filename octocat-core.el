@@ -898,13 +898,16 @@ rendering."
 
 (defun octocat--markdown-width ()
   "Return the columns rendered markdown should fit in the current buffer.
-That is the body width of the window showing the buffer (else of the
-selected window), less one column so a full line does not wrap."
-  (1- (window-body-width (or (get-buffer-window (current-buffer) t)
-                             (selected-window)))))
+That is the number of characters that fit a line of the window showing
+the buffer (else of the selected window).  Emacs already leaves out the
+last column where it is taken by the continuation glyph (a terminal, or
+a window without fringes), so a full line does not wrap."
+  (window-max-chars-per-line (or (get-buffer-window (current-buffer) t)
+                                 (selected-window))))
 
 (defun octocat--insert-markdown (text &optional indent)
   "Insert TEXT rendered by `octocat--markdown-string' into the current buffer.
+Each line is prefixed with INDENT, as for `octocat--markdown-string'.
 When `octocat--markdown-raw' is non-nil in the current buffer the text is
 inserted verbatim without any font-lock rendering."
   (octocat-markdown--ensure-invisibility)
