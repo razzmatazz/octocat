@@ -494,3 +494,21 @@ so it reads as a breadcrumb rather than a metadata field.
 
 The same line appears in both the loading skeleton and the fully-rendered
 view so the breadcrumb is always visible from the moment the buffer opens.
+
+---
+
+## Indicating that a page is loading or refreshing
+
+While a page refreshes cached data (on open, `gr`) it shows **one**
+indicator, on the **top line** (the `repo#N` row, or the repo row of a
+list page) -- not on a section heading, below the content, or per section.
+The top line never moves, so the indicator comes and goes without
+shifting anything, and it is in the same place on every page.
+
+- Append `octocat-vui-loading-suffix` to the top row while *any* of the
+  page's fetches is `:refreshing`; drive the spinner with
+  `octocat-vui-use-spinner`.
+- Several fetches (header, timeline, files) are combined with `or`.
+- A section's own first-load `(loading…)` placeholder, in place of content
+  that does not exist yet, is fine.
+- The indicator is not a button and has no `help-echo`.

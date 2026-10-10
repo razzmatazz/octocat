@@ -386,9 +386,11 @@ then always fetches fresh data in the background."
 ;; vui.el-rendered, unlike the magit-section workflow detail buffer above;
 ;; see "UI frameworks" in CONTRIBUTING.md.
 
-(vui-defcomponent octocat-workflow--runs-section (repo current-branch)
-  "Workflow Runs section for REPO."
-  :state ((limit octocat-section-limit) (spin 0))
+(vui-defcomponent octocat-workflow--runs-section (repo current-branch on-loading)
+  "Workflow Runs section for REPO.
+ON-LOADING is called with whether the runs are refreshing, for the page's
+loading indicator."
+  :state ((limit octocat-section-limit))
   :render
   (let* ((result  (octocat-vui-use-async-sticky (list 'recent-runs repo limit)
                     (lambda (resolve reject)
@@ -396,9 +398,11 @@ then always fetches fresh data in the background."
                        repo limit
                        (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
          (loading (and (plist-get result :refreshing) t)))
-    (octocat-vui-use-spinner loading)
+    (vui-use-effect (loading)
+      (funcall on-loading loading)
+      nil)
     (vui-collapsible
-     :title (concat "Workflow Runs" (octocat-vui-loading-suffix result spin))
+     :title "Workflow Runs"
      :key 'workflow-runs :initially-expanded t :indent 0
      (pcase (plist-get result :status)
        ('pending (vui-text "(loading…)\n" :face 'octocat-dimmed))
@@ -448,13 +452,17 @@ then always fetches fresh data in the background."
 
 (vui-defcomponent octocat-workflow--list-page (repo current-branch)
   "Combined workflows + runs page for REPO."
+  :state ((loading nil))
   :render
   (vui-vstack
-   (vui-component 'octocat-vui-list-header :repo repo :title "Workflows")
+   (vui-component 'octocat-vui-list-header
+                  :repo repo :title "Workflows" :loading loading)
    (vui-component 'octocat-workflow--list-section :repo repo)
    (vui-newline)
    (vui-component 'octocat-workflow--runs-section
-                  :repo repo :current-branch current-branch)))
+                  :repo repo :current-branch current-branch
+                  :on-loading (vui-async-callback (v)
+                                (vui-set-state :loading v)))))
 
 (defun octocat-workflow-list-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current workflows page buffer."

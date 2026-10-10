@@ -46,7 +46,7 @@
 (declare-function octocat-repo-vui--layout "octocat-repo" (cells width))
 (defvar octocat-repo-vui--state-width)  ; defconst in octocat-repo.el
 (declare-function octocat-repo-vui--state-label"octocat-repo" (state &optional draft))
-(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title &optional branch omit))
+(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title &optional branch omit suffix))
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
 (declare-function octocat-repo-vui--logins "octocat-repo" (users))
 (declare-function octocat-repo-vui--numbers "octocat-repo" (refs))
@@ -424,11 +424,12 @@ of changed files shown on the \"Files changed\" tab, as GitHub does."
                    :help-echo "RET: show the files changed"
                    :on-click (lambda () (octocat-pr-diff-open repo number)))))))
 
-(defun octocat-pr--header (repo pr &optional tab)
+(defun octocat-pr--header (repo pr &optional tab loading)
   "Return the vnodes above the body: repo, title, branches, labels, tabs.
 PR is the hash-table of the pull request in REPO.  TAB is the page
 showing it, `conversation' (the default) or `files'; the files page is
-the diff, so it leaves out the changes row that opens it."
+the diff, so it leaves out the changes row that opens it.  LOADING is the
+page's loading marker, shown on the top row."
   (let* ((number   (gethash "number" pr))
          (state    (or (gethash "state" pr) "OPEN"))
          (head    (or (gethash "headRefName" pr) ""))
@@ -462,7 +463,8 @@ the diff, so it leaves out the changes row that opens it."
               (propertize " → " 'face 'octocat-dimmed)
               (propertize base 'face 'octocat-branch))
       ;; The checks and comments are further down the page.
-      '(:ci :comments))
+      '(:ci :comments)
+      loading)
      (list
       (octocat-repo-vui--detail-fields
        (list (cons "Reviewers" reviewers)
@@ -544,13 +546,11 @@ Each is \"@login (state)\": the state of their latest review, or
        (let ((pr (plist-get result :data)))
          (apply #'vui-vstack
                 (append
-                 (delq nil (octocat-pr--header repo pr))
+                 (delq nil (octocat-pr--header
+                            repo pr nil
+                            (and loading (octocat-vui-loading-suffix
+                                          '(:refreshing t) spin))))
                  entries
-                 ;; Shown only while loading, below the timeline, so the
-                 ;; header and the opening post sit tight and never shift.
-                 (and loading
-                      (list (vui-text (octocat-vui-loading-suffix
-                                       '(:refreshing t) spin))))
                  (list (vui-newline))
                  (octocat-pr--checks repo pr)
                  (octocat-timeline-buttons

@@ -108,7 +108,7 @@ stays on this section's button when growing the list re-renders it
 instead of drifting to a neighbouring section's button.
 When LOADING is non-nil (a page is being fetched, see
 `octocat-vui-use-async-sticky') the button is disabled so it cannot be
-triggered twice; its label stays put, since the section heading shows
+triggered twice; its label stays put, since the page's top line shows
 the activity (see `octocat-vui-loading-suffix').
 Rows carry no trailing newline (`vui-list' only separates them), so the
 button starts on a fresh line and carries the same indent, INDENT columns

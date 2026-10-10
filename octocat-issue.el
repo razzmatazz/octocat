@@ -44,7 +44,7 @@
 (declare-function octocat-repo-vui--cells "octocat-repo" (item current-branch repo))
 (declare-function octocat-repo-vui--layout "octocat-repo" (cells width))
 (declare-function octocat-repo-vui--state-label "octocat-repo" (state &optional draft))
-(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title &optional branch omit))
+(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title &optional branch omit suffix))
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
 (declare-function octocat-repo-vui--logins "octocat-repo" (users))
 (declare-function octocat-repo-vui--numbers "octocat-repo" (refs))
@@ -262,13 +262,14 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
 ;;
 ;; The timeline itself (items, entries, rail) is in octocat-timeline.el.
 
-(defun octocat-issue--header (repo issue)
-  "Return the vnodes above the timeline: repo, title and labels of ISSUE in REPO."
+(defun octocat-issue--header (repo issue &optional loading)
+  "Return the vnodes above the timeline: repo, title and labels of ISSUE in REPO.
+LOADING is the page's loading marker, shown on the top row."
   (let ((state (or (gethash "state" issue) "OPEN")))
     (append
      (octocat-repo-vui--detail-header
       repo issue (octocat-repo-vui--state-label state)
-      #'octocat-issue-edit-title nil '(:comments))
+      #'octocat-issue-edit-title nil '(:comments) loading)
      (list
       (octocat-repo-vui--detail-fields
        (list (cons "Assignees" (octocat-repo-vui--logins (gethash "assignees" issue)))
@@ -315,13 +316,11 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
        (let ((issue (plist-get result :data)))
          (apply #'vui-vstack
                 (append
-                 (delq nil (octocat-issue--header repo issue))
+                 (delq nil (octocat-issue--header
+                            repo issue
+                            (and loading (octocat-vui-loading-suffix
+                                          '(:refreshing t) spin))))
                  entries
-                 ;; Shown only while loading, below the timeline, so the
-                 ;; header and the opening post sit tight and never shift.
-                 (and loading
-                      (list (vui-text (octocat-vui-loading-suffix
-                                       '(:refreshing t) spin))))
                  (octocat-timeline-buttons
                   (list '("+ Add a comment" "RET: write a comment" octocat-issue-add-comment)
                         (if (equal (gethash "state" issue) "OPEN")

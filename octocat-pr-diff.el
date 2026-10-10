@@ -49,7 +49,7 @@
 (declare-function octocat--commit-file-face "octocat-commit" (status))
 (declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
 (declare-function octocat-pr--use-data "octocat-pr" (repo number))
-(declare-function octocat-pr--header "octocat-pr" (repo pr &optional tab))
+(declare-function octocat-pr--header "octocat-pr" (repo pr &optional tab loading))
 (declare-function octocat-pr--tabs "octocat-pr" (current repo number &optional files))
 (declare-function octocat-switch-repo "octocat-core" ())
 (declare-function octocat-search-repo "octocat-search" ())
@@ -216,14 +216,12 @@ or too large for GitHub to show) is just its heading."
         (push c (alist-get path table nil nil #'equal))))
     (mapcar (lambda (e) (cons (car e) (reverse (cdr e)))) table)))
 
-(defun octocat-pr-diff--files-section (files by-path &optional suffix)
+(defun octocat-pr-diff--files-section (files by-path)
   "Return the vnode of the Files section: the heading and one entry per file.
-FILES is the files vector and BY-PATH the review comments by file path.
-SUFFIX, a string, follows the heading (see `octocat-vui-loading-suffix')."
+FILES is the files vector and BY-PATH the review comments by file path."
   (vui-vstack
-   (vui-text (concat (propertize (format "Files (%d)" (length files))
-                                 'face 'octocat-section-heading)
-                     suffix))
+   (vui-text (propertize (format "Files (%d)" (length files))
+                         'face 'octocat-section-heading))
    (if (zerop (length files))
        (vui-text "  (no files changed)" :face 'octocat-dimmed)
      (vui-list (append files nil)
@@ -275,6 +273,7 @@ Must be called during render, like any hook."
 
 (vui-defcomponent octocat-pr-diff--page (repo number)
   "The diff of pull request NUMBER of REPO, under the PR page's header."
+  :state ((spin 0))
   :render
   (let* ((pr       (octocat-pr--use-data repo number))
          (files    (octocat-pr-diff--use-cached
@@ -282,13 +281,21 @@ Must be called during render, like any hook."
          (comments (octocat-pr-diff--use-cached
                     "pr-review-comments" repo number
                     #'octocat--fetch-pr-review-comments t))
+         (loading  (and (or (plist-get pr :refreshing)
+                            (plist-get files :refreshing)
+                            (plist-get comments :refreshing))
+                        t))
          (by-path  (vui-use-memo ((plist-get comments :data))
                      (octocat-pr-diff--by-path (plist-get comments :data)))))
+    (octocat-vui-use-spinner loading)
     (vui-vstack
      ;; The same header as the conversation, so the pages read as tabs.
      (pcase (plist-get pr :status)
        ('ready (apply #'vui-vstack
-                      (delq nil (octocat-pr--header repo (plist-get pr :data) 'files))))
+                      (delq nil (octocat-pr--header
+                                 repo (plist-get pr :data) 'files
+                                 (and loading (octocat-vui-loading-suffix
+                                               '(:refreshing t) spin))))))
        ('error (vui-vstack
                 (vui-text (format "Error: %s" (plist-get pr :error)) :face 'error)
                 (octocat-pr--tabs 'files repo number)))
@@ -299,8 +306,7 @@ Must be called during render, like any hook."
      (pcase (plist-get files :status)
        ('pending (vui-text "  (loading files…)" :face 'octocat-dimmed))
        ('error   (vui-text (format "  Error: %s" (plist-get files :error)) :face 'error))
-       (_ (octocat-pr-diff--files-section (plist-get files :data) by-path
-                                          (octocat-vui-loading-suffix files))))
+       (_ (octocat-pr-diff--files-section (plist-get files :data) by-path)))
      (vui-newline)
      (octocat-pr-diff--comments-section comments))))
 
