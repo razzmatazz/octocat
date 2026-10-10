@@ -97,7 +97,8 @@ edit.  **Issue one `emacs__eval-elisp` call per phase** — `dolist` returns
 `nil`, so a single call with multiple phases returns `nil` whether it
 succeeded or crashed; splitting makes failures attributable.
 
-Load order: `octocat-core.el` first (everything depends on it);
+Load order: `octocat-markdown.el` first (standalone; `octocat-core.el`
+requires it), then `octocat-core.el` (everything else depends on it);
 `octocat-evil.el` before `octocat.el` (the last lines of `octocat.el` call
 `octocat-evil-setup`, and `require` is a no-op on an already-provided
 feature, so a stale evil file silently wins).
@@ -126,10 +127,11 @@ source; `make ci` recreates `.elc`, so always delete even after a CI run):
 string rather than `ok` is an error — fix it before proceeding):
 ```elisp
 (let (results)
-  (dolist (f (list "octocat-core.el" "octocat-edit.el" "octocat-commit.el"
-                   "octocat-job.el" "octocat-run.el" "octocat-workflow.el"
-                   "octocat-pr-diff.el" "octocat-pr.el" "octocat-issue.el"
-                   "octocat-checks.el" "octocat-tree.el" "octocat-vui.el" "octocat-repo.el"
+  (dolist (f (list "octocat-markdown.el" "octocat-core.el" "octocat-edit.el"
+                   "octocat-commit.el" "octocat-job.el" "octocat-run.el"
+                   "octocat-workflow.el" "octocat-pr-diff.el" "octocat-vui.el"
+                   "octocat-timeline.el" "octocat-pr.el" "octocat-issue.el"
+                   "octocat-checks.el" "octocat-tree.el" "octocat-repo.el"
                    "octocat-evil.el" "octocat.el"))
     (condition-case err
         (with-temp-buffer
@@ -156,8 +158,8 @@ or `ignore-errors` — `makunbound` on a void symbol signals an error):
 ;; … then proceed with Call 1–4 above
 ```
 
-**Do not use `unload-feature`.** It cascade-unloads `markdown-mode`, leaving
-dangling advice and repeated `jit-lock` errors. The `with-temp-buffer` +
+**Do not use `unload-feature`.** It cascade-unloads dependent features,
+leaving dangling advice and repeated `jit-lock` errors. The `with-temp-buffer` +
 `eval-buffer` sequence re-evaluates every `defun`/`defvar` without it.
 
 ## evil-define-key* aux-keymap slot divergence

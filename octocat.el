@@ -5,7 +5,7 @@
 ;; Author: octocat.el contributors
 ;; Assisted-by: Claude:claude-sonnet-4-6
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "29.1") (magit-section "3.0") (markdown-mode "2.0") (consult "1.0") (vui "0.1"))
+;; Package-Requires: ((emacs "29.1") (magit-section "3.0") (consult "1.0") (vui "0.1"))
 ;; Keywords: tools, vc, github
 ;; URL: https://github.com/octocat.el/octocat.el
 

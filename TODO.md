@@ -33,7 +33,19 @@ So find works immediately with C-s / or forward slash in email.
 
 I.e. don't collapse sections by default
 
+## Build out the GitHub markdown renderer
+
+`octocat-markdown.el` replaced `markdown-mode`/`gfm-view-mode` (no longer a
+dependency; the edit buffer is now a plain `text-mode`).  `octocat-markdown-render`
+is currently a plain dump of the source.  Build it up to render GitHub-flavoured
+markdown itself: headings, emphasis, inline code and code fences, lists and task
+lists, quotes, links, tables, `@mentions` and `#123` references.  Then give
+`octocat-edit-mode` markdown font-lock from the same module.
+
 ## ~~Render Markdown in a better way~~
+
+(Superseded: this was done with `gfm-view-mode`, since replaced by
+`octocat-markdown.el`.)
 
 All/most of the text in GitHub uses markdown. Can we render this better in
 our views?

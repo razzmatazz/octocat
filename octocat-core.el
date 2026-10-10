@@ -29,7 +29,7 @@
 (require 'cl-lib)
 (require 'magit-section)
 (require 'json)
-(require 'markdown-mode)
+(require 'octocat-markdown)
 (require 'consult)
 
 ;; Forward declarations for octocat-repo.el functions called from this file.
@@ -876,7 +876,7 @@ text two columns further right.")
 (defvar-local octocat--markdown-raw nil
   "Non-nil means show markdown body text verbatim instead of rendered.
 When nil (the default) `octocat--insert-markdown' processes text through
-`gfm-view-mode' font-lock.  Toggle with `octocat-toggle-markdown'.")
+`octocat-markdown-render'.  Toggle with `octocat-toggle-markdown'.")
 
 (defvar-local octocat--refresh-fn nil
   "Buffer-local refresh function called by `octocat-toggle-markdown'.
@@ -884,38 +884,16 @@ Each markdown-displaying mode sets this to its own refresh command so the
 toggle can re-render the buffer after flipping `octocat--markdown-raw'.")
 
 (defun octocat--markdown-string (text &optional indent raw)
-  "Return TEXT rendered via `gfm-view-mode' font-lock, one line per row.
+  "Return TEXT rendered by `octocat-markdown-render', one line per row.
 Each line is prefixed with INDENT (a string, default \"  \") and ends in a
 newline; INDENT is also repeated on the wrapped continuation lines of
-long lines.  Windows-style CR characters are stripped before rendering.
-Markup delimiters are hidden and syntax is highlighted using the
-faces from `markdown-mode', which is a declared dependency.
+long lines.
 
 When RAW is non-nil the text is returned verbatim, without any
-font-lock rendering."
-  (let* ((indent (or indent "  "))
-         (text (replace-regexp-in-string "\r" "" text))
-         (rendered
-          (if raw
-              text
-            (condition-case _err
-                (with-temp-buffer
-                  (insert text)
-                  (gfm-view-mode)
-                  (font-lock-ensure)
-                  (buffer-string))
-              ;; gfm-mode can crash on malformed input (e.g. unterminated
-              ;; code fences).  Fall back to the raw text so the caller
-              ;; always gets something sensible.
-              (error text)))))
-    (mapconcat (lambda (line)
-                 ;; `wrap-prefix' repeats INDENT (a quote bar, say) on the
-                 ;; continuation lines of a long, wrapped line.
-                 (let ((full (concat indent line "\n")))
-                   (put-text-property 0 (length full) 'wrap-prefix indent full)
-                   full))
-               (split-string rendered "\n")
-               "")))
+rendering."
+  (if raw
+      (octocat-markdown-render-verbatim text indent)
+    (octocat-markdown-render text indent)))
 
 (defun octocat--insert-markdown (text &optional indent)
   "Insert TEXT rendered by `octocat--markdown-string' into the current buffer.
@@ -926,7 +904,7 @@ inserted verbatim without any font-lock rendering."
 (defun octocat-toggle-markdown ()
   "Toggle between rendered and raw markdown display in the current buffer.
 When raw mode is active the body text is shown verbatim; when rendered mode
-is active (the default) it is processed through `gfm-view-mode' font-lock.
+is active (the default) it is processed through `octocat-markdown-render'.
 After toggling, the buffer is refreshed via `octocat--refresh-fn'."
   (interactive)
   (setq octocat--markdown-raw (not octocat--markdown-raw))

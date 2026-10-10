@@ -88,7 +88,7 @@ single-line or multi-line:
 
 Used for PR/issue **bodies** and **comments** — content where the user
 may need multiple lines, markdown preview, and the ability to abandon
-their work mid-edit.  The edit buffer derives from `gfm-mode` and
+their work mid-edit.  The edit buffer derives from `text-mode` and
 presents a familiar Magit-style commit-message workflow:
 
 ```

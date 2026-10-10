@@ -89,7 +89,7 @@ Used by `quit-window' to close the split cleanly on submit or abort.")
 
 ;;;; Major mode
 
-(define-derived-mode octocat-edit-mode gfm-mode "Octocat-Edit"
+(define-derived-mode octocat-edit-mode text-mode "Octocat-Edit"
   "Major mode for composing GitHub PR/issue bodies and comments.
 
 Type your markdown text, then:
@@ -98,9 +98,8 @@ Type your markdown text, then:
 
 \\{octocat-edit-mode-map}"
   :group 'octocat
-  ;; Re-bind C-c C-c / C-c C-k after gfm-mode has set up its own keymap, so
-  ;; our bindings take precedence.  We use `keymap-set' to target the mode's
-  ;; *local* keymap specifically (not an auxiliary or parent map).
+  ;; Install our keymap as the local map after the parent mode has set up
+  ;; its own, so C-c C-c / C-c C-k take precedence.
   (use-local-map octocat-edit-mode-map))
 
 
