@@ -33,12 +33,42 @@
 
 ;;; Code:
 
+(require 'octocat-avatar)
 (require 'octocat-core)
 (require 'octocat-repo)
 (require 'octocat-vui)
 (require 'subr-x)
 (require 'vui)
 (require 'vui-components)
+
+(defcustom octocat-user-show-avatar t
+  "Whether the user page draws the avatar as ASCII art beside the profile."
+  :type 'boolean
+  :group 'octocat)
+
+(defcustom octocat-user-avatar-max-columns 40
+  "Widest the avatar is drawn, in characters.
+The avatar takes a quarter of the window's width up to this limit, so it
+grows when the window does, and is left out of a window too narrow for
+it.  It is half as many lines tall as it is wide."
+  :type 'integer
+  :group 'octocat)
+
+(defcustom octocat-user-avatar-style nil
+  "Characters the avatar is drawn with.
+nil picks quadrant blocks, or plain 7-bit ASCII when Emacs cannot
+display Unicode.  The others are `blocks' (quadrant blocks with
+foreground and background colours), `ramp' (Unicode shade characters)
+and `ascii'.  See `octocat-avatar-render'."
+  :type '(choice (const :tag "Automatic" nil)
+                 (const :tag "Quadrant blocks" blocks)
+                 (const :tag "Unicode shade ramp" ramp)
+                 (const :tag "7-bit ASCII" ascii))
+  :group 'octocat)
+
+(defconst octocat-user--avatar-pixels 128
+  "Size, in pixels, of the avatar requested from GitHub.
+Enough for `octocat-user-avatar-max-columns' at the default of 40.")
 
 (defvar-local octocat-user--login nil
   "The GitHub login (without the leading \"@\") this buffer shows.")
@@ -152,6 +182,19 @@ CALLBACK receives a cons (error . MSG) on failure."
            (and details (mapconcat #'identity details "  ·  "))
            (and counts (mapconcat #'identity counts "  ·  "))))))
 
+(defun octocat-user--avatar-columns (window-width)
+  "Return how many columns the avatar gets in a window WINDOW-WIDTH wide.
+Zero means too narrow to draw it."
+  (let ((cols (min octocat-user-avatar-max-columns (/ window-width 4))))
+    (if (< cols 12) 0 cols)))
+
+(defun octocat-user--beside (avatar lines)
+  "Return LINES, each placed to the right of the matching row of AVATAR.
+AVATAR is a list of equally wide strings; the shorter list is padded."
+  (let ((pad (make-string (string-width (car avatar)) ?\s)))
+    (cl-loop for i below (max (length avatar) (length lines))
+             collect (concat (or (nth i avatar) pad) "  " (or (nth i lines) "")))))
+
 (defun octocat-user--repo-row (repo)
   "Return a RET-able row vnode for REPO, a repository hash-table."
   (let* ((full  (gethash "full_name" repo))
@@ -235,6 +278,40 @@ or when the fetch fails."
                  (lambda (r) (gethash "full_name" r)))
        (vui-newline)))))
 
+(vui-defcomponent octocat-user--header (profile)
+  "Profile lines of PROFILE with its avatar drawn beside them in ASCII.
+The image is fetched and decoded once; it is drawn again, cheaply, each
+time the window's width changes."
+  :state ((win-width nil))
+  :render
+  (let* ((width  (octocat-vui-use-window-width))
+         (url    (and octocat-user-show-avatar
+                      (octocat--nonempty (gethash "avatar_url" profile))))
+         (result (vui-use-async (list 'user-avatar url)
+                   (lambda (resolve reject)
+                     (if (null url)
+                         (funcall resolve nil)
+                       (octocat-avatar-fetch
+                        (concat url (if (string-search "?" url) "&" "?")
+                                "s=" (number-to-string octocat-user--avatar-pixels))
+                        (lambda (r)
+                          (if (eq (car-safe r) 'error)
+                              (funcall reject (cdr r))
+                            (funcall resolve (octocat-avatar-decode r)))))))))
+         (cols   (octocat-user--avatar-columns width))
+         (image  (and (eq (plist-get result :status) 'ready)
+                      (plist-get result :data)))
+         (lines  (octocat-user--profile-lines profile))
+         (art    (cond ((= cols 0) nil)
+                       (image (octocat-avatar-render
+                               image cols nil octocat-user-avatar-style))
+                       ;; Keep the text where it will be while loading.
+                       ((and url (eq (plist-get result :status) 'pending))
+                        (list (make-string cols ?\s))))))
+    (vui-vstack
+     (mapcar (lambda (line) (vui-text line))
+             (if art (octocat-user--beside art lines) lines)))))
+
 (vui-defcomponent octocat-user--root (login)
   "Root component of the user page: profile header, then repositories."
   :state ((spin 0) (repos-loading nil))
@@ -251,9 +328,7 @@ or when the fetch fails."
        ('ready
         (let ((profile (plist-get result :data)))
           (if profile
-              (vui-vstack
-               (mapcar (lambda (line) (vui-text line))
-                       (octocat-user--profile-lines profile)))
+              (vui-component 'octocat-user--header :profile profile)
             (vui-text (propertize (concat "@" login) 'face 'octocat-repo)))))
        ('error
         (vui-vstack

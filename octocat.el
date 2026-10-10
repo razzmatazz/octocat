@@ -867,12 +867,23 @@ mode with no local directory bound."
 ;;;###autoload
 (defun octocat-user (login)
   "Open the page of the GitHub user or organization LOGIN, e.g. \"@octocat\".
-Interactively, prompt for the handle; a leading \"@\" is optional."
+With a nil or empty LOGIN, open the authenticated user's own page.
+Interactively that is the default; with a prefix argument, prompt for
+the handle instead (a leading \"@\" is optional)."
   (interactive
-   (list (read-string "GitHub user or organization: "
-                      (and (derived-mode-p 'octocat-user-mode)
-                           octocat-user--login))))
-  (octocat-user-open login))
+   (list (and current-prefix-arg
+              (read-string "GitHub user or organization: "
+                           (and (derived-mode-p 'octocat-user-mode)
+                                octocat-user--login)))))
+  (if (string-empty-p (string-trim (or login "")))
+      (progn
+        (message "Octocat: Looking up your GitHub login…")
+        (octocat--fetch-viewer-login
+         (lambda (result)
+           (if (eq (car-safe result) 'error)
+               (message "Octocat: Could not look up your login: %s" (cdr result))
+             (octocat-user-open result)))))
+    (octocat-user-open login)))
 
 (defun octocat--open-list (mode name path)
   "Open (or switch to) the list page for the current repository.
