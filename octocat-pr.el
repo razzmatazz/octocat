@@ -425,9 +425,10 @@ Each is \"@login (state)\": the state of their latest review, or
 
 (vui-defcomponent octocat-pr--page (repo number raw)
   "Pull request NUMBER of REPO as a timeline; RAW shows markdown verbatim."
-  :state ((spin 0))
+  :state ((spin 0) (win-width nil))
   :render
-  (let* ((cached (vui-use-memo (repo number)
+  (let* ((width  (octocat-vui-use-window-width))
+         (cached (vui-use-memo (repo number)
                    (octocat--detail-cache-load repo "pr" number)))
          (async  (vui-use-async (list 'pr repo number)
                    (lambda (resolve reject)
@@ -441,7 +442,8 @@ Each is \"@login (state)\": the state of their latest review, or
          (timeline (octocat-timeline-use-events repo number))
          (events   (car timeline))
          (loading  (or (plist-get result :refreshing) (cdr timeline)))
-         (entries  (vui-use-memo (result events raw)
+         ;; WIDTH is a dependency: tables are laid out for the window.
+         (entries  (vui-use-memo (result events raw width)
                      (and (eq (plist-get result :status) 'ready)
                           (octocat-timeline-entries
                            (octocat-pr--items repo (plist-get result :data) events)
@@ -459,10 +461,12 @@ Each is \"@login (state)\": the state of their latest review, or
          (apply #'vui-vstack
                 (append
                  (delq nil (octocat-pr--header repo pr))
-                 (list (vui-text (octocat-vui-loading-suffix
-                                  (and loading '(:refreshing t)) spin))
-                       (vui-newline))
                  entries
+                 ;; Shown only while loading, below the timeline, so the
+                 ;; header and the opening post sit tight and never shift.
+                 (and loading
+                      (list (vui-text (octocat-vui-loading-suffix
+                                       '(:refreshing t) spin))))
                  (list (vui-newline))
                  (octocat-pr--checks repo pr)
                  (octocat-timeline-buttons

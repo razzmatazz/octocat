@@ -37,10 +37,20 @@ I.e. don't collapse sections by default
 
 `octocat-markdown.el` replaced `markdown-mode`/`gfm-view-mode` (no longer a
 dependency; the edit buffer is now a plain `text-mode`).  `octocat-markdown-render`
-is currently a plain dump of the source.  Build it up to render GitHub-flavoured
-markdown itself: headings, emphasis, inline code and code fences, lists and task
-lists, quotes, links, tables, `@mentions` and `#123` references.  Then give
-`octocat-edit-mode` markdown font-lock from the same module.
+now renders headings, emphasis, inline code and code fences, lists and task
+lists, quotes and alerts, links, tables, `@mentions` and `#123` references.
+
+Design goal: render as tightly as possible, to save vertical space.  Done
+for the top level: blank source lines beside blocks that stand out on their
+own (rules, tables, headings, quotes) are dropped, so `*bold* **italic**`,
+`---`, then a code fence is 3 rows, not 5.  A blank row between two plain
+paragraphs, and the one after a code box, are kept for readability.  Not yet
+tightened: blank rows inside list items and quotes, and around lists.
+
+Still to do: make links and `#123` references RET-able (links already carry an
+`octocat-markdown-url` property), syntax-highlight fenced code by language,
+setext headings, indented code blocks, and give `octocat-edit-mode` markdown
+font-lock from the same module.
 
 ## ~~Render Markdown in a better way~~
 

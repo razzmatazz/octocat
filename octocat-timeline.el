@@ -241,8 +241,8 @@ further items, such as a PR's reviews and commits."
   "Prefix of a box body: the rail, then the text.
 The text lines up with the author's handle in the heading above it.")
 
-(defconst octocat-timeline--post-prefix "  "
-  "Prefix of the opening post's body: plain indent, lined up with the title.")
+(defconst octocat-timeline--post-prefix ""
+  "Prefix of the opening post's body: none, the text starts at the left edge.")
 
 (defun octocat-timeline--bullet-face (state)
   "Return the face of the bullet of an entry in STATE (see \"Model\")."

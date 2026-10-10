@@ -893,7 +893,14 @@ When RAW is non-nil the text is returned verbatim, without any
 rendering."
   (if raw
       (octocat-markdown-render-verbatim text indent)
-    (octocat-markdown-render text indent)))
+    (octocat-markdown-render text indent (octocat--markdown-width))))
+
+(defun octocat--markdown-width ()
+  "Return the columns rendered markdown should fit in the current buffer.
+That is the body width of the window showing the buffer (else of the
+selected window), less one column so a full line does not wrap."
+  (1- (window-body-width (or (get-buffer-window (current-buffer) t)
+                             (selected-window)))))
 
 (defun octocat--insert-markdown (text &optional indent)
   "Insert TEXT rendered by `octocat--markdown-string' into the current buffer.

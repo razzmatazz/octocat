@@ -281,9 +281,10 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
 
 (vui-defcomponent octocat-issue--page (repo number raw)
   "Issue NUMBER of REPO as a timeline; RAW shows markdown bodies verbatim."
-  :state ((spin 0))
+  :state ((spin 0) (win-width nil))
   :render
-  (let* ((cached (vui-use-memo (repo number)
+  (let* ((width  (octocat-vui-use-window-width))
+         (cached (vui-use-memo (repo number)
                    (octocat--detail-cache-load repo "issue" number)))
          (async  (vui-use-async (list 'issue repo number)
                    (lambda (resolve reject)
@@ -297,7 +298,8 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
          (timeline (octocat-timeline-use-events repo number))
          (events   (car timeline))
          (loading  (or (plist-get result :refreshing) (cdr timeline)))
-         (entries  (vui-use-memo (result events raw)
+         ;; WIDTH is a dependency: tables are laid out for the window.
+         (entries  (vui-use-memo (result events raw width)
                      (and (eq (plist-get result :status) 'ready)
                           (octocat-timeline-entries
                            (octocat-timeline-items (plist-get result :data)
@@ -316,10 +318,12 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
          (apply #'vui-vstack
                 (append
                  (delq nil (octocat-issue--header repo issue))
-                 (list (vui-text (octocat-vui-loading-suffix
-                                  (and loading '(:refreshing t)) spin))
-                       (vui-newline))
                  entries
+                 ;; Shown only while loading, below the timeline, so the
+                 ;; header and the opening post sit tight and never shift.
+                 (and loading
+                      (list (vui-text (octocat-vui-loading-suffix
+                                       '(:refreshing t) spin))))
                  (octocat-timeline-buttons
                   (list '("+ Add a comment" "RET: write a comment" octocat-issue-add-comment)
                         (if (equal (gethash "state" issue) "OPEN")

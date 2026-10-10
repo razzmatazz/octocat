@@ -399,5 +399,62 @@ no gh call is made."
     (should (equal (substring-no-properties out) "> a *b*\n> c\n"))
     (should (equal (get-text-property 0 'wrap-prefix out) "> "))))
 
+(defun octocat-tests--md (text)
+  "Return TEXT rendered as markdown, without indent or text properties."
+  (substring-no-properties (octocat-markdown-render text "")))
+
+(ert-deftest octocat-test-markdown-render-inline ()
+  "Inline markup is replaced by faces; snake_case and escapes survive."
+  (let ((out (octocat-markdown-render "*a* **b** `c` snake_case_name \\*x\\*" "")))
+    (should (equal (substring-no-properties out) "a b c snake_case_name *x*\n"))
+    (should (equal (get-text-property 0 'face out) 'italic))
+    (should (equal (get-text-property 2 'face out) 'bold)))
+  (let ((out (octocat-markdown-render "[some link](https://google.com)" "")))
+    (should (equal (substring-no-properties out) "some link\n"))
+    (should (equal (get-text-property 0 'octocat-markdown-url out) "https://google.com")))
+  (should (equal (octocat-tests--md "@bob fixed #5 <!-- x --><b>hi</b>")
+                 "@bob fixed #5 hi\n")))
+
+(ert-deftest octocat-test-markdown-render-blocks ()
+  "Headings, rules, fences, quotes and lists lose their markup."
+  (should (equal (octocat-tests--md "# Title\n\n\n\ntext")
+                 "Title\ntext\n"))
+  ;; Blank rows next to standalone blocks are dropped; prose keeps one.
+  (should (equal (octocat-tests--md "*a* **b**\n\n---\n\n```\nx\n```\n\none\n\ntwo")
+                 (concat "a b\n" (make-string 40 ?─) "\n x \n\none\n\ntwo\n")))
+  (should (equal (octocat-tests--md "```\ncore\nlonger\n```")
+                 " core   \n longer \n"))
+  (should (equal (octocat-tests--md "- a\n  - b\n- [x] c\n- [ ] d\n1. e")
+                 "• a\n  ◦ b\n☑ c\n☐ d\n1. e\n"))
+  (should (equal (octocat-tests--md "> [!NOTE]\n> hi") "│ Note\n│ hi\n"))
+  (should (string-prefix-p "─" (octocat-tests--md "---"))))
+
+(ert-deftest octocat-test-markdown-render-table ()
+  "Tables are drawn with aligned columns."
+  (should (equal (octocat-tests--md "| a | b |\n|---|--:|\n| 1 | 22 |")
+                 (concat "┌───┬────┐\n"
+                         "│ a │  b │\n"
+                         "├───┼────┤\n"
+                         "│ 1 │ 22 │\n"
+                         "└───┴────┘\n"))))
+
+(ert-deftest octocat-test-markdown-render-table-fits-width ()
+  "A table wider than WIDTH wraps its cells; a short one is untouched."
+  (let* ((md "| id | description |\n|--|--|\n| 1 | a rather long description of things |\n| 2 | short |")
+         (out (substring-no-properties (octocat-markdown-render md "" 24)))
+         (lines (split-string (string-trim-right out) "\n")))
+    (dolist (l lines) (should (<= (string-width l) 24)))
+    (should (string-match-p "rather" out))
+    (should (string-match-p "things" out))
+    ;; Wrapped rows are told apart by a rule between them.
+    (should (= 2 (cl-count-if (lambda (l) (string-prefix-p "├" l)) (cdr (cdr lines)))))
+    (should (equal (octocat-markdown-render md "" 200)
+                   (octocat-markdown-render md "")))))
+
+(ert-deftest octocat-test-markdown-render-wrap-prefix ()
+  "List continuation lines hang under the item text."
+  (let ((out (octocat-markdown-render "- item" "> ")))
+    (should (equal (get-text-property 0 'wrap-prefix out) ">   "))))
+
 (provide 'octocat-tests)
 ;;; octocat-tests.el ends here
