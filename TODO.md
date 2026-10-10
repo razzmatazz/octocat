@@ -10,6 +10,18 @@ https://github.com/melpa/melpa/pull/10048
 
 ## ability to view PR reviews, i.e. view comments on code lines, etc.
 
+## Prune the disk cache
+
+`octocat-cache-directory` only grows: every PR, issue, commit, run and
+checks view saves a `<type>-<id>.json` per repo (`octocat--detail-cache-save`)
+and nothing ever removes them.  The PR diff cache (`pr-diff-N.json`, with
+the full patches) makes this worse: a large PR can be a multi-MB file.
+
+Ideas: delete files not read for N days at load time or on a timer; cap the
+directory by total size, evicting the least recently used; skip saving (or
+drop the `patch` fields) above a size threshold; a `M-x octocat-cache-clear`
+for the manual case.
+
 ## ~~Can we show active PR more prominently on the dashboard?~~
 
 `octocat-branch-current` face (bold + underline, same green as `octocat-branch`) applied

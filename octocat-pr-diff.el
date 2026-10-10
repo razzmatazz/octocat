@@ -216,12 +216,14 @@ or too large for GitHub to show) is just its heading."
         (push c (alist-get path table nil nil #'equal))))
     (mapcar (lambda (e) (cons (car e) (reverse (cdr e)))) table)))
 
-(defun octocat-pr-diff--files-section (files by-path)
+(defun octocat-pr-diff--files-section (files by-path &optional suffix)
   "Return the vnode of the Files section: the heading and one entry per file.
-FILES is the files vector and BY-PATH the review comments by file path."
+FILES is the files vector and BY-PATH the review comments by file path.
+SUFFIX, a string, follows the heading (see `octocat-vui-loading-suffix')."
   (vui-vstack
-   (vui-text (propertize (format "Files (%d)" (length files))
-                         'face 'octocat-section-heading))
+   (vui-text (concat (propertize (format "Files (%d)" (length files))
+                                 'face 'octocat-section-heading)
+                     suffix))
    (if (zerop (length files))
        (vui-text "  (no files changed)" :face 'octocat-dimmed)
      (vui-list (append files nil)
@@ -248,20 +250,38 @@ COMMENTS is the `vui-use-async' result for the review comments."
                               n (if (= n 1) "" "s")))
                     :face 'octocat-dimmed))))))
 
+(defun octocat-pr-diff--use-cached (type repo number fetch &optional as-list)
+  "Return the `vui-use-async' result of FETCH for pull request NUMBER of REPO.
+TYPE is the disk-cache type (see `octocat--detail-cache-file').  The last
+saved data shows at once with :refreshing t (see `octocat-vui-with-stale')
+while FETCH, called with REPO, NUMBER and a callback, runs on every open
+of the page; fresh data replaces it in place and is saved.  AS-LIST says
+the data is a list, which the cache stores as a vector.
+Must be called during render, like any hook."
+  (let* ((cached (vui-use-memo (repo number)
+                   (let ((raw (octocat--detail-cache-load repo type number)))
+                     (and raw (if as-list (cl-coerce raw 'list) raw)))))
+         (async  (vui-use-async (list type repo number)
+                   (lambda (resolve reject)
+                     (funcall fetch repo number
+                              (lambda (r)
+                                (octocat-repo-vui--resolve-or-reject r resolve reject))))))
+         (fresh  (and (eq (plist-get async :status) 'ready)
+                      (plist-get async :data))))
+    (vui-use-effect (fresh)
+      (when fresh (octocat--detail-cache-save repo type number (vconcat fresh)))
+      nil)
+    (octocat-vui-with-stale async cached)))
+
 (vui-defcomponent octocat-pr-diff--page (repo number)
   "The diff of pull request NUMBER of REPO, under the PR page's header."
   :render
   (let* ((pr       (octocat-pr--use-data repo number))
-         (files    (vui-use-async (list 'pr-diff-files repo number)
-                     (lambda (resolve reject)
-                       (octocat--fetch-pr-diff
-                        repo number
-                        (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
-         (comments (vui-use-async (list 'pr-diff-comments repo number)
-                     (lambda (resolve reject)
-                       (octocat--fetch-pr-review-comments
-                        repo number
-                        (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
+         (files    (octocat-pr-diff--use-cached
+                    "pr-diff" repo number #'octocat--fetch-pr-diff))
+         (comments (octocat-pr-diff--use-cached
+                    "pr-review-comments" repo number
+                    #'octocat--fetch-pr-review-comments t))
          (by-path  (vui-use-memo ((plist-get comments :data))
                      (octocat-pr-diff--by-path (plist-get comments :data)))))
     (vui-vstack
@@ -279,7 +299,8 @@ COMMENTS is the `vui-use-async' result for the review comments."
      (pcase (plist-get files :status)
        ('pending (vui-text "  (loading files…)" :face 'octocat-dimmed))
        ('error   (vui-text (format "  Error: %s" (plist-get files :error)) :face 'error))
-       (_ (octocat-pr-diff--files-section (plist-get files :data) by-path)))
+       (_ (octocat-pr-diff--files-section (plist-get files :data) by-path
+                                          (octocat-vui-loading-suffix files))))
      (vui-newline)
      (octocat-pr-diff--comments-section comments))))
 
