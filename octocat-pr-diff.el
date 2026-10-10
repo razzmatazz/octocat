@@ -48,7 +48,9 @@
 (declare-function octocat--commit-file-icon "octocat-commit" (status))
 (declare-function octocat--commit-file-face "octocat-commit" (status))
 (declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
-(declare-function octocat-visit-repo "octocat-core" (repo))
+(declare-function octocat-pr--use-data "octocat-pr" (repo number))
+(declare-function octocat-pr--header "octocat-pr" (repo pr &optional tab))
+(declare-function octocat-pr--tabs "octocat-pr" (current repo number &optional files))
 (declare-function octocat-switch-repo "octocat-core" ())
 (declare-function octocat-search-repo "octocat-search" ())
 
@@ -214,30 +216,10 @@ or too large for GitHub to show) is just its heading."
         (push c (alist-get path table nil nil #'equal))))
     (mapcar (lambda (e) (cons (car e) (reverse (cdr e)))) table)))
 
-(defun octocat-pr-diff--sum (files key)
-  "Return the sum of the KEY field over the FILES vector."
-  (cl-loop for f across files sum (or (gethash key f) 0)))
-
-(defun octocat-pr-diff--files-section (repo number files by-path)
-  "Return the vnode of the Files section: the header and one entry per file.
-REPO and NUMBER name the pull request, FILES is the files vector and
-BY-PATH the review comments by file path."
+(defun octocat-pr-diff--files-section (files by-path)
+  "Return the vnode of the Files section: the heading and one entry per file.
+FILES is the files vector and BY-PATH the review comments by file path."
   (vui-vstack
-   (octocat-vui-row
-    (concat (propertize repo 'face 'octocat-repo)
-            (propertize (format "#%d" number) 'face 'octocat-pr-number))
-    (lambda () (octocat-visit-repo repo))
-    "RET: open repo view")
-   (vui-text (concat (propertize "diff" 'face 'octocat-dimmed)
-                     "  "
-                     (propertize (format "+%d" (octocat-pr-diff--sum files "additions"))
-                                 'face 'diff-added)
-                     " "
-                     (propertize (format "-%d" (octocat-pr-diff--sum files "deletions"))
-                                 'face 'diff-removed)
-                     (propertize (format "  %d file(s)" (length files))
-                                 'face 'octocat-dimmed)))
-   (vui-newline)
    (vui-text (propertize (format "Files (%d)" (length files))
                          'face 'octocat-section-heading))
    (if (zerop (length files))
@@ -267,9 +249,10 @@ COMMENTS is the `vui-use-async' result for the review comments."
                     :face 'octocat-dimmed))))))
 
 (vui-defcomponent octocat-pr-diff--page (repo number)
-  "The diff of pull request NUMBER of REPO."
+  "The diff of pull request NUMBER of REPO, under the PR page's header."
   :render
-  (let* ((files    (vui-use-async (list 'pr-diff-files repo number)
+  (let* ((pr       (octocat-pr--use-data repo number))
+         (files    (vui-use-async (list 'pr-diff-files repo number)
                      (lambda (resolve reject)
                        (octocat--fetch-pr-diff
                         repo number
@@ -282,11 +265,21 @@ COMMENTS is the `vui-use-async' result for the review comments."
          (by-path  (vui-use-memo ((plist-get comments :data))
                      (octocat-pr-diff--by-path (plist-get comments :data)))))
     (vui-vstack
+     ;; The same header as the conversation, so the pages read as tabs.
+     (pcase (plist-get pr :status)
+       ('ready (apply #'vui-vstack
+                      (delq nil (octocat-pr--header repo (plist-get pr :data) 'files))))
+       ('error (vui-vstack
+                (vui-text (format "Error: %s" (plist-get pr :error)) :face 'error)
+                (octocat-pr--tabs 'files repo number)))
+       (_      (vui-vstack
+                (vui-text (format "%s#%d  diff  (loading…)" repo number)
+                          :face 'octocat-dimmed)
+                (octocat-pr--tabs 'files repo number))))
      (pcase (plist-get files :status)
-       ('pending (vui-text (format "%s#%d  diff  (loading…)" repo number)
-                           :face 'octocat-dimmed))
-       ('error   (vui-text (format "Error: %s" (plist-get files :error)) :face 'error))
-       (_ (octocat-pr-diff--files-section repo number (plist-get files :data) by-path)))
+       ('pending (vui-text "  (loading files…)" :face 'octocat-dimmed))
+       ('error   (vui-text (format "  Error: %s" (plist-get files :error)) :face 'error))
+       (_ (octocat-pr-diff--files-section (plist-get files :data) by-path)))
      (vui-newline)
      (octocat-pr-diff--comments-section comments))))
 

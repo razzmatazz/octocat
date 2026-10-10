@@ -56,6 +56,7 @@
 ;; The views the PR page opens; octocat.el loads them all.
 (declare-function octocat-checks-open  "octocat-checks"  (repo sha ref))
 (declare-function octocat-pr-diff-open "octocat-pr-diff" (repo number))
+(declare-function octocat-pr-diff-refresh "octocat-pr-diff" (&optional _ignore-auto _noconfirm))
 
 ;; Forward declarations for buffer-locals defined later in this file.
 ;; Needed so the byte-compiler doesn't warn about free variables in
@@ -138,29 +139,33 @@ Calls ON-SUCCESS on completion or ON-ERROR with a message on failure."
      #'octocat-pr-refresh
      body)))
 
+(defun octocat-pr--rename (repo num refresh)
+  "Prompt for a new title of pull request NUM of REPO and apply it.
+REFRESH is the function that re-renders the current buffer afterwards;
+it runs in that buffer, so the PR and PR diff pages can share this."
+  (let* ((cache   (octocat--detail-cache-load repo "pr" num))
+         (current (or (and cache (octocat--nonempty (gethash "title" cache))) ""))
+         (new     (string-trim (read-string "PR title: " current)))
+         (buf     (current-buffer)))
+    (when (string-empty-p new)
+      (user-error "Octocat: Title must not be empty"))
+    (unless (string-equal new current)
+      (octocat--run-gh
+       "edit-title"
+       (list "pr" "edit" (number-to-string num) "--repo" repo "--title" new)
+       #'identity
+       (lambda (result)
+         (if (eq (car-safe result) 'error)
+             (message "Octocat: failed to update title: %s" (cdr result))
+           (when (buffer-live-p buf)
+             (with-current-buffer buf (funcall refresh)))))))))
+
 (defun octocat-pr-edit-title ()
   "Prompt in the minibuffer to rename the title of the current PR."
   (interactive)
   (unless (and octocat--pr-repo octocat--pr-number)
     (user-error "Octocat: Buffer is not associated with a pull request"))
-  (let* ((cache   (octocat--detail-cache-load octocat--pr-repo "pr" octocat--pr-number))
-         (current (or (and cache (octocat--nonempty (gethash "title" cache))) ""))
-         (new     (string-trim (read-string "PR title: " current))))
-    (when (string-empty-p new)
-      (user-error "Octocat: Title must not be empty"))
-    (unless (string-equal new current)
-      (let ((repo octocat--pr-repo)
-            (num  octocat--pr-number)
-            (buf  (current-buffer)))
-        (octocat--run-gh
-         "edit-title"
-         (list "pr" "edit" (number-to-string num) "--repo" repo "--title" new)
-         #'identity
-         (lambda (result)
-           (if (eq (car-safe result) 'error)
-               (message "Octocat: failed to update title: %s" (cdr result))
-             (when (buffer-live-p buf)
-               (with-current-buffer buf (octocat-pr-refresh))))))))))
+  (octocat-pr--rename octocat--pr-repo octocat--pr-number #'octocat-pr-refresh))
 
 (defun octocat-pr-edit ()
   "Edit the thing at point in the current PR buffer.
@@ -397,9 +402,33 @@ The rest expands on RET.  Nil never folds."
                                         repeat shown
                                         collect (octocat-pr--check-row repo pr check widths))))))))))
 
-(defun octocat-pr--header (repo pr)
-  "Return the vnodes above the timeline: repo, title, branches, labels, changes.
-PR is the hash-table of the pull request in REPO."
+(defun octocat-pr--tabs (current repo number &optional files)
+  "Return the \"Conversation | Files changed\" tab strip of a pull request.
+CURRENT is `conversation' or `files', the tab shown by this buffer; it is
+drawn as plain emphasised text, the other as a `vui-button' opening that
+page of pull request NUMBER of REPO.  FILES, when non-nil, is the number
+of changed files shown on the \"Files changed\" tab, as GitHub does."
+  (let ((files-label (if files (format "Files changed (%d)" files) "Files changed")))
+    (vui-hstack
+     :spacing 2
+     (if (eq current 'conversation)
+         (vui-text "Conversation" :face 'octocat-section-heading)
+       (vui-button "Conversation"
+                   :face 'octocat-dimmed
+                   :help-echo "RET: show the conversation"
+                   :on-click (lambda () (octocat-pr-open repo number))))
+     (if (eq current 'files)
+         (vui-text files-label :face 'octocat-section-heading)
+       (vui-button files-label
+                   :face 'octocat-dimmed
+                   :help-echo "RET: show the files changed"
+                   :on-click (lambda () (octocat-pr-diff-open repo number)))))))
+
+(defun octocat-pr--header (repo pr &optional tab)
+  "Return the vnodes above the body: repo, title, branches, labels, tabs.
+PR is the hash-table of the pull request in REPO.  TAB is the page
+showing it, `conversation' (the default) or `files'; the files page is
+the diff, so it leaves out the changes row that opens it."
   (let* ((number   (gethash "number" pr))
          (state    (or (gethash "state" pr) "OPEN"))
          (head    (or (gethash "headRefName" pr) ""))
@@ -421,7 +450,11 @@ PR is the hash-table of the pull request in REPO."
      (octocat-repo-vui--detail-header
       repo pr
       (octocat-repo-vui--state-label state (gethash "isDraft" pr))
-      #'octocat-pr-edit-title
+      (lambda ()
+        (octocat-pr--rename repo number
+                            (if (eq tab 'files)
+                                #'octocat-pr-diff-refresh
+                              #'octocat-pr-refresh)))
       ;; Where the list shows the branch, show where it merges to as well.
       (concat (propertize head 'face (if (equal head local)
                                          'octocat-branch-current
@@ -437,10 +470,33 @@ PR is the hash-table of the pull request in REPO."
              (cons "Milestone" (octocat-repo-vui--milestone pr))
              (cons "Closes"    (octocat-repo-vui--numbers
                                 (gethash "closingIssuesReferences" pr)))))
-      (octocat-vui-row changes
-                       (lambda () (octocat-pr-diff-open repo number))
-                       "RET: open diff view")
+      (unless (eq tab 'files)
+        (octocat-vui-row changes
+                         (lambda () (octocat-pr-diff-open repo number))
+                         "RET: open diff view"))
+      (vui-newline)
+      (octocat-pr--tabs (or tab 'conversation) repo number
+                        (gethash "changedFiles" pr))
       (vui-newline)))))
+
+(defun octocat-pr--use-data (repo number)
+  "Return the `vui-use-async' result for the pull request NUMBER of REPO.
+The disk cache shows until the fresh data arrives (see
+`octocat-vui-with-stale') and is updated from it.  Must be called during
+render, like any hook; shared by the conversation and the diff page."
+  (let* ((cached (vui-use-memo (repo number)
+                   (octocat--detail-cache-load repo "pr" number)))
+         (async  (vui-use-async (list 'pr repo number)
+                   (lambda (resolve reject)
+                     (octocat--fetch-pr
+                      repo number
+                      (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
+         (fresh  (and (eq (plist-get async :status) 'ready)
+                      (plist-get async :data))))
+    (vui-use-effect (fresh)
+      (when fresh (octocat--detail-cache-save repo "pr" number fresh))
+      nil)
+    (octocat-vui-with-stale async cached)))
 
 (defun octocat-pr--reviewers (pr)
   "Return the reviewers of PR as one string, or nil when there are none.
@@ -469,17 +525,7 @@ Each is \"@login (state)\": the state of their latest review, or
   :state ((spin 0) (win-width nil))
   :render
   (let* ((width  (octocat-vui-use-window-width))
-         (cached (vui-use-memo (repo number)
-                   (octocat--detail-cache-load repo "pr" number)))
-         (async  (vui-use-async (list 'pr repo number)
-                   (lambda (resolve reject)
-                     (octocat--fetch-pr
-                      repo number
-                      (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
-         (fresh  (and (eq (plist-get async :status) 'ready)
-                      (plist-get async :data)))
-         ;; Cached data shows until the fresh data arrives.
-         (result (octocat-vui-with-stale async cached))
+         (result (octocat-pr--use-data repo number))
          (timeline (octocat-timeline-use-events repo number))
          (events   (car timeline))
          (loading  (or (plist-get result :refreshing) (cdr timeline)))
@@ -489,9 +535,6 @@ Each is \"@login (state)\": the state of their latest review, or
                           (octocat-timeline-entries
                            (octocat-pr--items repo (plist-get result :data) events)
                            raw)))))
-    (vui-use-effect (fresh)
-      (when fresh (octocat--detail-cache-save repo "pr" number fresh))
-      nil)
     (octocat-vui-use-spinner loading)
     (pcase (plist-get result :status)
       ('pending (vui-text (concat "  " repo " #" (number-to-string number) "  (loading…)")
