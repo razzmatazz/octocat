@@ -389,6 +389,7 @@ The rest expands on RET.  Nil never folds."
               :total (length checks)
               :limit octocat-pr-checks-shown
               :noun "checks"
+              :key 'checks-fold
               :prefix "  "
               :render (lambda (shown)
                         (apply #'vui-vstack

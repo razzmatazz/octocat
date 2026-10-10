@@ -399,8 +399,10 @@ See `octocat-timeline-body-lines'."
   :type '(choice (const :tag "Never fold" nil) integer)
   :group 'octocat)
 
-(defconst octocat-timeline--expand-frames 10
-  "Number of animation frames in which a folded entry unfolds.")
+(defconst octocat-timeline--expand-growth 0.5
+  "How much faster each frame of the unfolding animation is than the last.
+Every frame reveals this fraction of what is already unfolded (at least
+two things more), so the unfolding starts slowly and then speeds up.")
 
 (defconst octocat-timeline--expand-interval 0.025
   "Seconds between the frames of the unfolding animation.")
@@ -411,20 +413,22 @@ See `octocat-timeline-body-lines'."
       octocat-timeline-body-lines
     octocat-timeline-comment-lines))
 
-(vui-defcomponent octocat-timeline-fold (total limit render prefix noun)
+(vui-defcomponent octocat-timeline-fold (total limit render prefix noun key)
   "Show the first LIMIT of TOTAL things, the rest folded behind a marker row.
 RENDER is a function of the number of things to show, returning a vnode.
 PREFIX starts the marker row and NOUN (\"lines\", \"checks\") names the
-things in it.  With LIMIT nil, or TOTAL not above it, nothing folds.  RET
-on the marker unfolds the rest a few things per frame, and then folds it
-back."
+things in it.  KEY names the marker button, so point stays on it when
+the view re-renders.  With LIMIT nil, or TOTAL not above it, nothing
+folds.  RET on the marker unfolds the rest at a growing pace, and then
+folds it back."
   :state ((shown nil) (open nil))
   :render
   (let* ((folds   (and limit (> total limit)))
          (visible (if folds (min total (or shown limit)) total))
          (done    (>= visible total)))
-    ;; Unfold progressively: a timer adds a few things per frame until
-    ;; all show.  It exists only while that is going on.
+    ;; Unfold progressively: a timer adds more things each frame (see
+    ;; `octocat-timeline--expand-growth') until all show.  It exists only
+    ;; while that is going on.
     (vui-use-effect (open done)
       (when (and open (not done))
         (let ((timer (run-with-timer
@@ -433,31 +437,34 @@ back."
                       (vui-with-async-context
                         (vui-set-state
                          :shown (lambda (old)
-                                  (min total (+ (or old limit)
-                                                (max 2 (ceiling (- total limit)
-                                                                octocat-timeline--expand-frames))))))))))
+                                  (let ((now (or old limit)))
+                                    (min total
+                                         (+ now (max 2 (ceiling (* octocat-timeline--expand-growth
+                                                                   (- now limit)))))))))))))
           (lambda () (cancel-timer timer)))))
     (vui-fragment
      (funcall render visible)
      (when folds
        (vui-fragment
         (vui-newline)
-        (octocat-vui-row
-         (concat prefix
-                 (propertize
-                  (cond ((not open) (format "▸ %d more %s  (RET to expand)"
-                                            (- total visible) noun))
-                        (done       "▴ show less")
-                        (t          (format "▾ %d more %s…" (- total visible) noun)))
-                  'face 'octocat-dimmed))
-         (vui-with-async-context
-           (if (and open done)
-               (progn (vui-set-state :open nil)
-                      (vui-set-state :shown nil))
-             (vui-set-state :open t)))
-         (if open "RET: fold this back" "RET: show the rest")))))))
+        ;; A real button, so TAB / S-TAB stop on it like on the buttons
+        ;; at the bottom of the buffer.
+        (vui-text prefix)
+        (vui-button (cond ((not open) (format "▸ %d more %s  (RET to expand)"
+                                              (- total visible) noun))
+                          (done       "▴ show less")
+                          (t          (format "▾ %d more %s…" (- total visible) noun)))
+                    :no-decoration t
+                    :face 'octocat-dimmed
+                    :key key
+                    :help-echo (if open "RET: fold this back" "RET: show the rest")
+                    :on-click (vui-with-async-context
+                                (if (and open done)
+                                    (progn (vui-set-state :open nil)
+                                           (vui-set-state :shown nil))
+                                  (vui-set-state :open t)))))))))
 
-(vui-defcomponent octocat-timeline--entry (item raw width limit)
+(vui-defcomponent octocat-timeline--entry (item raw width limit index)
   "One timeline ITEM; fold its body to LIMIT lines (nil: never).
 RAW is as for `octocat-timeline--entry-string'; WIDTH only invalidates the
 rendered text when the window is resized."
@@ -470,6 +477,7 @@ rendered text when the window is resized."
      :total (1- (length lines))
      :limit limit
      :noun "lines"
+     :key (intern (format "fold-%d" index))
      :prefix (if (eq (plist-get item :kind) 'post)
                  "  "
                octocat-timeline--body-prefix)
@@ -485,12 +493,13 @@ RAW is as for `octocat-timeline--entry-string'.  An item with an
 :on-visit function is a RET-able row.  Long bodies and comments are
 folded (see `octocat-timeline-body-lines'), except in the last item."
   (let ((width (octocat-vui-window-width))
+        (index 0)
         nodes)
     (while items
       (let ((item (pop items)))
         (when nodes (push (vui-text octocat-timeline--rail) nodes))
         (push (vui-component 'octocat-timeline--entry
-                             :item item :raw raw :width width
+                             :item item :raw raw :width width :index (cl-incf index)
                              :limit (and items (octocat-timeline--line-limit item)))
               nodes)))
     (nreverse nodes)))
