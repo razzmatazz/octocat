@@ -1294,6 +1294,9 @@ Prefix a hash (e.g. \"a1b2c3\") to narrow to a specific commit."
                     :prompt        (format "Search %s: " repo)
                     :category      'octocat-object
                     :sort          nil
+                    ;; The default lookup returns the bare minibuffer text,
+                    ;; dropping the `octocat-search-item' property.
+                    :lookup        #'consult--lookup-member
                     :require-match t))
            (item (and chosen
                       (get-text-property 0 'octocat-search-item chosen))))
