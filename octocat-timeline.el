@@ -413,16 +413,17 @@ things in it.  KEY names the marker button, so point stays on it when
 the view re-renders.  With LIMIT nil, or TOTAL not above it, nothing
 folds.  RET on the marker unfolds the rest at a growing pace, and then
 folds it back."
-  :state ((shown nil) (open nil))
+  :state ((shown nil) (open nil) (closing nil))
   :render
   (let* ((folds   (and limit (> total limit)))
          (visible (if folds (min total (or shown limit)) total))
-         (done    (>= visible total)))
+         (done    (>= visible total))
+         (unfolding (and open (not done) (not closing))))
     ;; Unfold progressively: a timer adds more things each frame (see
     ;; `octocat-timeline--expand-growth') until all show.  It exists only
     ;; while that is going on.
-    (vui-use-effect (open done)
-      (when (and open (not done))
+    (vui-use-effect (unfolding)
+      (when unfolding
         (let ((timer (run-with-timer
                       octocat-timeline--expand-interval
                       octocat-timeline--expand-interval
@@ -434,6 +435,27 @@ folds it back."
                                          (+ now (max 2 (ceiling (* octocat-timeline--expand-growth
                                                                    (- now limit)))))))))))))
           (lambda () (cancel-timer timer)))))
+    ;; Fold back the same way, in reverse: each frame hides a fraction of
+    ;; what is still unfolded, so it starts fast and eases out onto LIMIT.
+    (vui-use-effect (closing)
+      (when closing
+        (let* ((now visible)
+               (timer nil))
+          (setq timer
+                (run-with-timer
+                 octocat-timeline--expand-interval
+                 octocat-timeline--expand-interval
+                 (vui-with-async-context
+                   (setq now (max limit
+                                  (- now (max 2 (ceiling (* octocat-timeline--expand-growth
+                                                            (- now limit)))))))
+                   (if (> now limit)
+                       (vui-set-state :shown now)
+                     (cancel-timer timer)
+                     (vui-set-state :shown nil)
+                     (vui-set-state :open nil)
+                     (vui-set-state :closing nil)))))
+          (lambda () (cancel-timer timer)))))
     (vui-fragment
      (funcall render visible)
      (when folds
@@ -444,17 +466,16 @@ folds it back."
         (vui-text prefix)
         (vui-button (cond ((not open) (format "▸ %d more %s  (RET to expand)"
                                               (- total visible) noun))
-                          (done       "▴ show less")
+                          ((or done closing) "▴ show less")
                           (t          (format "▾ %d more %s…" (- total visible) noun)))
                     :no-decoration t
                     :face 'octocat-dimmed
                     :key key
                     :help-echo (if open "RET: fold this back" "RET: show the rest")
                     :on-click (vui-with-async-context
-                                (if (and open done)
-                                    (progn (vui-set-state :open nil)
-                                           (vui-set-state :shown nil))
-                                  (vui-set-state :open t)))))))))
+                                (cond (closing nil)
+                                      ((and open done) (vui-set-state :closing t))
+                                      (t (vui-set-state :open t))))))))))
 
 (vui-defcomponent octocat-timeline--entry (item raw width limit index)
   "One timeline ITEM; fold its body to LIMIT lines (nil: never).
