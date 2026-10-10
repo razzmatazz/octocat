@@ -365,11 +365,12 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
   (interactive)
   (unless (and octocat--issue-repo octocat--issue-number)
     (user-error "Octocat: Buffer is not associated with an issue"))
-  (vui-mount (vui-component 'octocat-issue--page
-                            :repo octocat--issue-repo
-                            :number octocat--issue-number
-                            :raw octocat--markdown-raw)
-             (buffer-name)))
+  (octocat-vui-preserving-view
+    (vui-mount (vui-component 'octocat-issue--page
+                              :repo octocat--issue-repo
+                              :number octocat--issue-number
+                              :raw octocat--markdown-raw)
+               (buffer-name))))
 
 (defun octocat-issue-open (repo number)
   "Show issue NUMBER of REPO in its own buffer."
@@ -453,10 +454,11 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
   (interactive)
   (unless octocat-vui-list--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
-  (vui-mount (vui-component 'octocat-issue--list-page
-                            :repo octocat-vui-list--repo
-                            :query (octocat-vui-list-query))
-             (buffer-name)))
+  (octocat-vui-preserving-view
+    (vui-mount (vui-component 'octocat-issue--list-page
+                              :repo octocat-vui-list--repo
+                              :query (octocat-vui-list-query))
+               (buffer-name))))
 
 (define-derived-mode octocat-issue-list-mode octocat-vui-list-mode "Octocat-Issues"
   "Major mode for the issue list of a repository.

@@ -605,11 +605,12 @@ background."
   (interactive)
   (unless (and octocat--pr-repo octocat--pr-number)
     (user-error "Octocat: Buffer is not associated with a pull request"))
-  (vui-mount (vui-component 'octocat-pr--page
-                            :repo octocat--pr-repo
-                            :number octocat--pr-number
-                            :raw octocat--markdown-raw)
-             (buffer-name)))
+  (octocat-vui-preserving-view
+    (vui-mount (vui-component 'octocat-pr--page
+                              :repo octocat--pr-repo
+                              :number octocat--pr-number
+                              :raw octocat--markdown-raw)
+               (buffer-name))))
 
 (defun octocat-pr-open (repo number)
   "Show pull request NUMBER of REPO in its own buffer."
@@ -693,11 +694,12 @@ background."
   (interactive)
   (unless octocat-vui-list--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
-  (vui-mount (vui-component 'octocat-pr--list-page
-                            :repo octocat-vui-list--repo
-                            :current-branch (plist-get (octocat--head-info) :branch)
-                            :query (octocat-vui-list-query))
-             (buffer-name)))
+  (octocat-vui-preserving-view
+    (vui-mount (vui-component 'octocat-pr--list-page
+                              :repo octocat-vui-list--repo
+                              :current-branch (plist-get (octocat--head-info) :branch)
+                              :query (octocat-vui-list-query))
+               (buffer-name))))
 
 (define-derived-mode octocat-pr-list-mode octocat-vui-list-mode "Octocat-PRs"
   "Major mode for the pull request list of a repository.

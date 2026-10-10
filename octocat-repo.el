@@ -928,10 +928,11 @@ it gives up, versus the previous magit-section-based implementation)."
     (user-error "Octocat: Buffer is not associated with a repository"))
   (setq octocat-repo--current-branch
         (plist-get (octocat--head-info) :branch))
-  (vui-mount (vui-component 'octocat-repo-vui--root
-                            :repo octocat-repo--repo
-                            :local-dir octocat-repo--local-dir)
-             (buffer-name)))
+  (octocat-vui-preserving-view
+    (vui-mount (vui-component 'octocat-repo-vui--root
+                              :repo octocat-repo--repo
+                              :local-dir octocat-repo--local-dir)
+               (buffer-name))))
 
 ;; NOTE: the `M-x octocat-repo' entry point itself (the `;;;###autoload'
 ;; command) is defined in `octocat.el', not here -- see CONTRIBUTING.md,

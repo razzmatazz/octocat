@@ -469,10 +469,11 @@ loading indicator."
   (interactive)
   (unless octocat-vui-list--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
-  (vui-mount (vui-component 'octocat-workflow--list-page
-                            :repo octocat-vui-list--repo
-                            :current-branch (plist-get (octocat--head-info) :branch))
-             (buffer-name)))
+  (octocat-vui-preserving-view
+    (vui-mount (vui-component 'octocat-workflow--list-page
+                              :repo octocat-vui-list--repo
+                              :current-branch (plist-get (octocat--head-info) :branch))
+               (buffer-name))))
 
 (define-derived-mode octocat-workflow-list-mode octocat-vui-list-mode "Octocat-Workflows"
   "Major mode for the workflows and runs page of a repository.

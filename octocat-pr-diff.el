@@ -352,10 +352,11 @@ review comments independently."
   (interactive)
   (unless (and octocat--pr-diff-repo octocat--pr-diff-number)
     (user-error "Octocat: Buffer is not associated with a pull request diff"))
-  (vui-mount (vui-component 'octocat-pr-diff--page
-                            :repo octocat--pr-diff-repo
-                            :number octocat--pr-diff-number)
-             (buffer-name)))
+  (octocat-vui-preserving-view
+    (vui-mount (vui-component 'octocat-pr-diff--page
+                              :repo octocat--pr-diff-repo
+                              :number octocat--pr-diff-number)
+               (buffer-name))))
 
 (defun octocat-pr-diff-open (repo number)
   "Show the diff of pull request NUMBER of REPO in its own buffer."

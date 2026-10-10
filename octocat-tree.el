@@ -47,6 +47,7 @@
 
 (require 'cl-lib)
 (require 'octocat-core)
+(require 'octocat-vui)
 (require 'vui)
 (require 'vui-components)
 
@@ -547,20 +548,21 @@ Clears the subtree cache and re-fetches the root tree."
        (when (buffer-live-p buf)
          (with-current-buffer buf
            (setq mode-line-process nil)
-           (if (eq (car-safe result) 'error)
-               (vui-mount (vui-component 'octocat-tree--message
+           (octocat-vui-preserving-view
+             (if (eq (car-safe result) 'error)
+                 (vui-mount (vui-component 'octocat-tree--message
+                                           :repo repo :branch branch
+                                           :text (format "Error: %s" (cdr result))
+                                           :face 'error)
+                            (buffer-name))
+               ;; The root directory is itself the tree with this SHA, so
+               ;; `octocat-tree--dir' fetches the root entries; everything
+               ;; below it is fetched lazily as directories are expanded.
+               (setq octocat-tree--root-sha result)
+               (vui-mount (vui-component 'octocat-tree--root
                                          :repo repo :branch branch
-                                         :text (format "Error: %s" (cdr result))
-                                         :face 'error)
-                          (buffer-name))
-             ;; The root directory is itself the tree with this SHA, so
-             ;; `octocat-tree--dir' fetches the root entries; everything
-             ;; below it is fetched lazily as directories are expanded.
-             (setq octocat-tree--root-sha result)
-             (vui-mount (vui-component 'octocat-tree--root
-                                       :repo repo :branch branch
-                                       :root-sha result)
-                        (buffer-name)))))))))
+                                         :root-sha result)
+                          (buffer-name))))))))))
 
 (defun octocat-tree-expand ()
   "Toggle expansion of the directory entry at point.

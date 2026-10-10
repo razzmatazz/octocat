@@ -380,8 +380,9 @@ time the window's width changes."
   (interactive)
   (unless octocat-user--login
     (user-error "Octocat: Buffer is not associated with a GitHub user"))
-  (vui-mount (vui-component 'octocat-user--root :login octocat-user--login)
-             (buffer-name)))
+  (octocat-vui-preserving-view
+    (vui-mount (vui-component 'octocat-user--root :login octocat-user--login)
+               (buffer-name))))
 
 (defun octocat-user-open (login)
   "Open (or switch to) the page of the GitHub user or organization LOGIN.

@@ -168,6 +168,50 @@ The size-change hook only exists while the component is mounted."
          (lambda () (remove-hook 'window-size-change-functions hook))))
      (or win-width (octocat-vui-window-width))))
 
+(defun octocat-vui--save-view ()
+  "Return the point and scroll of every window showing the current buffer.
+Each entry is (WINDOW POINT-LINE POINT-COLUMN START-LINE)."
+  (let (view)
+    (dolist (win (get-buffer-window-list (current-buffer) nil t))
+      (save-excursion
+        (goto-char (window-point win))
+        (let ((line (line-number-at-pos))
+              (col  (current-column))
+              (start (line-number-at-pos (window-start win))))
+          (push (list win line col start) view))))
+    view))
+
+(defun octocat-vui--goto-line-column (line col)
+  "Return the position at LINE and COL of the current buffer, clamped."
+  (save-excursion
+    (goto-char (point-min))
+    (forward-line (1- line))
+    (move-to-column col)
+    (point)))
+
+(defun octocat-vui--restore-view (view)
+  "Put point and scroll back as VIEW, from `octocat-vui--save-view', says."
+  (dolist (entry view)
+    (pcase-let ((`(,win ,line ,col ,start) entry))
+      (when (and (window-live-p win)
+                 (eq (window-buffer win) (current-buffer)))
+        (let ((pos (octocat-vui--goto-line-column line col)))
+          (set-window-point win pos)
+          (when (eq win (selected-window))
+            (goto-char pos))
+          (set-window-start win (octocat-vui--goto-line-column start 0)))))))
+
+(defmacro octocat-vui-preserving-view (&rest body)
+  "Run BODY, then restore point and scroll in the current buffer's windows.
+For a `vui-mount' of the buffer's own page: the mount erases the buffer
+and leaves point at the top, so a refresh would otherwise throw the
+reader back to the first line.  The restore is by line and column, which
+holds as the page is repainted from the disk cache before it refetches."
+  (declare (indent 0))
+  `(let ((view (octocat-vui--save-view)))
+     (prog1 (progn ,@body)
+       (octocat-vui--restore-view view))))
+
 (defun octocat-vui-loading-suffix (result &optional spin)
   "Return a dimmed \"(loading…)\" marker for a section heading, or \"\".
 It is shown while RESULT (see `octocat-vui-use-async-sticky') displays

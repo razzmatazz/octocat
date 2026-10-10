@@ -800,10 +800,11 @@ the fresh data arrives (stale-while-revalidate)."
 Mounts the vui.el dashboard, which paints the disk cache at once and then
 fetches the repositories and the feed in the background."
   (interactive)
-  (vui-mount (vui-component 'octocat-dashboard--root
-                            :feed-limit (or octocat--feed-limit
-                                            octocat-feed-limit))
-             (buffer-name)))
+  (octocat-vui-preserving-view
+    (vui-mount (vui-component 'octocat-dashboard--root
+                              :feed-limit (or octocat--feed-limit
+                                              octocat-feed-limit))
+               (buffer-name))))
 
 
 
