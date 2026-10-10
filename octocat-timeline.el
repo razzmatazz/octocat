@@ -386,18 +386,112 @@ bodies verbatim.  The text carries ITEM's target in the
       (put-text-property 0 (length text) 'octocat-timeline-target target text))
     text))
 
+(defcustom octocat-timeline-body-lines 80
+  "Lines of an opening post shown before the rest is folded away.
+The rest expands on RET.  The last entry of a timeline is never folded.
+Nil never folds."
+  :type '(choice (const :tag "Never fold" nil) integer)
+  :group 'octocat)
+
+(defcustom octocat-timeline-comment-lines 20
+  "Lines of a comment or review shown before the rest is folded away.
+See `octocat-timeline-body-lines'."
+  :type '(choice (const :tag "Never fold" nil) integer)
+  :group 'octocat)
+
+(defconst octocat-timeline--expand-frames 10
+  "Number of animation frames in which a folded entry unfolds.")
+
+(defconst octocat-timeline--expand-interval 0.025
+  "Seconds between the frames of the unfolding animation.")
+
+(defun octocat-timeline--line-limit (item)
+  "Return how many body lines of ITEM show while folded, or nil."
+  (if (eq (plist-get item :kind) 'post)
+      octocat-timeline-body-lines
+    octocat-timeline-comment-lines))
+
+(vui-defcomponent octocat-timeline-fold (total limit render prefix noun)
+  "Show the first LIMIT of TOTAL things, the rest folded behind a marker row.
+RENDER is a function of the number of things to show, returning a vnode.
+PREFIX starts the marker row and NOUN (\"lines\", \"checks\") names the
+things in it.  With LIMIT nil, or TOTAL not above it, nothing folds.  RET
+on the marker unfolds the rest a few things per frame, and then folds it
+back."
+  :state ((shown nil) (open nil))
+  :render
+  (let* ((folds   (and limit (> total limit)))
+         (visible (if folds (min total (or shown limit)) total))
+         (done    (>= visible total)))
+    ;; Unfold progressively: a timer adds a few things per frame until
+    ;; all show.  It exists only while that is going on.
+    (vui-use-effect (open done)
+      (when (and open (not done))
+        (let ((timer (run-with-timer
+                      octocat-timeline--expand-interval
+                      octocat-timeline--expand-interval
+                      (vui-with-async-context
+                        (vui-set-state
+                         :shown (lambda (old)
+                                  (min total (+ (or old limit)
+                                                (max 2 (ceiling (- total limit)
+                                                                octocat-timeline--expand-frames))))))))))
+          (lambda () (cancel-timer timer)))))
+    (vui-fragment
+     (funcall render visible)
+     (when folds
+       (vui-fragment
+        (vui-newline)
+        (octocat-vui-row
+         (concat prefix
+                 (propertize
+                  (cond ((not open) (format "▸ %d more %s  (RET to expand)"
+                                            (- total visible) noun))
+                        (done       "▴ show less")
+                        (t          (format "▾ %d more %s…" (- total visible) noun)))
+                  'face 'octocat-dimmed))
+         (vui-with-async-context
+           (if (and open done)
+               (progn (vui-set-state :open nil)
+                      (vui-set-state :shown nil))
+             (vui-set-state :open t)))
+         (if open "RET: fold this back" "RET: show the rest")))))))
+
+(vui-defcomponent octocat-timeline--entry (item raw width limit)
+  "One timeline ITEM; fold its body to LIMIT lines (nil: never).
+RAW is as for `octocat-timeline--entry-string'; WIDTH only invalidates the
+rendered text when the window is resized."
+  :render
+  (let* ((lines (vui-use-memo (item raw width)
+                  (split-string (octocat-timeline--entry-string item raw) "\n")))
+         (visit (plist-get item :on-visit)))
+    (vui-component
+     'octocat-timeline-fold
+     :total (1- (length lines))
+     :limit limit
+     :noun "lines"
+     :prefix (if (eq (plist-get item :kind) 'post)
+                 "  "
+               octocat-timeline--body-prefix)
+     :render (lambda (shown)
+               (let ((text (mapconcat #'identity (seq-take lines (1+ shown)) "\n")))
+                 (if visit
+                     (octocat-vui-row text visit (plist-get item :help))
+                   (vui-text text)))))))
+
 (defun octocat-timeline-entries (items raw)
   "Return the vnodes of timeline ITEMS, rail lines included.
 RAW is as for `octocat-timeline--entry-string'.  An item with an
-:on-visit function is a RET-able row."
-  (let (nodes)
-    (dolist (item items)
-      (when nodes (push (vui-text octocat-timeline--rail) nodes))
-      (let ((text  (octocat-timeline--entry-string item raw))
-            (visit (plist-get item :on-visit)))
-        (push (if visit
-                  (octocat-vui-row text visit (plist-get item :help))
-                (vui-text text))
+:on-visit function is a RET-able row.  Long bodies and comments are
+folded (see `octocat-timeline-body-lines'), except in the last item."
+  (let ((width (octocat-vui-window-width))
+        nodes)
+    (while items
+      (let ((item (pop items)))
+        (when nodes (push (vui-text octocat-timeline--rail) nodes))
+        (push (vui-component 'octocat-timeline--entry
+                             :item item :raw raw :width width
+                             :limit (and items (octocat-timeline--line-limit item)))
               nodes)))
     (nreverse nodes)))
 

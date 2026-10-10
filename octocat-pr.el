@@ -321,33 +321,62 @@ the CI status."
     (and commits (> (length commits) 0)
          (gethash "oid" (aref commits (1- (length commits)))))))
 
-(defun octocat-pr--check-row (repo pr check)
-  "Return a RET-able vnode for the status CHECK (a hash-table) of PR in REPO."
-  (let* ((name       (or (gethash "name" check) ""))
-         (workflow   (or (gethash "workflowName" check) ""))
-         (conclusion (octocat-timeline--get check "conclusion"))
-         (started    (octocat-timeline--get check "startedAt"))
-         (completed  (octocat-timeline--get check "completedAt"))
-         (duration   (octocat--run-duration started completed)))
+(defconst octocat-pr--check-column-max '(50 30)
+  "Widest the name and workflow columns of the checks list grow.")
+
+(defun octocat-pr--check-fields (check)
+  "Return the text columns of status CHECK (a hash-table).
+That is a list (NAME WORKFLOW DURATION STARTED), plain strings."
+  (let ((started (octocat-timeline--get check "startedAt")))
+    (list (or (gethash "name" check) "")
+          (or (gethash "workflowName" check) "")
+          (or (octocat--run-duration started (octocat-timeline--get check "completedAt")) "")
+          (octocat--format-ts (or started "")))))
+
+(defun octocat-pr--check-widths (checks)
+  "Return the width of each column of CHECKS, the widest field in it.
+The name and workflow columns stop at `octocat-pr--check-column-max'."
+  (let ((widths (list 0 0 0 0)))
+    (seq-doseq (check checks)
+      (setq widths (cl-mapcar (lambda (w field) (max w (string-width field)))
+                              widths (octocat-pr--check-fields check))))
+    (cl-mapcar (lambda (w cap) (if cap (min w cap) w))
+               widths (append octocat-pr--check-column-max '(nil nil)))))
+
+(defun octocat-pr--check-row (repo pr check widths)
+  "Return a RET-able vnode for the status CHECK (a hash-table) of PR in REPO.
+WIDTHS are the column widths, as from `octocat-pr--check-widths'.  A
+column no check has anything in takes no space."
+  (let ((cells (cl-mapcar
+                (lambda (field width face)
+                  (and (> width 0)
+                       (propertize (truncate-string-to-width field width nil ?\s "…")
+                                   'face face)))
+                (octocat-pr--check-fields check) widths
+                '(nil octocat-dimmed octocat-dimmed octocat-dimmed))))
     (octocat-vui-row
-     (concat "  "
-             (octocat--run-icon (or (gethash "status" check) "") conclusion)
-             "  "
-             (truncate-string-to-width name 30 nil ?\s "…")
-             "  "
-             (propertize (format "%-16s" workflow) 'face 'octocat-dimmed)
-             "  "
-             (propertize (or duration "") 'face 'octocat-dimmed)
-             "  "
-             (propertize (octocat--format-ts (or started "")) 'face 'octocat-dimmed))
+     (string-trim-right
+      (concat "  "
+              (octocat--run-icon (or (gethash "status" check) "")
+                                 (octocat-timeline--get check "conclusion"))
+              " "
+              (mapconcat #'identity (delq nil cells) "  ")))
      (lambda ()
        (octocat-checks-open repo (or (octocat-pr--head-sha pr) "")
                             (octocat--nonempty (gethash "headRefName" pr))))
      "RET: view checks for this commit")))
 
+(defcustom octocat-pr-checks-shown 5
+  "Number of a pull request's checks shown before the rest is folded away.
+The rest expands on RET.  Nil never folds."
+  :type '(choice (const :tag "Never fold" nil) integer)
+  :group 'octocat)
+
 (defun octocat-pr--checks (repo pr)
   "Return the vnodes of the checks block of PR in REPO."
-  (let ((checks (or (octocat-timeline--get pr "statusCheckRollup") [])))
+  (let* ((checks (or (octocat-timeline--get pr "statusCheckRollup") []))
+         ;; From all checks, so unfolding the rest shifts no column.
+         (widths (octocat-pr--check-widths checks)))
     (cons
      (vui-text (concat (propertize (format "Checks (%d)" (length checks))
                                    'face 'octocat-section-heading)
@@ -355,7 +384,17 @@ the CI status."
                          (concat "  " (octocat--ci-label pr)))))
      (if (zerop (length checks))
          (list (vui-text (propertize "  (no checks)" 'face 'octocat-dimmed)))
-       (mapcar (lambda (check) (octocat-pr--check-row repo pr check)) checks)))))
+       (list (vui-component
+              'octocat-timeline-fold
+              :total (length checks)
+              :limit octocat-pr-checks-shown
+              :noun "checks"
+              :prefix "  "
+              :render (lambda (shown)
+                        (apply #'vui-vstack
+                               (cl-loop for check across checks
+                                        repeat shown
+                                        collect (octocat-pr--check-row repo pr check widths))))))))))
 
 (defun octocat-pr--header (repo pr)
   "Return the vnodes above the timeline: repo, title, branches, labels, changes.
