@@ -52,6 +52,18 @@ Still to do: make links and `#123` references RET-able (links already carry an
 setext headings, indented code blocks, and give `octocat-edit-mode` markdown
 font-lock from the same module.
 
+Also not handled yet:
+
+- h1/h2 only look bold in a terminal (the larger font height is ignored).
+- `<details>`/`<summary>`: the tags are stripped and the content always shows;
+  could become a collapsible section.
+- Reference-style links (`[text][1]`), footnotes, `:emoji:` shortcodes and
+  `<img>` tags (stripped; a markdown image shows as `[image: alt]`).
+- Short commit SHAs and `owner/repo@sha` are not recognised as references.
+- mermaid and math fences render as plain code.
+- List items continued without indentation, and `|` inside a code span in a
+  table cell.
+
 ## ~~Render Markdown in a better way~~
 
 (Superseded: this was done with `gfm-view-mode`, since replaced by
