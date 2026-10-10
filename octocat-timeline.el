@@ -57,6 +57,7 @@
 
 (require 'octocat-core)
 (require 'octocat-vui)
+(require 'time-date) ; date-to-time
 (require 'vui)
 (require 'vui-components) ; vui-vstack, etc.
 
@@ -114,6 +115,12 @@ Missing keys, non-table intermediates and JSON null all give nil."
   (let ((login (octocat-timeline--get event "actor" "login")))
     (if (stringp login) (concat "@" login) "")))
 
+(defun octocat-timeline--rename-text (from to)
+  "Return the phrase for a title change FROM → TO (either may be nil)."
+  (format "changed the title %s → %s"
+          (propertize (or from "") 'face 'octocat-dimmed)
+          (or to "")))
+
 (defun octocat-timeline--event-text (event)
   "Return what timeline EVENT did as a short string, or nil to skip it.
 The actor is not included; see `octocat-timeline--actor'."
@@ -139,10 +146,9 @@ The actor is not included; see `octocat-timeline--actor'."
                     (_             "closed this")))
       ("reopened" "reopened this")
       ("merged"   "merged this")
-      ("renamed"  (format "changed the title %s → %s"
-                          (propertize (or (octocat-timeline--get event "rename" "from") "")
-                                      'face 'octocat-dimmed)
-                          (or (octocat-timeline--get event "rename" "to") "")))
+      ("renamed"  (octocat-timeline--rename-text
+                   (octocat-timeline--get event "rename" "from")
+                   (octocat-timeline--get event "rename" "to")))
       ("milestoned"   (format "added this to the %s milestone"
                               (octocat-timeline--get event "milestone" "title")))
       ("demilestoned" (format "removed this from the %s milestone"
@@ -222,14 +228,104 @@ further items, such as a PR's reviews and commits."
                                             :kind 'event
                                             :actor (octocat-timeline--actor event)
                                             :text text
+                                            :label (octocat-timeline--get event "label")
+                                            :rename (and (equal name "renamed")
+                                                         (cons (octocat-timeline--get event "rename" "from")
+                                                               (octocat-timeline--get event "rename" "to")))
                                             :state name))))
                              events))
              (octocat-timeline--state-fallback obj)))))
     ;; The post leads even when something predates it, like a PR's first
     ;; commit; the rest goes by time.
     (cons (car items)
-          (sort (cdr items)
-                (lambda (a b) (string< (plist-get a :time) (plist-get b :time)))))))
+          (octocat-timeline--merge-renames
+           (octocat-timeline--merge-labels
+            (sort (cdr items)
+                  (lambda (a b) (string< (plist-get a :time) (plist-get b :time)))))))))
+
+(defun octocat-timeline--merge-renames (items)
+  "Return ITEMS with one actor's consecutive renames merged into one.
+The merged entry reads from the first old title to the last new one and
+carries the time of the last change."
+  (let (result)
+    (dolist (item items)
+      (let ((prev (car result)))
+        (if (and (plist-get item :rename) prev (plist-get prev :rename)
+                 (equal (plist-get prev :actor) (plist-get item :actor)))
+            (let ((rename (cons (car (plist-get prev :rename))
+                                (cdr (plist-get item :rename)))))
+              (setcar result
+                      (append (list :rename rename
+                                    :time (plist-get item :time)
+                                    :text (octocat-timeline--rename-text
+                                           (car rename) (cdr rename)))
+                              prev)))
+          (push item result))))
+    (nreverse result)))
+
+(defconst octocat-timeline--merge-window 60
+  "Seconds within which one actor's label events are shown as one entry.")
+
+(defun octocat-timeline--seconds (time)
+  "Return ISO 8601 string TIME as float seconds, or nil if unparsable."
+  (ignore-errors (float-time (date-to-time time))))
+
+(defun octocat-timeline--labels-text (labeled)
+  "Return the phrase for LABELED, a list of (STATE . LABEL) in order."
+  (let* ((names (lambda (state)
+                  (octocat--format-labels
+                   (vconcat (mapcar #'cdr (seq-filter (lambda (l) (equal (car l) state))
+                                                      labeled))))))
+         (added   (funcall names "labeled"))
+         (removed (funcall names "unlabeled"))
+         (phrase  (lambda (verb str state)
+                    (let ((n (seq-count (lambda (l) (equal (car l) state)) labeled)))
+                      (format "%s the %s %s" verb str (if (= n 1) "label" "labels"))))))
+    (string-join
+     (delq nil
+           (list (and (not (string-empty-p added))
+                      (funcall phrase "added" added "labeled"))
+                 (and (not (string-empty-p removed))
+                      (funcall phrase "removed" removed "unlabeled"))))
+     " and ")))
+
+(defun octocat-timeline--merge-labels (items)
+  "Return ITEMS with label events of one actor in a row merged into one.
+Like GitHub, consecutive labeled/unlabeled events of the same actor,
+within `octocat-timeline--merge-window' seconds of the first, become a
+single entry such as \"added the A B labels\"."
+  (let (result run)
+    (cl-flet ((flush ()
+                (when run
+                  (let ((first (car (last run)))
+                        (ordered (reverse run)))
+                    (push (if (cdr run)
+                              (append
+                               (list :text (octocat-timeline--labels-text
+                                            (mapcar (lambda (i) (cons (plist-get i :state)
+                                                                      (plist-get i :label)))
+                                                    ordered)))
+                               first)
+                            first)
+                          result))
+                  (setq run nil)))
+              (label-p (item)
+                (and (eq (plist-get item :kind) 'event)
+                     (member (plist-get item :state) '("labeled" "unlabeled"))
+                     (plist-get item :label))))
+      (dolist (item items)
+        (if (not (label-p item))
+            (progn (flush) (push item result))
+          (let ((start (car (last run))))
+            (unless (and start
+                         (equal (plist-get start :actor) (plist-get item :actor))
+                         (let ((t0 (octocat-timeline--seconds (plist-get start :time)))
+                               (t1 (octocat-timeline--seconds (plist-get item :time))))
+                           (and t0 t1 (<= (- t1 t0) octocat-timeline--merge-window))))
+              (flush))
+            (push item run))))
+      (flush))
+    (nreverse result)))
 
 
 ;;;; Rendering
