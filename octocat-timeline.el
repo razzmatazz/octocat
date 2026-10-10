@@ -386,14 +386,14 @@ bodies verbatim.  The text carries ITEM's target in the
       (put-text-property 0 (length text) 'octocat-timeline-target target text))
     text))
 
-(defcustom octocat-timeline-body-lines 80
+(defcustom octocat-timeline-body-lines 30
   "Lines of an opening post shown before the rest is folded away.
 The rest expands on RET.  The last entry of a timeline is never folded.
 Nil never folds."
   :type '(choice (const :tag "Never fold" nil) integer)
   :group 'octocat)
 
-(defcustom octocat-timeline-comment-lines 20
+(defcustom octocat-timeline-comment-lines 10
   "Lines of a comment or review shown before the rest is folded away.
 See `octocat-timeline-body-lines'."
   :type '(choice (const :tag "Never fold" nil) integer)
