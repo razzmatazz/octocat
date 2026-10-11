@@ -22,7 +22,9 @@
 
 ;; `octocat-search-repo' (bound to C-c C-s in every octocat view) searches
 ;; the pull requests, issues and commits of the current repository with
-;; live `gh search' queries, through a consult async pipeline.
+;; live `gh search' queries, through a consult async pipeline.  File paths
+;; of the repository's default branch are matched too, locally, against a
+;; file list fetched once and kept in memory.
 ;;
 ;; Results are cached on disk per (repo, type, query).  A cached result is
 ;; painted at once and refreshed in the background, the list being rebuilt
@@ -40,6 +42,8 @@
 (declare-function octocat-commit-mode            "octocat-commit" ())
 (declare-function octocat-commit-refresh         "octocat-commit" (&optional _ignore-auto _noconfirm))
 (declare-function octocat--render-commit-loading "octocat-commit" (sha))
+(declare-function octocat-tree--fetch-all-files  "octocat-tree"   (repo sha callback))
+(declare-function octocat-tree--open-file-by-path "octocat-tree"  (repo branch path sha))
 
 (defvar octocat--commit-repo)
 (defvar octocat--commit-sha)
@@ -115,11 +119,27 @@ shape (\"oid\", nested \"commit\") used in different parts of the codebase."
                        cand)
     cand))
 
+(defun octocat--search-make-file-candidate (file repo)
+  "Return a propertized candidate string for FILE in REPO.
+FILE is a (PATH . BLOB-SHA) cons."
+  (let* ((path (car file))
+         (cand (copy-sequence
+                (format "%-8s %s"
+                        (propertize "[File]" 'face 'magit-section-heading)
+                        path))))
+    (put-text-property 0 1 'octocat-search-item
+                       (list :type 'file :repo repo :path path :sha (cdr file))
+                       cand)
+    cand))
+
 (defun octocat--search-open-item (item)
   "Open the octocat buffer described by ITEM, a plist from `octocat-search-item'."
   (let ((type (plist-get item :type))
         (repo (plist-get item :repo)))
     (pcase type
+      ('file
+       (octocat-tree--open-file-by-path
+        repo "HEAD" (plist-get item :path) (plist-get item :sha)))
       ('pr
        (octocat-pr-open repo (plist-get item :number)))
       ('issue
@@ -187,6 +207,37 @@ Write errors are ignored so a full disk never breaks interactive search."
       (error nil))))
 
 
+;;;; Repository file list
+
+(defconst octocat--search-files-ttl 600
+  "Seconds an in-memory repository file list is reused by the search.")
+
+(defconst octocat--search-files-limit 30
+  "Maximum number of file candidates shown for one query.")
+
+(defvar octocat--search-files-cache (make-hash-table :test #'equal)
+  "Map from \"owner/name\" to (TIMESTAMP . ((PATH . BLOB-SHA) ...)).")
+
+(defun octocat--search-files-cached (repo)
+  "Return the fresh cached file list of REPO, or nil."
+  (when-let* ((entry (gethash repo octocat--search-files-cache)))
+    (when (< (- (float-time) (car entry)) octocat--search-files-ttl)
+      (cdr entry))))
+
+(defun octocat--search-files-match (files query)
+  "Return the entries of FILES with every word of QUERY in their path.
+Matching is case-insensitive; shorter paths sort first."
+  (let ((words (split-string (downcase query) "[ \t]+" t))
+        matches)
+    (when words
+      (dolist (file files)
+        (let ((path (downcase (car file))))
+          (when (cl-every (lambda (w) (string-search w path)) words)
+            (push file matches))))
+      (setq matches (sort matches (lambda (a b) (< (length (car a)) (length (car b))))))
+      (seq-take matches octocat--search-files-limit))))
+
+
 ;;;; Async pipeline and command
 
 (defun octocat--async-search-repo-objects (repo)
@@ -205,6 +256,7 @@ the current input is in flight."
     (let ((current  nil)                              ; normalized current input
           (results nil)                               ; alist TYPE -> candidates
           (inflight (make-hash-table :test #'equal))  ; (TYPE . QUERY) -> process
+          (files-loading nil)                         ; file list fetch in flight
           (specs (list (list "prs"     "number,title,state,author"
                              #'octocat--search-make-pr-candidate)
                        (list "issues"  "number,title,state,author"
@@ -218,14 +270,37 @@ the current input is in flight."
            (publish ()
              (funcall sink 'flush)
              (when-let* ((all (apply #'append
-                                     (mapcar (lambda (s) (cdr (assoc (car s) results)))
-                                             specs))))
+                                     (mapcar (lambda (type) (cdr (assoc type results)))
+                                             (append (mapcar #'car specs)
+                                                     (list "files"))))))
                (funcall sink all))
              (funcall sink
-                      (if (cl-some (lambda (s) (gethash (cons (car s) current) inflight))
-                                   specs)
+                      (if (or files-loading
+                              (cl-some (lambda (s) (gethash (cons (car s) current) inflight))
+                                       specs))
                           [indicator running]
                         [indicator finished])))
+           ;; Show the files of the cached list matching the current input.
+           (match-files ()
+             (when-let* ((files (octocat--search-files-cached repo)))
+               (setf (alist-get "files" results nil nil #'equal)
+                     (mapcar (lambda (f) (octocat--search-make-file-candidate f repo))
+                             (octocat--search-files-match files current)))))
+           ;; Fetch the repository file list once; it is matched locally.
+           (load-files ()
+             (unless (or files-loading (octocat--search-files-cached repo))
+               (setq files-loading t)
+               (octocat-tree--fetch-all-files
+                repo "HEAD"
+                (lambda (result)
+                  (setq files-loading nil)
+                  (unless (eq (car-safe result) 'error)
+                    (puthash repo (cons (float-time) result)
+                             octocat--search-files-cache)
+                    (when current
+                      (match-files)))
+                  (when current
+                    (publish))))))
            ;; Run one gh search for SPEC; QUERY is the normalized cache key.
            (spawn (spec input query)
              (let* ((type (car spec))
@@ -283,6 +358,8 @@ the current input is in flight."
                      (push (cons type (candidates spec (cdr cached))) results))
                    (unless (or fresh (gethash (cons type query) inflight))
                      (spawn spec action query))))
+               (match-files)
+               (load-files)
                (publish)))
             ;; Session ending: stop publishing but let searches fill the cache.
             ((or 'cancel 'destroy)
@@ -292,11 +369,12 @@ the current input is in flight."
             (_ (funcall sink action))))))))
 
 (defun octocat-search-repo ()
-  "Search for a PR, issue, or commit in the current repository.
+  "Search for a PR, issue, commit, or file in the current repository.
 
 Fires live `gh search' queries (PRs, issues, and commits in parallel)
 against the repository associated with the current buffer.  Results
-update as each query completes.  Selecting a candidate opens the
+update as each query completes.  File paths containing every word of
+the query are listed too.  Selecting a candidate opens the
 corresponding detail view.
 
 The query is matched against titles, commit messages, and bodies.
