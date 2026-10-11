@@ -36,6 +36,8 @@
 ;;   `octocat-vui-load-more-button'  "[+] Load N more…" button
 ;;   `octocat-vui-list-mode'         base mode of the PR/issue/workflow
 ;;                                   list pages
+;;   `octocat-vui-repo-tabs'         Code / Issues / Pull requests / Actions
+;;                                   tab strip shared by the repo pages
 ;;   `octocat-vui-list-header'       list page header with open/closed counts
 ;;   `octocat-vui-list-filter-bar'   query line + facet buttons
 
@@ -243,6 +245,11 @@ spinner frame appended to the marker."
 (declare-function octocat--list-labels "octocat-core" (repo callback))
 (declare-function octocat--list-people "octocat-core" (repo callback))
 (declare-function octocat-switch-repo "octocat-core" ())
+(declare-function octocat-visit-repo "octocat-core" (repo))
+(declare-function octocat-issues "octocat" ())
+(declare-function octocat-prs "octocat" ())
+(declare-function octocat-workflows "octocat" ())
+(declare-function octocat-tree-open "octocat-tree" (&optional repo))
 (declare-function octocat-search-repo "octocat-search" ())
 
 (defvar-local octocat-vui-list--repo nil
@@ -279,8 +286,34 @@ spinner frame appended to the marker."
   (setq-local buffer-read-only t)
   (setq-local truncate-lines t))
 
-(vui-defcomponent octocat-vui-list-header (repo title kind loading)
-  "Header line for a list page: REPO, TITLE and, for KIND, item counts.
+(defun octocat-vui-repo-tabs (repo current &optional issues prs highlight)
+  "Return a list of vnodes: the tab strip of REPO's pages, as on GitHub.
+The tabs are those of `octocat--repo-tabs'.  CURRENT is the symbol of
+the list page being shown; its tab is drawn as a heading and is not
+clickable.  HIGHLIGHT is the tab a detail page belongs to: drawn the same
+way, but still a button that opens the list.  The others open their page
+for REPO.  ISSUES and PRS, when non-nil, are open counts shown on their
+tabs (a string such as \"…\" while they load)."
+  (mapcar
+   (lambda (tab)
+     (pcase-let* ((`(,sym ,label ,help ,fn) tab)
+                  (label (pcase sym
+                           ('issues (if issues (format "%s (%s)" label issues) label))
+                           ('pulls  (if prs (format "%s (%s)" label prs) label))
+                           (_ label))))
+       (if (eq sym current)
+           (vui-text label :face 'octocat-section-heading)
+         (vui-button label
+                     :face (if (eq sym highlight)
+                               'octocat-section-heading
+                             'octocat-dimmed)
+                     :help-echo help
+                     :on-click (lambda () (funcall fn repo))))))
+   octocat--repo-tabs))
+
+(vui-defcomponent octocat-vui-list-header (repo tab kind loading)
+  "Header for a list page: REPO, the tab strip and, for KIND, item counts.
+TAB is the symbol of the current tab (see `octocat-vui-repo-tabs').
 KIND is `issues' or `pulls' to show \"N open · M closed\" (plus merged
 for pulls) from one API call, or nil for no counts.  A non-nil LOADING
 adds an animated \"(loading…)\" marker: the list below is stale data being
@@ -307,22 +340,29 @@ refreshed."
       nil)
     (octocat-vui-use-spinner loading)
     (vui-fragment
-     (vui-hstack :spacing 2
-       (vui-text repo :face 'octocat-repo)
-       (vui-text title :face 'octocat-dimmed)
-       (when counts
-         (vui-text (string-join
-                    (delq nil
-                          (list (format "%d open" (plist-get counts :open))
-                                (format "%d closed" (plist-get counts :closed))
-                                (and (plist-get counts :merged)
-                                     (format "%d merged" (plist-get counts :merged)))))
-                    " · ")
-                   :face 'octocat-dimmed))
-       (when loading
-         (vui-text (string-trim-left
-                    (octocat-vui-loading-suffix '(:refreshing t) spin)))))
-     (vui-newline))))
+     (apply #'vui-hstack :spacing 2
+            ;; A row, not a button: buttons draw their [brackets], and the
+            ;; repo name is plain text on every other page's top line.
+            (octocat-vui-row (propertize repo 'face 'octocat-repo)
+                             (lambda () (octocat-visit-repo repo))
+                             "RET: open repository page")
+            (append (octocat-vui-repo-tabs repo tab)
+                    (and loading
+                         (list (vui-text (string-trim-left
+                                          (octocat-vui-loading-suffix
+                                           '(:refreshing t) spin)))))))
+     (vui-newline)
+     (when counts
+       (vui-fragment
+        (vui-text (string-join
+                   (delq nil
+                         (list (format "%d open" (plist-get counts :open))
+                               (format "%d closed" (plist-get counts :closed))
+                               (and (plist-get counts :merged)
+                                    (format "%d merged" (plist-get counts :merged)))))
+                   " · ")
+                  :face 'octocat-dimmed)
+        (vui-newline))))))
 
 
 ;;;; List filters

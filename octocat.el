@@ -886,15 +886,19 @@ the handle instead (a leading \"@\" is optional)."
              (octocat-user-open result)))))
     (octocat-user-open login)))
 
-(defun octocat--open-list (mode name path)
+(defun octocat--open-list (mode name path &optional repo)
   "Open (or switch to) the list page for the current repository.
 MODE is the list major mode to enable, NAME the prefix of the buffer
 name, and PATH the github.com sub-path `octocat-vui-list-browse' opens.
+REPO, an \"owner/name\" string, overrides the repository below.
 Inside an octocat repo or list buffer the page is for that buffer's
 repository and local clone; elsewhere the repository is derived from
 the current git working tree."
-  (let* ((repo      (cond ((derived-mode-p 'octocat-repo-mode) octocat-repo--repo)
+  (let* ((repo      (cond (repo)
+                          ((derived-mode-p 'octocat-repo-mode) octocat-repo--repo)
                           ((derived-mode-p 'octocat-vui-list-mode) octocat-vui-list--repo)
+                          ((and (derived-mode-p 'octocat-tree-mode) octocat-tree--repo)
+                           octocat-tree--repo)
                           (t (octocat-repo--current-repo))))
          (local-dir (if (derived-mode-p 'octocat-repo-mode)
                         octocat-repo--local-dir
@@ -910,22 +914,25 @@ the current git working tree."
     (funcall revert-buffer-function)))
 
 ;;;###autoload
-(defun octocat-prs ()
-  "Open the pull request list for the current GitHub repository."
+(defun octocat-prs (&optional repo)
+  "Open the pull request list for the current GitHub repository.
+With REPO, an \"owner/name\" string, open it for that repository."
   (interactive)
-  (octocat--open-list #'octocat-pr-list-mode "pr-list" "pulls"))
+  (octocat--open-list #'octocat-pr-list-mode "pr-list" "pulls" repo))
 
 ;;;###autoload
-(defun octocat-issues ()
-  "Open the issue list for the current GitHub repository."
+(defun octocat-issues (&optional repo)
+  "Open the issue list for the current GitHub repository.
+With REPO, an \"owner/name\" string, open it for that repository."
   (interactive)
-  (octocat--open-list #'octocat-issue-list-mode "issue-list" "issues"))
+  (octocat--open-list #'octocat-issue-list-mode "issue-list" "issues" repo))
 
 ;;;###autoload
-(defun octocat-workflows ()
-  "Open the workflow list for the current GitHub repository."
+(defun octocat-workflows (&optional repo)
+  "Open the workflow list for the current GitHub repository.
+With REPO, an \"owner/name\" string, open it for that repository."
   (interactive)
-  (octocat--open-list #'octocat-workflow-list-mode "workflow-list" "actions"))
+  (octocat--open-list #'octocat-workflow-list-mode "workflow-list" "actions" repo))
 
 
 ;;;; Evil integration

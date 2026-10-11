@@ -404,6 +404,8 @@ Does nothing when ANNOTATIONS is empty or nil."
       (magit-insert-heading
         (concat (propertize (or octocat--job-repo "") 'face 'octocat-repo)
                 "  "
+                (octocat--repo-tabs-string octocat--job-repo 'actions)
+                "  "
                 (propertize "job" 'face 'octocat-dimmed)
                 "  "
                 (propertize (or job-name "") 'face 'octocat-run-job-name)))
@@ -456,6 +458,8 @@ or nil/[] when unavailable."
       ;; ── Header ──────────────────────────────────────────────────────────
       (magit-insert-heading
         (concat (propertize (or octocat--job-repo "") 'face 'octocat-repo)
+                "  "
+                (octocat--repo-tabs-string octocat--job-repo 'actions)
                 "  "
                 (propertize "job" 'face 'octocat-dimmed)
                 "  "

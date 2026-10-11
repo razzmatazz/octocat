@@ -512,3 +512,61 @@ shifting anything, and it is in the same place on every page.
 - A section's own first-load `(loading…)` placeholder, in place of content
   that does not exist yet, is fine.
 - The indicator is not a button and has no `help-echo`.
+
+---
+
+## Repo name, brackets and the repo tab strip
+
+### Brackets mean "button"
+
+`vui-button` (and `buttonize`d labels) draw `[ ]` around their label.
+Brackets therefore signal an *action*: `[State]`, `[Author]`, `[Load more]`,
+the `[Code]` / `[Issues (N)]` tabs.  Plain, un-bracketed text is content or
+a heading.
+
+The **repo name is not an action**; it is the page's identity.  Render it
+as plain text in the `octocat-repo` face, never as a `vui-button` -- so the
+top line reads `owner/repo` (or `owner/repo#N`) on every page, with no
+brackets.  When it must be RET-able (list and tree pages, where there is no
+Info section with a `Repo` line) use `octocat-vui-row`, which makes the
+whole text RET-able without brackets, with `help-echo` "RET: open
+repository page".
+
+### The tab strip
+
+The repo page, the issue / PR / Actions list pages and the file tree share
+one strip, `octocat-vui-repo-tabs`, imitating GitHub's repository tabs:
+
+```
+owner/repo  [Code]  [Issues (N)]  [Pull requests (N)]  [Actions]
+```
+
+- Tabs are buttons (bracketed), so they follow the rule above.
+- The tab of the page being shown is drawn as an un-bracketed
+  `octocat-section-heading` and is not clickable.
+- The repo page itself is home: no tab is current there.
+- On list pages the counts are `(…)` until known; the repo page passes the
+  open counts from its summary.
+- Pages that show the strip put it on the top line, next to the repo name,
+  and the loading indicator follows it (see below).  Item counts
+  ("N open · M closed") go on their own dimmed line.
+
+### Detail pages
+
+Detail pages (PR, issue, PR diff, commit, checks, workflow, run, job) carry
+the same strip on their top line, right after `owner/repo#N` (or the
+heading's repo name, on the magit-section pages), so every page of a
+repository has one header and a way back to the lists and the tree.
+
+- The tab the page belongs to (Pull requests for a PR and its diff, Issues
+  for an issue, Actions for workflow / run / job, Code for a commit and
+  its checks) is drawn in `octocat-section-heading`, but stays a button:
+  it opens the list, not the page itself.
+- vui pages use `octocat-vui-repo-tabs` with its HIGHLIGHT argument; the
+  magit-section pages append `octocat--repo-tabs-string` to the heading.
+  Both read `octocat--repo-tabs`, so labels and help text stay in one
+  place.
+- Counts are shown only where they are known (the repo page).
+- The commands behind the tabs, `octocat-issues`, `octocat-prs` and
+  `octocat-workflows`, take the repo as an optional argument: a detail
+  buffer's repo is not derivable from its mode or `default-directory`.

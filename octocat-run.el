@@ -151,6 +151,8 @@ STATUS takes priority over CONCLUSION for in-progress detection."
       (magit-insert-heading
         (concat (propertize (or octocat--run-repo "") 'face 'octocat-repo)
                 "  "
+                (octocat--repo-tabs-string octocat--run-repo 'actions)
+                "  "
                 (propertize "run" 'face 'octocat-dimmed)
                 " "
                 (propertize (number-to-string run-id) 'face 'octocat-pr-number)))
@@ -199,6 +201,8 @@ ARTIFACTS is an optional vector of artifact hash-tables from the Actions API."
       ;; ── Header ──────────────────────────────────────────────────────────
       (magit-insert-heading
         (concat (propertize (or octocat--run-repo "") 'face 'octocat-repo)
+                "  "
+                (octocat--repo-tabs-string octocat--run-repo 'actions)
                 "  "
                 (propertize "run" 'face 'octocat-dimmed)
                 " "

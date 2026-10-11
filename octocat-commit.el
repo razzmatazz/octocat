@@ -269,6 +269,8 @@ matching comments immediately after each rendered diff line."
       (magit-insert-heading
         (concat (propertize (or octocat--commit-repo "") 'face 'octocat-repo)
                 "  "
+                (octocat--repo-tabs-string octocat--commit-repo 'code)
+                "  "
                 (propertize "commit" 'face 'octocat-dimmed)
                 " "
                 (propertize short 'face 'octocat-commit-sha)))
@@ -327,6 +329,8 @@ is shown instead."
       ;; ── Header ────────────────────────────────────────────────────────
       (magit-insert-heading
         (concat (propertize (or octocat--commit-repo "") 'face 'octocat-repo)
+                "  "
+                (octocat--repo-tabs-string octocat--commit-repo 'code)
                 "  "
                 (propertize "commit" 'face 'octocat-dimmed)
                 " "

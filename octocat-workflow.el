@@ -138,6 +138,8 @@ cons \\=(error . MSG) on failure."
       (magit-insert-heading
         (concat (propertize (or octocat--workflow-repo "") 'face 'octocat-repo)
                 "  "
+                (octocat--repo-tabs-string octocat--workflow-repo 'actions)
+                "  "
                 (propertize "workflow" 'face 'octocat-dimmed)
                 "  "
                 name))
@@ -172,6 +174,8 @@ hash-tables."
       ;; ── Header ──────────────────────────────────────────────────────────
       (magit-insert-heading
         (concat (propertize (or octocat--workflow-repo "") 'face 'octocat-repo)
+                "  "
+                (octocat--repo-tabs-string octocat--workflow-repo 'actions)
                 "  "
                 (propertize "workflow" 'face 'octocat-dimmed)
                 "  "
@@ -456,7 +460,7 @@ loading indicator."
   :render
   (vui-vstack
    (vui-component 'octocat-vui-list-header
-                  :repo repo :title "Workflows" :loading loading)
+                  :repo repo :tab 'actions :loading loading)
    (vui-component 'octocat-workflow--list-section :repo repo)
    (vui-newline)
    (vui-component 'octocat-workflow--runs-section

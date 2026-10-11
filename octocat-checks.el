@@ -122,6 +122,8 @@ Returns nil when the check was not created by GitHub Actions."
       (magit-insert-heading
         (concat (propertize (or octocat--checks-repo "") 'face 'octocat-repo)
                 "  "
+                (octocat--repo-tabs-string octocat--checks-repo 'code)
+                "  "
                 (propertize "checks" 'face 'octocat-dimmed)
                 "  "
                 (propertize short 'face 'octocat-commit-sha)
@@ -155,6 +157,8 @@ CHECKS-LIST is a list of check-run hash-tables from the GitHub Checks API."
       ;; ── Header ──────────────────────────────────────────────────────────
       (magit-insert-heading
         (concat (propertize (or octocat--checks-repo "") 'face 'octocat-repo)
+                "  "
+                (octocat--repo-tabs-string octocat--checks-repo 'code)
                 "  "
                 (propertize "checks" 'face 'octocat-dimmed)
                 "  "

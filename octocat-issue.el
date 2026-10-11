@@ -44,7 +44,7 @@
 (declare-function octocat-repo-vui--cells "octocat-repo" (item current-branch repo))
 (declare-function octocat-repo-vui--layout "octocat-repo" (cells width))
 (declare-function octocat-repo-vui--state-label "octocat-repo" (state &optional draft))
-(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title &optional branch omit suffix))
+(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title &optional branch omit suffix highlight))
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
 (declare-function octocat-repo-vui--logins "octocat-repo" (users))
 (declare-function octocat-repo-vui--numbers "octocat-repo" (refs))
@@ -269,7 +269,7 @@ LOADING is the page's loading marker, shown on the top row."
     (append
      (octocat-repo-vui--detail-header
       repo issue (octocat-repo-vui--state-label state)
-      #'octocat-issue-edit-title nil '(:comments) loading)
+      #'octocat-issue-edit-title nil '(:comments) loading 'issues)
      (list
       (octocat-repo-vui--detail-fields
        (list (cons "Assignees" (octocat-repo-vui--logins (gethash "assignees" issue)))
@@ -414,7 +414,7 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
       nil)
     (vui-vstack
      (vui-component 'octocat-vui-list-header
-                    :repo repo :title "Issues" :kind 'issues
+                    :repo repo :tab 'issues :kind 'issues
                     :loading (and (plist-get result :refreshing) t))
      (octocat-vui-list-filter-bar query)
      (pcase (plist-get result :status)

@@ -544,7 +544,7 @@ rows."
 ;; it lives and who opened it.
 
 (defun octocat-repo-vui--detail-header (repo item state on-edit-title
-                                            &optional branch omit suffix)
+                                            &optional branch omit suffix highlight)
   "Return the header vnodes of the issue or PR ITEM of REPO.
 STATE is its coloured state text (see `octocat-repo-vui--state-label').
 The first row is the repo and number, as in every other view; RET on it
@@ -554,7 +554,9 @@ third, dimmed row reads like the list's: author, age, branch, ...; RET
 on it edits the title too.  BRANCH, when non-nil, replaces the
 branch cell.  OMIT is a list of cell keys (see `octocat-repo-vui--cells')
 to leave out.  SUFFIX, a string, ends the first row: the page's loading
-indicator (see `octocat-vui-loading-suffix'), which lives on the top line."
+indicator (see `octocat-vui-loading-suffix'), which lives on the top line.
+HIGHLIGHT is the tab of the repo tab strip (see `octocat-vui-repo-tabs')
+the page belongs to; the strip follows the repo and number on that row."
   (let* ((cells (octocat-repo-vui--cells item nil repo))
          (chips (or (plist-get cells :chips) ""))
          (more  (seq-remove (lambda (s) (or (null s) (string-empty-p s)))
@@ -566,13 +568,16 @@ indicator (see `octocat-vui-loading-suffix'), which lives on the top line."
                                      '(:author :date :branch :ci :prs :comments)
                                      omit)))))
     (list
-     (octocat-vui-row
-      (concat (propertize repo 'face 'octocat-repo)
-              (propertize (format "#%d" (gethash "number" item))
-                          'face 'octocat-pr-number)
-              suffix)
-      (lambda () (octocat-visit-repo repo))
-      "RET: open repo view")
+     (apply #'vui-hstack :spacing 2
+            (octocat-vui-row
+             (concat (propertize repo 'face 'octocat-repo)
+                     (propertize (format "#%d" (gethash "number" item))
+                                 'face 'octocat-pr-number))
+             (lambda () (octocat-visit-repo repo))
+             "RET: open repo view")
+            (append (octocat-vui-repo-tabs repo nil nil nil highlight)
+                    (and suffix
+                         (list (vui-text (string-trim-left suffix))))))
      (octocat-vui-row
       (propertize (concat state "  " (plist-get cells :title)
                           (if (string-empty-p chips) "" (concat "  " chips)))
@@ -797,26 +802,13 @@ page's loading indicator."
 
 ;;;; Root
 
-(defun octocat-repo-vui--nav-buttons (summary)
-  "Return a list of buttons opening the issue, PR and workflow pages.
-The issue and PR buttons show their open counts, as GitHub's tabs do,
-from SUMMARY, the plist from
-`octocat-repo--fetch-summary', or an ellipsis while it is still loading."
-  (let ((issues (plist-get summary :open-issues))
-        (prs    (plist-get summary :open-prs)))
-    (list
-     (vui-button (format "Issues (%s)" (or issues "…"))
-                 :face 'octocat-dimmed
-                 :help-echo "RET: list issues"
-                 :on-click #'octocat-issues)
-     (vui-button (format "Pull requests (%s)" (or prs "…"))
-                 :face 'octocat-dimmed
-                 :help-echo "RET: list pull requests"
-                 :on-click #'octocat-prs)
-     (vui-button "Workflows"
-                 :face 'octocat-dimmed
-                 :help-echo "RET: list workflows and runs"
-                 :on-click #'octocat-workflows))))
+(defun octocat-repo-vui--nav-buttons (repo summary)
+  "Return the tab strip of REPO's pages, as GitHub's tabs.
+The issue and PR tabs show their open counts from SUMMARY, the plist
+from `octocat-repo--fetch-summary', or an ellipsis while it loads."
+  (octocat-vui-repo-tabs repo nil
+                         (or (plist-get summary :open-issues) "…")
+                         (or (plist-get summary :open-prs) "…")))
 
 (vui-defcomponent octocat-repo-vui--root (repo local-dir)
   "Root component for the repo buffer: header, local-head/fork-parent
@@ -850,11 +842,7 @@ Everything but the commits comes from a single summary API call."
     (vui-vstack
      (apply #'vui-hstack :spacing 2
             (vui-text repo :face 'octocat-repo)
-            (vui-button "Code"
-                        :face 'octocat-dimmed
-                        :help-echo "RET: browse file tree"
-                        :on-click (lambda () (octocat-tree-open)))
-            (append (octocat-repo-vui--nav-buttons summary)
+            (append (octocat-repo-vui--nav-buttons repo summary)
                     (and loading
                          (list (vui-text (string-trim-left
                                           (octocat-vui-loading-suffix

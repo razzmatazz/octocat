@@ -450,7 +450,8 @@ PARENT is the containing directory's full path (\"\" at the root)."
   "Root component of the tree buffer: header, then the root directory."
   :render
   (vui-vstack
-   (vui-text (octocat-tree--header-line repo branch t))
+   (vui-text (octocat-tree--header-line repo branch))
+   (apply #'vui-hstack :spacing 2 (octocat-vui-repo-tabs repo 'code))
    (vui-component 'octocat-tree--dir
                   :repo repo :branch branch :sha root-sha :depth 0 :path "")))
 
@@ -509,15 +510,20 @@ PARENT is the containing directory's full path (\"\" at the root)."
 
 ;;;; Interactive commands — tree mode
 
-(defun octocat-tree-open ()
-  "Open the file tree browser for the current octocat-repo buffer."
+(defun octocat-tree-open (&optional repo)
+  "Open the file tree browser for the current octocat-repo buffer.
+With REPO, an \"owner/name\" string, open it for that repository
+instead; this is how the tab strip of the other repo pages gets here."
   (interactive)
-  (unless (derived-mode-p 'octocat-repo-mode)
+  (unless (or repo (derived-mode-p 'octocat-repo-mode))
     (user-error "Octocat: Not in an octocat-repo buffer"))
-  (let* ((repo   octocat-repo--repo)
-         (branch (or (and (boundp 'octocat-repo--current-branch)
+  (let* ((in-repo (derived-mode-p 'octocat-repo-mode))
+         (repo   (or repo octocat-repo--repo))
+         (branch (or (and in-repo
+                          (boundp 'octocat-repo--current-branch)
                           octocat-repo--current-branch)
-                     (and (boundp 'octocat-repo--default-branch)
+                     (and in-repo
+                          (boundp 'octocat-repo--default-branch)
                           octocat-repo--default-branch)
                      "HEAD"))
          (buf-name (format "*octocat-tree: %s*" repo))

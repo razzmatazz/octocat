@@ -1073,6 +1073,40 @@ The selected repository is opened via `octocat-visit-repo', a selected
           (octocat-visit-repo choice))))))
 
 
+;;;; Repo tab strip
+;;
+;; The Code / Issues / Pull requests / Actions strip every repo page shows
+;; beside the repo name, as GitHub's tabs do.  The vui pages draw it with
+;; `octocat-vui-repo-tabs'; the magit-section pages, with
+;; `octocat--repo-tabs-string'.  Both read `octocat--repo-tabs'.
+
+(declare-function octocat-tree-open  "octocat-tree" (&optional repo))
+(declare-function octocat-issues     "octocat"      (&optional repo))
+(declare-function octocat-prs        "octocat"      (&optional repo))
+(declare-function octocat-workflows  "octocat"      (&optional repo))
+
+(defconst octocat--repo-tabs
+  '((code    "Code"          "RET: browse file tree"         octocat-tree-open)
+    (issues  "Issues"        "RET: list issues"              octocat-issues)
+    (pulls   "Pull requests" "RET: list pull requests"       octocat-prs)
+    (actions "Actions"       "RET: list workflows and runs"  octocat-workflows))
+  "The repo tabs: (SYMBOL LABEL HELP-ECHO COMMAND).
+COMMAND takes the \"owner/name\" repo to open the tab's page for.")
+
+(defun octocat--repo-tabs-string (repo &optional highlight)
+  "Return the tab strip of REPO as a propertized string, for a heading.
+Every tab is a bracketed button opening that page of REPO.  HIGHLIGHT, a
+tab symbol of `octocat--repo-tabs', is drawn in the heading face: the page
+shown belongs to that tab, which still opens its list."
+  (mapconcat
+   (lambda (tab)
+     (pcase-let ((`(,sym ,label ,help ,fn) tab))
+       (propertize
+        (buttonize (format "[%s]" label)
+                   (lambda (_) (funcall fn repo)) nil help)
+        'face (if (eq sym highlight) 'octocat-section-heading 'octocat-dimmed))))
+   octocat--repo-tabs "  "))
+
 (defun octocat-visit-repo (repo)
   "Open (or switch to) the *octocat-repo: REPO* buffer.
 REPO is an \"owner/name\" string.  This is the shared implementation used
