@@ -784,10 +784,11 @@ page's loading indicator."
            (if (null commits)
                (vui-text "(no commits)" :face 'octocat-dimmed)
              (let ((author-w (octocat-repo-vui--author-width commits)))
-               (vui-list commits
-                         (lambda (c)
-                           (octocat-repo-vui--commit-row repo c head-info author-w))
-                         (lambda (c) (gethash "sha" c)))))
+               (octocat-vui-reveal-list
+                commits
+                (lambda (c)
+                  (octocat-repo-vui--commit-row repo c head-info author-w))
+                (lambda (c) (gethash "sha" c)))))
            (when (and commits
                       (or (>= (length commits) limit)
                           ;; Keep the button in place while a further page

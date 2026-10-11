@@ -515,6 +515,28 @@ shifting anything, and it is in the same place on every page.
 
 ---
 
+## Revealing more rows ("Load N more…")
+
+Rows that a `[+] Load N more…` button brings in **unfold** one frame at a
+time, the way the rest of a long PR body or comment does when its fold
+marker is expanded: slowly at first, then faster, a fraction of what is
+already shown per frame (`octocat-vui-unfold-growth`, every
+`octocat-vui-unfold-interval` seconds).  The list never jumps by a whole
+page.
+
+- Draw a pageable list with `octocat-vui-reveal-list` (ITEMS, ROW-FN,
+  KEY-FN) instead of `vui-list`.  It shows everything on the first render
+  -- cached paint, `gr` -- and only animates items that arrive afterwards.
+- Compute shared column widths (`octocat-repo-vui--layout`, author
+  width, ...) from **all** the items *before* the call, so columns do not
+  shift while rows appear.
+- Keep the load-more button below the list, with its `:key`, so point stays
+  on it while the rows unfold.
+- Folded text uses the same constants through `octocat-timeline-fold`;
+  tune the pace in `octocat-vui.el` and both follow.
+
+---
+
 ## Repo name, brackets and the repo tab strip
 
 ### Brackets mean "button"

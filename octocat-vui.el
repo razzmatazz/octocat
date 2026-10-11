@@ -34,6 +34,8 @@
 ;;   `octocat-vui-use-async-sticky'  `vui-use-async' that keeps old data
 ;;                                   visible while the next page loads
 ;;   `octocat-vui-load-more-button'  "[+] Load N more…" button
+;;   `octocat-vui-reveal-list'       `vui-list' whose later-added rows
+;;                                   unfold progressively
 ;;   `octocat-vui-list-mode'         base mode of the PR/issue/workflow
 ;;                                   list pages
 ;;   `octocat-vui-repo-tabs'         Code / Issues / Pull requests / Actions
@@ -125,6 +127,70 @@ button starts on a fresh line and carries the same indent, INDENT columns
                :disabled loading
                :help-echo (if loading nil help-echo)
                :on-click on-click)))
+
+(defconst octocat-vui-unfold-growth 0.5
+  "How much faster each frame of an unfolding animation is than the last.
+Every frame reveals this fraction of what is already unfolded (at least
+two things more), so the unfolding starts slowly and then speeds up.")
+
+(defconst octocat-vui-unfold-interval 0.025
+  "Seconds between the frames of an unfolding animation.")
+
+(vui-defcomponent octocat-vui-reveal (items render)
+  "Call RENDER with ITEMS, revealing items added later one frame at a time.
+RENDER is a function of the list of items to show, returning a vnode.
+The first render shows every item at once.  When ITEMS then grows (a
+\"Load more\" page arrived), the new items unfold at a growing pace like
+the rest of a long comment (see `octocat-timeline-fold'), instead of
+all appearing in one jump.  A list that shrinks just shows what is left.
+The timer exists only while items are being revealed."
+  :state ((tick 0))
+  :render
+  (let* ((cell  (vui-use-ref nil))
+         (total (length items)))
+    ;; The reveal state, [VISIBLE TOTAL BASE], lives in the ref so the
+    ;; timer and the render read the same numbers: BASE is where the
+    ;; current unfolding started, TOTAL what it unfolds towards.
+    (cond
+     ((null (car cell))
+      (setcar cell (vector total total total)))
+     ((/= total (aref (car cell) 1))
+      (let ((v (car cell)))
+        (cond ((<= total (aref v 0))
+               (aset v 0 total)
+               (aset v 2 total))
+              ((>= (aref v 0) (aref v 1)) ; idle: this growth starts a new unfolding
+               (aset v 2 (aref v 0))))
+        (aset v 1 total))))
+    (let* ((v          (car cell))
+           (visible    (aref v 0))
+           (unfolding  (< visible total)))
+      (vui-use-effect (unfolding)
+        (when unfolding
+          (let ((timer nil))
+            (setq timer
+                  (run-with-timer
+                   octocat-vui-unfold-interval octocat-vui-unfold-interval
+                   (vui-with-async-context
+                     (let* ((now  (aref v 0))
+                            (all  (aref v 1))
+                            (step (max 2 (ceiling (* octocat-vui-unfold-growth
+                                                     (- now (aref v 2)))))))
+                       (aset v 0 (min all (+ now step)))
+                       (when (>= (aref v 0) all)
+                         (cancel-timer timer))
+                       (vui-set-state :tick (lambda (n) (1+ n)))))))
+            (lambda () (cancel-timer timer)))))
+      (funcall render (seq-take items visible)))))
+
+(defun octocat-vui-reveal-list (items row-fn key-fn)
+  "Return a `vui-list' of ITEMS drawn by ROW-FN and keyed by KEY-FN.
+Items that arrive after the first render unfold progressively, see
+`octocat-vui-reveal'.  Lay columns out from all of ITEMS before calling
+this, so they do not shift as the new rows appear."
+  (vui-component 'octocat-vui-reveal
+                 :items items
+                 :render (lambda (shown) (vui-list shown row-fn key-fn))))
 
 (defconst octocat-vui-spinner-frames
   ["⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏"]

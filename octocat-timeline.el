@@ -391,12 +391,11 @@ See `octocat-timeline-body-lines'."
   :type '(choice (const :tag "Never fold" nil) integer)
   :group 'octocat)
 
-(defconst octocat-timeline--expand-growth 0.5
+(defconst octocat-timeline--expand-growth octocat-vui-unfold-growth
   "How much faster each frame of the unfolding animation is than the last.
-Every frame reveals this fraction of what is already unfolded (at least
-two things more), so the unfolding starts slowly and then speeds up.")
+Shared with the \"Load more\" lists, see `octocat-vui-reveal'.")
 
-(defconst octocat-timeline--expand-interval 0.025
+(defconst octocat-timeline--expand-interval octocat-vui-unfold-interval
   "Seconds between the frames of the unfolding animation.")
 
 (defun octocat-timeline--line-limit (item)
@@ -516,11 +515,25 @@ RAW is as for `octocat-timeline--entry-string'.  An item with an
 folded (see `octocat-timeline-body-lines'), except in the last item."
   (let ((width (octocat-vui-window-width))
         (index 0)
+        (seen (make-hash-table :test #'equal))
         nodes)
     (while items
-      (let ((item (pop items)))
-        (when nodes (push (vui-text octocat-timeline--rail) nodes))
+      (let* ((item (pop items))
+             ;; Keyed by what the item is, not where it stands: events and
+             ;; the cached timeline arrive later and slot in between
+             ;; existing entries, and positional matching would hand an
+             ;; entry the fold state and buffer region of its neighbour.
+             (base (format "%s|%s|%s|%s" (plist-get item :kind)
+                           (plist-get item :time) (plist-get item :actor)
+                           (or (plist-get item :verb) (plist-get item :text)
+                               (plist-get item :state) "")))
+             (key  (intern (format "%s#%d" base
+                                   (puthash base (1+ (gethash base seen 0)) seen)))))
+        (when nodes
+          (push (vui-text octocat-timeline--rail :key (intern (format "rail-%s" key)))
+                nodes))
         (push (vui-component 'octocat-timeline--entry
+                             :key key
                              :item item :raw raw :width width :index (cl-incf index)
                              :limit (and items (octocat-timeline--line-limit item)))
               nodes)))

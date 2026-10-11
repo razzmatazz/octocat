@@ -433,10 +433,11 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
                                       (octocat-repo-vui--cells issue nil repo))
                                     issues)
                             width)))
-               (vui-list issues
-                         (lambda (issue)
-                           (octocat-repo-vui--issue-row repo issue layout))
-                         (lambda (issue) (gethash "number" issue)))))
+               (octocat-vui-reveal-list
+                issues
+                (lambda (issue)
+                  (octocat-repo-vui--issue-row repo issue layout))
+                (lambda (issue) (gethash "number" issue)))))
            (when (and issues
                       (or (>= (length issues) limit)
                           ;; Keep the button in place while a further page

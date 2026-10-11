@@ -421,9 +421,10 @@ loading indicator."
           (vui-fragment
            (if (null runs)
                (vui-text "(no workflow runs)\n" :face 'octocat-dimmed)
-             (vui-list runs
-                       (lambda (r) (octocat-repo-vui--workflow-run-row repo r current-branch wf-w))
-                       (lambda (r) (gethash "databaseId" r))))
+             (octocat-vui-reveal-list
+              runs
+              (lambda (r) (octocat-repo-vui--workflow-run-row repo r current-branch wf-w))
+              (lambda (r) (gethash "databaseId" r))))
            (when (and runs (or (plist-get result :refreshing)
                                (>= (length runs) limit)))
              (octocat-vui-load-more-button

@@ -244,8 +244,8 @@ ON-LOADING is called with whether the list is being fetched."
           (vui-fragment
            (if (null repos)
                (vui-text "(no public repositories)" :face 'octocat-dimmed)
-             (vui-list repos #'octocat-user--repo-row
-                       (lambda (r) (gethash "full_name" r))))
+             (octocat-vui-reveal-list repos #'octocat-user--repo-row
+                                      (lambda (r) (gethash "full_name" r))))
            (when (and repos
                       (or (>= (length repos) limit)
                           ;; Keep the button in place while a further page

@@ -778,8 +778,8 @@ the fresh data arrives (stale-while-revalidate)."
       "Feed" feed spin "(no recent activity)"
       (lambda (data)
         (vui-fragment
-         (vui-list data #'octocat--dashboard-feed-row
-                   (lambda (ev) (gethash "id" ev)))
+         (octocat-vui-reveal-list data #'octocat--dashboard-feed-row
+                                  (lambda (ev) (gethash "id" ev)))
          (when (or (>= (length data) feed-limit)
                    ;; Keep the button in place while a further page
                    ;; loads (the limit has already grown), but not for

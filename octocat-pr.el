@@ -673,10 +673,11 @@ background."
                                       (octocat-repo-vui--cells pr current-branch repo))
                                     prs)
                             width)))
-               (vui-list prs
-                         (lambda (pr)
-                           (octocat-repo-vui--pr-row repo pr current-branch layout))
-                         (lambda (pr) (gethash "number" pr)))))
+               (octocat-vui-reveal-list
+                prs
+                (lambda (pr)
+                  (octocat-repo-vui--pr-row repo pr current-branch layout))
+                (lambda (pr) (gethash "number" pr)))))
            (when (and prs
                       (or (>= (length prs) limit)
                           ;; Keep the button in place while a further page
