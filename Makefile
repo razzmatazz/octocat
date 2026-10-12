@@ -18,8 +18,7 @@ image:
 
 # Installing dependencies is slow, so only do it when Eask changes.
 .eask/deps: Eask | image
-	$(DOCKER_RUN) sh -c "eask install-deps --dev"
-	touch .eask/deps
+	$(DOCKER_RUN) sh -c "eask install-deps --dev && touch .eask/deps"
 
 deps: .eask/deps
 
