@@ -31,7 +31,7 @@
 ;; Entry points:
 ;;   M-x octocat      — GitHub account dashboard (recent repos, activity feed)
 ;;   M-x octocat-repo — Per-repository view (summary, Commits)
-;;   M-x octocat-prs / octocat-issues / octocat-workflows — list pages
+;;   M-x octocat-prs / octocat-issues / octocat-actions — list pages
 
 ;;; Code:
 
@@ -42,6 +42,7 @@
 (require 'octocat-issue)
 (require 'octocat-timeline)
 (require 'octocat-workflow)
+(require 'octocat-actions)
 (require 'octocat-run)
 (require 'octocat-job)
 (require 'octocat-checks)
@@ -56,9 +57,6 @@
 (defvar octocat--pr-repo)        ; defined as buffer-local in octocat-pr.el
 (defvar octocat--issue-repo)     ; defined as buffer-local in octocat-issue.el
 (defvar octocat--issue-number)   ; defined as buffer-local in octocat-issue.el
-(defvar octocat--workflow-repo)  ; defined as buffer-local in octocat-workflow.el
-(defvar octocat--workflow-id)    ; defined as buffer-local in octocat-workflow.el
-(defvar octocat--workflow-name)  ; defined as buffer-local in octocat-workflow.el
 (defvar octocat--run-repo)       ; defined as buffer-local in octocat-run.el
 (defvar octocat--run-id)         ; defined as buffer-local in octocat-run.el
 (defvar octocat--job-repo)       ; defined as buffer-local in octocat-job.el
@@ -121,21 +119,6 @@
       ('issue
        (octocat-issue-open (or octocat-repo--repo octocat--issue-repo)
                            (gethash "number" (oref section value))))
-      ('workflow
-       (let* ((wf   (oref section value))
-              (id   (gethash "id"   wf))
-              (name (or (gethash "name" wf) ""))
-              (repo (or octocat-repo--repo octocat--workflow-repo))
-              (buf-name (format "*octocat-workflow: %s/%s*" repo name))
-              (buf (get-buffer-create buf-name)))
-         (pop-to-buffer buf)
-         (unless (derived-mode-p 'octocat-workflow-mode)
-           (octocat-workflow-mode))
-         (setq octocat--workflow-repo repo
-               octocat--workflow-id   id
-               octocat--workflow-name name)
-         (octocat--render-workflow-loading name)
-         (octocat-workflow-refresh)))
       ('workflow-run
        (let* ((run    (oref section value))
               (run-id (gethash "databaseId" run))
@@ -191,14 +174,12 @@ Section types handled:
   `pr'            → gh pr view --web (respects gh's host config)
   `issue'         → gh issue view --web
   `octocat-commit'→ https://github.com/REPO/commit/SHA
-  `workflow'      → https://github.com/REPO/actions/workflows/FILE
   `workflow-run'  → https://github.com/REPO/actions/runs/ID
   `comment'       → url field from the GitHub comment object
   `octocat-root'  → https://github.com/REPO
 
 Major-mode fallback (used when the section type does not have its own
 handler, e.g. point is on a title/header line):
-  `octocat-workflow-mode' → https://github.com/REPO/actions/workflows/ID
   `octocat-run-mode'      → https://github.com/REPO/actions/runs/ID
   `octocat-job-mode'      → https://github.com/REPO/actions/runs/RUN/job/JOB"
   (interactive)
@@ -231,13 +212,6 @@ handler, e.g. point is on a title/header line):
                          "issue" "view" "--web"
                          (number-to-string number)
                          "--repo" repo)))
-       ('workflow
-        (let* ((path     (or (gethash "path" value) ""))
-               (filename (file-name-nondirectory path))
-               (url      (format "https://github.com/%s/actions/workflows/%s"
-                                 repo filename)))
-          (message "Octocat: Opening workflow in browser…")
-          (browse-url url)))
        ('workflow-run
         (let* ((run-id (or (gethash "databaseId" value) octocat--run-id))
                (url    (format "https://github.com/%s/actions/runs/%s"
@@ -276,12 +250,6 @@ handler, e.g. point is on a title/header line):
      ;; active at all.  Each branch uses the buffer-local vars set when the
      ;; detail buffer was opened.
      (cond
-      ((derived-mode-p 'octocat-workflow-mode)
-       (when (and octocat--workflow-repo octocat--workflow-id)
-         (let ((url (format "https://github.com/%s/actions/workflows/%s"
-                            octocat--workflow-repo octocat--workflow-id)))
-           (message "Octocat: Opening workflow in browser…")
-           (browse-url url))))
       ((derived-mode-p 'octocat-run-mode)
        (when (and octocat--run-repo octocat--run-id)
          (let ((url (format "https://github.com/%s/actions/runs/%s"
@@ -852,11 +820,11 @@ With REPO, an \"owner/name\" string, open it for that repository."
   (octocat--open-list #'octocat-issue-list-mode "issue-list" "issues" repo))
 
 ;;;###autoload
-(defun octocat-workflows (&optional repo)
-  "Open the workflow list for the current GitHub repository.
+(defun octocat-actions (&optional repo)
+  "Open the Actions page for the current GitHub repository.
 With REPO, an \"owner/name\" string, open it for that repository."
   (interactive)
-  (octocat--open-list #'octocat-workflow-list-mode "workflow-list" "actions" repo))
+  (octocat--open-list #'octocat-actions-mode "actions" "actions" repo))
 
 
 ;;;; Evil integration

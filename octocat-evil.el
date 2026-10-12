@@ -40,7 +40,7 @@
 (declare-function octocat-user-browse "octocat-user" ())
 (defvar octocat-pr-list-mode-map)
 (defvar octocat-issue-list-mode-map)
-(defvar octocat-workflow-list-mode-map)
+(defvar octocat-actions-mode-map)
 (defvar octocat-pr-mode-map)
 (defvar octocat-commit-mode-map)
 (defvar octocat-checks-mode-map)
@@ -90,9 +90,8 @@
 (declare-function octocat-vui-list-browse    "octocat-vui"       ())
 (declare-function octocat-vui-list-filter    "octocat-vui"       ())
 (declare-function octocat-vui-list-edit-query "octocat-vui"      ())
-(declare-function octocat-workflow-load-more "octocat-workflow"  ())
+(declare-function octocat-workflow-browse    "octocat-workflow"  ())
 (declare-function octocat-workflow-refresh   "octocat-workflow"  (&optional _ignore-auto _noconfirm))
-(declare-function octocat-workflow-visit     "octocat-workflow"  ())
 (declare-function octocat-run-refresh             "octocat-run" (&optional _ignore-auto _noconfirm))
 (declare-function octocat-run-visit               "octocat-run" ())
 (declare-function octocat-run-visit-or-download   "octocat-run" ())
@@ -140,13 +139,13 @@
     (kbd "gr")      #'revert-buffer
     (kbd "q")       #'quit-window)
 
-  ;; ── PR / issue / workflow list pages ──────────────────────────────────
+  ;; ── PR / issue list pages and the Actions page ──────────────────────────────────
   ;; vui.el-rendered like octocat-repo-mode, so the same rules apply.
   ;; Bound on each derived mode's own map: Evil's auxiliary keymaps are
   ;; not reliably found through the parent `octocat-vui-list-mode-map'.
   (dolist (map (list octocat-pr-list-mode-map
                      octocat-issue-list-mode-map
-                     octocat-workflow-list-mode-map))
+                     octocat-actions-mode-map))
     (evil-define-key* 'normal map
       (kbd "C-c C-o") #'octocat-vui-list-browse
       (kbd "C-c C-r") #'octocat-switch-repo
@@ -221,18 +220,13 @@
     (kbd "q")       #'quit-window)
 
   ;; ── octocat-workflow-mode ─────────────────────────────────────────────
-  (let ((aux   (evil-get-auxiliary-keymap octocat-workflow-mode-map 'normal t t))
-        (aux-m (evil-get-auxiliary-keymap octocat-workflow-mode-map 'motion t t)))
-    (define-key aux   (kbd "g")     nil)
-    (define-key aux   (kbd "RET")   #'octocat-workflow-visit)
-    (define-key aux   (kbd "+")     #'octocat-workflow-load-more)
-    (define-key aux   (kbd "C-c C-o") #'octocat-browse)
-    (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
-    (define-key aux   (kbd "C-c C-s") #'octocat-search-repo)
-    (define-key aux   (kbd "gs")    #'octocat-search-repo)
-    (define-key aux   (kbd "q")     #'quit-window)
-    (define-key aux   (kbd "gr")    #'octocat-workflow-refresh)
-    (define-key aux-m (kbd "RET")   #'octocat-workflow-visit))
+  (evil-define-key* 'normal octocat-workflow-mode-map
+    (kbd "C-c C-o") #'octocat-workflow-browse
+    (kbd "C-c C-r") #'octocat-switch-repo
+    (kbd "C-c C-s") #'octocat-search-repo
+    (kbd "gs")      #'octocat-search-repo
+    (kbd "gr")      #'octocat-workflow-refresh
+    (kbd "q")       #'quit-window)
 
   ;; ── octocat-run-mode ──────────────────────────────────────────────────
   (let ((aux   (evil-get-auxiliary-keymap octocat-run-mode-map 'normal t t))

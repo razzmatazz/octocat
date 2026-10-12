@@ -330,7 +330,7 @@ spinner frame appended to the marker."
 (declare-function octocat-visit-repo "octocat-core" (repo))
 (declare-function octocat-issues "octocat" ())
 (declare-function octocat-prs "octocat" ())
-(declare-function octocat-workflows "octocat" ())
+(declare-function octocat-actions "octocat" ())
 (declare-function octocat-tree-open "octocat-tree" (&optional repo))
 (declare-function octocat-search-repo "octocat-search" ())
 

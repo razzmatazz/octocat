@@ -80,23 +80,23 @@ octocat uses two UI frameworks, split by buffer type:
 
 - **vui.el** — the dashboard (`octocat-mode`), the repo overview
   (`octocat-repo.el`, `octocat-repo-mode`), the user page
-  (`octocat-user-mode`), the PR, issue, PR diff, commit and checks detail
-  views (`octocat-pr-mode`, `octocat-issue-mode`, `octocat-pr-diff-mode`,
-  `octocat-commit-mode`, `octocat-checks-mode`; PR diff and commit share
-  `octocat-diff.el`), the
+  (`octocat-user-mode`), the PR, issue, PR diff, commit, checks and
+  workflow detail views (`octocat-pr-mode`, `octocat-issue-mode`,
+  `octocat-pr-diff-mode`, `octocat-commit-mode`, `octocat-checks-mode`,
+  `octocat-workflow-mode`; PR diff and commit share `octocat-diff.el`), the
   file tree and file log (`octocat-tree-mode`, `octocat-file-log-mode`)
-  and the PR, issue and workflow list pages
-  (`octocat-pr-list-mode`, `octocat-issue-list-mode`,
-  `octocat-workflow-list-mode`, defined next to the matching detail views and
-  deriving from `octocat-vui-list-mode`).  The issue and PR views are
+  and the PR and issue list pages and the Actions page
+  (`octocat-pr-list-mode`, `octocat-issue-list-mode`, defined next to the
+  matching detail views, and `octocat-actions-mode` in `octocat-actions.el`;
+  all derive from `octocat-vui-list-mode`).  The issue and PR views are
   GitHub-style timelines of the opening post, comments and events; what
   point is on is carried by a text property (e.g. `octocat-issue-target`),
   not a section.  The repo overview is a dashboard of independent async
   sections, each with its own fetch (`vui-use-async`), pagination counter
   (`:state`) and collapse state (`vui-collapsible`).  None of these modes
   derive from `magit-section-mode`.
-- **magit-section** — the remaining views: workflow, run and job detail
-  (`octocat-workflow-mode`, `octocat-run-mode`, `octocat-job-mode`).  See
+- **magit-section** — the remaining views: run and job detail
+  (`octocat-run-mode`, `octocat-job-mode`).  See
   [docs/magit-section.md](docs/magit-section.md) for the section tree
   structure, hiding/collapsing gotchas, and the correct patterns for
   preserving collapse state across refreshes.
@@ -181,8 +181,8 @@ for modes that derive from `magit-section-mode`**, then call `define-key` on
 the returned keymap for every binding:
 
 ```elisp
-(let ((aux   (evil-get-auxiliary-keymap octocat-workflow-mode-map 'normal t t))
-      (aux-m (evil-get-auxiliary-keymap octocat-workflow-mode-map 'motion t t)))
+(let ((aux   (evil-get-auxiliary-keymap octocat-run-mode-map 'normal t t))
+      (aux-m (evil-get-auxiliary-keymap octocat-run-mode-map 'motion t t)))
   (define-key aux (kbd "RET") #'octocat-visit)
   ...)
 ```

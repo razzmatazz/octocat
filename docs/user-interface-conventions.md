@@ -404,7 +404,6 @@ within a detail view.
 | `pr` | `gh pr view --web NUMBER --repo REPO` |
 | `issue` | `gh issue view --web NUMBER --repo REPO` |
 | `octocat-commit` | `https://github.com/REPO/commit/SHA` (uses `"oid"` key, falls back to `"sha"` for REST-API commits) |
-| `workflow` | `https://github.com/REPO/actions/workflows/FILENAME` (derived from `"path"`) |
 | `workflow-run` | `https://github.com/REPO/actions/runs/ID` |
 | `comment` | `url` from the GitHub comment object |
 | `octocat-root` | `https://github.com/REPO` |
@@ -415,7 +414,6 @@ within a detail view.
 |---|---|
 | `octocat-pr-mode` | `gh pr view --web NUMBER --repo REPO` |
 | `octocat-issue-mode` | `gh issue view --web NUMBER --repo REPO` |
-| `octocat-workflow-mode` | `https://github.com/REPO/actions/workflows/ID` |
 | `octocat-run-mode` | `https://github.com/REPO/actions/runs/ID` |
 | `octocat-job-mode` | `https://github.com/REPO/actions/runs/RUN_ID/job/JOB_ID` |
 
@@ -463,7 +461,7 @@ so it reads as a breadcrumb rather than a metadata field.
 | PR | First in `pr-meta` section (before Title) |
 | Issue | First in `issue-meta` section (before Title) |
 | Commit | The top line, `owner/repo@sha` |
-| Workflow | First in `workflow-info` section (before State) |
+| Workflow | The top line, `owner/repo` |
 | Run | First in `run-info` section (before Workflow) |
 | Job | First in `job-info` section (before Status) |
 | PR diff | First line of root section body (before Files) |
@@ -581,5 +579,5 @@ short SHA in `octocat-commit-sha`, as an issue or PR is by `owner/repo#N`.
   place.
 - Counts are shown only where they are known (the repo page).
 - The commands behind the tabs, `octocat-issues`, `octocat-prs` and
-  `octocat-workflows`, take the repo as an optional argument: a detail
+  `octocat-actions`, take the repo as an optional argument: a detail
   buffer's repo is not derivable from its mode or `default-directory`.

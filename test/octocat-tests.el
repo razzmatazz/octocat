@@ -380,6 +380,13 @@ no gh call is made."
   (should-not (octocat--check-run-id
                (json-parse-string "{\"details_url\":\"https://ci.example.com/build/7\"}"))))
 
+(ert-deftest octocat-test-workflow-url ()
+  "A workflow's page is named by its file, as on GitHub; by ID when unknown."
+  (should (equal (octocat-workflow--url "o/r" 7 ".github/workflows/ci.yml")
+                 "https://github.com/o/r/actions/workflows/ci.yml"))
+  (should (equal (octocat-workflow--url "o/r" 7 nil)
+                 "https://github.com/o/r/actions/workflows/7")))
+
 (ert-deftest octocat-test-counts-query-and-parse ()
   "Pull requests also count merged; the response parses to a plist."
   (should (string-match-p "merged:pullRequests(states:MERGED)"

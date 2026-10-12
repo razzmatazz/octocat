@@ -97,9 +97,6 @@
 ;; functions not known to be defined" -- `make ci' compiles all files in
 ;; parallel, so a plain `require' does not guarantee the callee is already
 ;; compiled when this file is.
-(declare-function octocat-workflow-mode            "octocat-workflow" ())
-(declare-function octocat--render-workflow-loading "octocat-workflow" (name))
-(declare-function octocat-workflow-refresh         "octocat-workflow" (&optional _ignore-auto _noconfirm))
 (declare-function octocat-run-mode                 "octocat-run"      ())
 (declare-function octocat--render-run-loading      "octocat-run"      (run-id))
 (declare-function octocat-run-refresh              "octocat-run"      (&optional _ignore-auto _noconfirm))
@@ -107,13 +104,10 @@
 (declare-function octocat-tree-find-file           "octocat-tree"     ())
 (declare-function octocat-issues                   "octocat"          ())
 (declare-function octocat-prs                      "octocat"          ())
-(declare-function octocat-workflows                "octocat"          ())
+(declare-function octocat-actions                  "octocat"          ())
 
 ;; Buffer-locals this file `setq's in a *different* buffer (the target
 ;; detail buffer, after `pop-to-buffer') than the one that defines them.
-(defvar octocat--workflow-repo)  ; defined as buffer-local in octocat-workflow.el
-(defvar octocat--workflow-id)    ; defined as buffer-local in octocat-workflow.el
-(defvar octocat--workflow-name)  ; defined as buffer-local in octocat-workflow.el
 (defvar octocat--run-repo)       ; defined as buffer-local in octocat-run.el
 (defvar octocat--run-id)         ; defined as buffer-local in octocat-run.el
 
@@ -375,18 +369,9 @@ issue/PR-count lookups."
 
 (defun octocat-repo-vui--open-workflow (repo workflow)
   "Open the workflow detail buffer for WORKFLOW (a hash-table) in REPO."
-  (let* ((id       (gethash "id" workflow))
-         (name     (or (gethash "name" workflow) ""))
-         (buf-name (format "*octocat-workflow: %s/%s*" repo name))
-         (buf      (get-buffer-create buf-name)))
-    (pop-to-buffer buf)
-    (unless (derived-mode-p 'octocat-workflow-mode)
-      (octocat-workflow-mode))
-    (setq octocat--workflow-repo repo
-          octocat--workflow-id   id
-          octocat--workflow-name name)
-    (octocat--render-workflow-loading name)
-    (octocat-workflow-refresh)))
+  (octocat-workflow-open repo (gethash "id" workflow)
+                         (or (gethash "name" workflow) "")
+                         (gethash "path" workflow)))
 
 (defun octocat-repo-vui--open-workflow-run (repo run)
   "Open the workflow-run detail buffer for RUN (a hash-table) in REPO."

@@ -1082,13 +1082,13 @@ The selected repository is opened via `octocat-visit-repo', a selected
 (declare-function octocat-tree-open  "octocat-tree" (&optional repo))
 (declare-function octocat-issues     "octocat"      (&optional repo))
 (declare-function octocat-prs        "octocat"      (&optional repo))
-(declare-function octocat-workflows  "octocat"      (&optional repo))
+(declare-function octocat-actions    "octocat"      (&optional repo))
 
 (defconst octocat--repo-tabs
   '((code    "Code"          "RET: browse file tree"         octocat-tree-open)
     (issues  "Issues"        "RET: list issues"              octocat-issues)
     (pulls   "Pull requests" "RET: list pull requests"       octocat-prs)
-    (actions "Actions"       "RET: list workflows and runs"  octocat-workflows))
+    (actions "Actions"       "RET: list workflows and runs"  octocat-actions))
   "The repo tabs: (SYMBOL LABEL HELP-ECHO COMMAND).
 COMMAND takes the \"owner/name\" repo to open the tab's page for.")
 

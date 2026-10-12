@@ -20,9 +20,12 @@
 
 ;;; Commentary:
 
-;; Workflow data fetching, detail rendering, and the octocat-workflow-mode
-;; major mode.  Depends on octocat-core.el for shared infrastructure; must
-;; not depend on octocat.el to avoid a circular require.
+;; A workflow and its runs: `octocat-workflow-mode', a vui.el page
+;; opened from the Actions page (octocat-actions.el).  RET on a run opens
+;; it (octocat-run.el).
+;;
+;; Depends on octocat-core.el.  Must not depend on octocat.el to avoid a
+;; circular require.
 
 ;;; Code:
 
@@ -30,20 +33,9 @@
 (require 'octocat-run)
 (require 'octocat-vui)
 (require 'vui)
-(require 'vui-components) ; vui-collapsible, vui-list, etc.
 
-;; The workflows page below reuses row builders and fetchers from
-;; octocat-repo.el, which requires this file (so cannot be required here).
-(defvar octocat-section-limit)
-(declare-function octocat-repo-vui--workflow-row "octocat-repo" (repo workflow))
-(declare-function octocat-repo-vui--workflow-run-row "octocat-repo" (repo run current-branch wf-w))
 (declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
-(declare-function octocat-repo--list-workflows "octocat-repo" (repo callback))
-(declare-function octocat-repo--list-recent-runs "octocat-repo" (repo limit callback))
-
-;; These commands are defined in octocat.el which loads this file, so we
-;; cannot require it here.  Declare them to silence the byte-compiler.
-(declare-function octocat-browse "octocat" ())
+(declare-function octocat-search-repo "octocat-search" ())
 
 
 ;;;; Customisation
@@ -65,9 +57,8 @@
 (defvar-local octocat--workflow-name nil
   "The display name of the workflow this buffer is displaying.")
 
-(defvar-local octocat--workflow-runs-count nil
-  "Current per-session run fetch limit for this workflow detail buffer.
-Nil until first refresh, then initialised from `octocat-workflow-runs-limit'.")
+(defvar-local octocat--workflow-path nil
+  "The workflow file, e.g. \".github/workflows/ci.yml\", or nil.")
 
 
 ;;;; Data fetching
@@ -127,366 +118,203 @@ cons \\=(error . MSG) on failure."
   "Return the face for workflow STATE string."
   (if (equal state "active") 'success 'octocat-dimmed))
 
-
-;;;; Rendering
-
-(defun octocat--render-workflow-loading (name)
-  "Render a loading skeleton for the workflow named NAME."
-  (let ((inhibit-read-only t))
-    (erase-buffer)
-    (magit-insert-section (octocat-workflow-root)
-      (magit-insert-heading
-        (concat (propertize (or octocat--workflow-repo "") 'face 'octocat-repo)
-                "  "
-                (octocat--repo-tabs-string octocat--workflow-repo 'actions)
-                "  "
-                (propertize "workflow" 'face 'octocat-dimmed)
-                "  "
-                name))
-      (magit-insert-section (workflow-info)
-        (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))
-        (let ((hint (list 'mouse-face 'magit-section-highlight
-                          'help-echo  "RET: open repo view")))
-          (magit-insert-section (repo-nav octocat--workflow-repo)
-            (magit-insert-heading
-              (concat (apply #'propertize "  Repo     " hint)
-                      (apply #'propertize (or octocat--workflow-repo "")
-                             'face 'octocat-repo hint)
-                      (apply #'propertize "\n" hint)))))
-        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
-      (insert "\n")
-      (magit-insert-section (workflow-runs)
-        (magit-insert-heading (propertize "Runs" 'face 'octocat-section-heading))
-        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))))
-
-(defun octocat--render-workflow (workflow runs)
-  "Erase the current buffer and render workflow detail.
-WORKFLOW is a hash-table of workflow metadata; RUNS is a list of run
-hash-tables."
-  (let* ((name    (or (gethash "name"       workflow) ""))
-         (state   (downcase (or (gethash "state"      workflow) "")))
-         (path    (or (gethash "path"       workflow) ""))
-         (created (or (gethash "created_at" workflow) ""))
-         (updated (or (gethash "updated_at" workflow) ""))
-         (inhibit-read-only t))
-    (erase-buffer)
-    (magit-insert-section (octocat-workflow-root)
-      ;; ── Header ──────────────────────────────────────────────────────────
-      (magit-insert-heading
-        (concat (propertize (or octocat--workflow-repo "") 'face 'octocat-repo)
-                "  "
-                (octocat--repo-tabs-string octocat--workflow-repo 'actions)
-                "  "
-                (propertize "workflow" 'face 'octocat-dimmed)
-                "  "
-                name
-                "  "
-                (propertize state 'face (octocat--workflow-state-face state))
-                (when runs
-                  (let* ((latest     (car runs))
-                         (lstatus    (downcase (or (gethash "status"     latest) "")))
-                         (lconc      (let ((c (gethash "conclusion" latest)))
-                                       (and (octocat--nonempty c) (downcase c))))
-                         (icon       (octocat--workflow-run-icon lstatus lconc)))
-                    (concat "  " icon)))))
-      ;; ── Info ────────────────────────────────────────────────────────────
-      (magit-insert-section (workflow-info)
-        (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))
-        (let ((hint (list 'mouse-face 'magit-section-highlight
-                          'help-echo  "RET: open repo view")))
-          (magit-insert-section (repo-nav octocat--workflow-repo)
-            (magit-insert-heading
-              (concat (apply #'propertize "  Repo     " hint)
-                      (apply #'propertize (or octocat--workflow-repo "")
-                             'face 'octocat-repo hint)
-                      (apply #'propertize "\n" hint)))))
-        (insert (format "  State    %s\n"
-                        (propertize state 'face (octocat--workflow-state-face state))))
-        (insert (format "  Path     %s\n"
-                        (propertize path 'face 'octocat-branch)))
-        (unless (string-empty-p created)
-          (insert (format "  Created  %s\n" (octocat--format-ts-relative created))))
-        (unless (string-empty-p updated)
-          (insert (format "  Updated  %s\n" (octocat--format-ts-relative updated)))))
-      ;; ── Runs ────────────────────────────────────────────────────────────
-      (insert "\n")
-      (magit-insert-section (workflow-runs)
-        (magit-insert-heading
-          (propertize (format "Runs (%d)" (length runs))
-                      'face 'octocat-section-heading))
-        (if (null runs)
-            (insert (propertize "  (no runs)\n" 'face 'octocat-dimmed))
-          (let ((branch-w (octocat--branch-column-width runs "headBranch")))
-            (dolist (run runs)
-              (let* ((id         (or (gethash "databaseId"   run) 0))
-                     (title      (or (gethash "displayTitle" run) ""))
-                     (status     (downcase (or (gethash "status" run) "")))
-                     (conclusion (let ((c (gethash "conclusion" run)))
-                                   (and (octocat--nonempty c) (downcase c))))
-                     (branch     (or (gethash "headBranch" run) ""))
-                     (created    (or (gethash "createdAt"  run) ""))
-                     (date       (octocat--format-ts-relative created))
-                     (icon       (octocat--workflow-run-icon status conclusion)))
-                (magit-insert-section (workflow-run run)
-                  (magit-insert-heading
-                    (concat
-                     "  "
-                     (propertize (format "%-11s" (number-to-string id))
-                                 'face 'octocat-pr-number)
-                     "  "
-                     (octocat--format-branch branch branch-w)
-                     "  "
-                     icon
-                     "  "
-                     (octocat--format-title title)
-                     "  "
-                     (propertize date 'face 'octocat-dimmed)
-                     "\n")))))
-            (when (>= (length runs) octocat--workflow-runs-count)
-              (let ((hint '(mouse-face magit-section-highlight
-                            help-echo  "RET / +: load more runs")))
-                (magit-insert-section (load-more 'workflow-runs)
-                  (magit-insert-heading
-                    (concat (apply #'propertize
-                                   (format "  [+] Load %d more…"
-                                           octocat-workflow-runs-limit)
-                                   'face 'octocat-dimmed hint)
-                            "\n")))))))))))
-
-;;;; Visitor
-
-(defun octocat-workflow-visit ()
-  "Open the detail view for the item at point.
-Handles \\='workflow-run\\=' sections (opens the run detail buffer) and
-\\='load-more\\=' sections (fetches the next page of runs)."
-  (interactive)
-  (let ((section (magit-current-section)))
-    (when section
-      (pcase (oref section type)
-        ('workflow-run
-         (let* ((run      (oref section value))
-                (run-id   (gethash "databaseId" run))
-                (title    (or (gethash "displayTitle" run) ""))
-                (repo     octocat--workflow-repo)
-                (buf-name (format "*octocat-run: %s#%d*" repo run-id))
-                (buf      (get-buffer-create buf-name)))
-           (pop-to-buffer buf)
-           (unless (derived-mode-p 'octocat-run-mode)
-             (octocat-run-mode))
-           (setq octocat--run-repo repo
-                 octocat--run-id   run-id)
-           (octocat--render-run-loading run-id)
-           (octocat-run-refresh)
-           (ignore title)))
-        ('load-more
-         (cl-incf octocat--workflow-runs-count octocat-workflow-runs-limit)
-         (octocat-workflow-refresh))))))
+(defun octocat-workflow--url (repo id path)
+  "Return the github.com page of workflow ID of REPO.
+GitHub names it by its file, the last part of PATH, when known."
+  (format "https://github.com/%s/actions/workflows/%s" repo
+          (if (octocat--nonempty path) (file-name-nondirectory path) id)))
 
 
-;;;; Load-more command
+;;;; Page
 
-(defun octocat-workflow-load-more ()
-  "Fetch additional workflow entries in the workflow detail buffer.
-Increment the per-session fetch limit and re-run
-`octocat-workflow-refresh'."
-  (interactive)
-  (unless octocat--workflow-runs-count
-    (setq octocat--workflow-runs-count octocat-workflow-runs-limit))
-  (cl-incf octocat--workflow-runs-count octocat-workflow-runs-limit)
-  (octocat-workflow-refresh))
+(defun octocat-workflow--run-row (repo run branch-w)
+  "Return a RET-able row for RUN of REPO; BRANCH-W is the branch column width."
+  (let ((status     (downcase (or (gethash "status" run) "")))
+        (conclusion (let ((c (gethash "conclusion" run)))
+                      (and (octocat--nonempty c) (downcase c)))))
+    (octocat-vui-row
+     (concat "  "
+             (propertize (format "%-11s" (or (gethash "databaseId" run) 0))
+                         'face 'octocat-pr-number)
+             "  "
+             (octocat--format-branch (or (gethash "headBranch" run) "") branch-w)
+             "  "
+             (octocat--workflow-run-icon status conclusion)
+             "  "
+             (octocat--format-title (or (gethash "displayTitle" run) ""))
+             "  "
+             (propertize (octocat--format-ts-relative (or (gethash "createdAt" run) ""))
+                         'face 'octocat-dimmed))
+     (lambda () (octocat-run-open repo (gethash "databaseId" run)))
+     "RET: open workflow run")))
+
+(defun octocat-workflow--header (workflow runs)
+  "Return the vnodes under the top row: name, state and file of WORKFLOW.
+The latest of RUNS gives the status icon after the state."
+  (let ((state   (downcase (or (gethash "state" workflow) "")))
+        (created (octocat--nonempty (gethash "created_at" workflow)))
+        (updated (octocat--nonempty (gethash "updated_at" workflow)))
+        (latest  (car runs)))
+    (list
+     (vui-text (concat (or (gethash "name" workflow) "")
+                       "  " (propertize state 'face (octocat--workflow-state-face state))
+                       (when latest
+                         (concat "  " (octocat--workflow-run-icon
+                                       (downcase (or (gethash "status" latest) ""))
+                                       (downcase (or (gethash "conclusion" latest) "")))))))
+     (vui-text (mapconcat
+                #'identity
+                (delq nil
+                      (list (propertize (or (gethash "path" workflow) "") 'face 'octocat-branch)
+                            (and created (concat (propertize "Created " 'face 'octocat-dimmed)
+                                                 (octocat--format-ts-relative created)))
+                            (and updated (concat (propertize "Updated " 'face 'octocat-dimmed)
+                                                 (octocat--format-ts-relative updated)))))
+                (propertize " · " 'face 'octocat-dimmed))))))
+
+(defun octocat-workflow--runs (repo runs more on-more loading)
+  "Return the vnodes of the Workflow runs section: RUNS of REPO.
+MORE says a further page may exist, loaded by ON-MORE; LOADING disables
+its button while a page is fetched."
+  (cons
+   (vui-text (propertize (format "%d workflow runs" (length runs))
+                         'face 'octocat-section-heading))
+   (if (null runs)
+       (list (vui-text "  (no runs)" :face 'octocat-dimmed))
+     (let ((branch-w (octocat--branch-column-width runs "headBranch")))
+       (list (vui-fragment
+              (octocat-vui-reveal-list
+               runs
+               (lambda (run) (octocat-workflow--run-row repo run branch-w))
+               (lambda (run) (gethash "databaseId" run)))
+              (when more
+                (octocat-vui-load-more-button
+                 'load-more-runs octocat-workflow-runs-limit
+                 "RET: load more runs" on-more loading))))))))
+
+(defun octocat-workflow--cache-pair (cached)
+  "Return the disk-cache hash-table CACHED as (WORKFLOW . RUNS), or nil."
+  (and cached
+       (cons (gethash "workflow" cached)
+             (cl-coerce (gethash "runs" cached) 'list))))
+
+(vui-defcomponent octocat-workflow--page (repo id name)
+  "Workflow ID of REPO and its runs; NAME shows while it loads."
+  :state ((spin 0) (limit octocat-workflow-runs-limit))
+  :render
+  (let* ((default (= limit octocat-workflow-runs-limit))
+         (cached  (vui-use-memo (repo id)
+                    (octocat-workflow--cache-pair
+                     (octocat--detail-cache-load repo "workflow" id))))
+         (sticky  (octocat-vui-use-async-sticky (list 'workflow repo id limit)
+                    (lambda (resolve reject)
+                      (octocat--fetch-workflow
+                       repo id limit
+                       (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
+         (fresh   (and (eq (plist-get sticky :status) 'ready)
+                       (not (plist-get sticky :refreshing))
+                       (plist-get sticky :data)))
+         ;; Only the first page is cached: a longer list would shrink back.
+         (result  (octocat-vui-with-stale sticky (and default cached)))
+         (loading (and (or (eq (plist-get result :status) 'pending)
+                           (plist-get result :refreshing))
+                       t)))
+    (vui-use-effect (fresh)
+      (when (and fresh default)
+        (let ((h (make-hash-table :test #'equal)))
+          (puthash "workflow" (car fresh) h)
+          (puthash "runs" (vconcat (cdr fresh)) h)
+          (octocat--detail-cache-save repo "workflow" id h)))
+      nil)
+    (octocat-vui-use-spinner loading)
+    (apply #'vui-vstack
+           (apply #'vui-hstack :spacing 2
+                  (octocat-vui-row (propertize repo 'face 'octocat-repo)
+                                   (lambda () (octocat-visit-repo repo))
+                                   "RET: open repo view")
+                  (append (octocat-vui-repo-tabs repo nil nil nil 'actions)
+                          (and loading
+                               (list (vui-text (string-trim-left
+                                                (octocat-vui-loading-suffix
+                                                 '(:refreshing t) spin)))))))
+           (pcase (plist-get result :status)
+             ('pending (list (vui-text name)
+                             (vui-newline)
+                             (vui-text "  (loading…)" :face 'octocat-dimmed)))
+             ('error   (list (vui-text (format "  Error: %s" (plist-get result :error))
+                                       :face 'error)))
+             (_ (let* ((data (plist-get result :data))
+                       (runs (cdr data)))
+                  (append (octocat-workflow--header (car data) runs)
+                          (list (vui-newline))
+                          (octocat-workflow--runs
+                           repo runs
+                           (or (plist-get result :refreshing) (>= (length runs) limit))
+                           (lambda () (vui-set-state :limit (+ limit octocat-workflow-runs-limit)))
+                           (plist-get result :refreshing)))))))))
 
 
 ;;;; Major mode
 
+(defun octocat-workflow-browse ()
+  "Open this workflow in a browser."
+  (interactive)
+  (unless (and octocat--workflow-repo octocat--workflow-id)
+    (user-error "Octocat: Buffer is not associated with a workflow"))
+  (message "Octocat: Opening workflow in browser…")
+  (browse-url (octocat-workflow--url octocat--workflow-repo octocat--workflow-id
+                                     octocat--workflow-path)))
+
 (defvar octocat-workflow-mode-map
-  (let ((map (make-sparse-keymap))
-        (g   (make-sparse-keymap)))   ; "g" prefix — lets evil's "gg" through
-    (set-keymap-parent map magit-section-mode-map)
-    (define-key map (kbd "q")       #'quit-window)
-    (define-key map (kbd "RET")     #'octocat-workflow-visit)
-    (define-key map (kbd "+")       #'octocat-workflow-load-more)
-    (define-key map (kbd "C-c C-o") #'octocat-browse)
-    (define-key map (kbd "C-c C-r") #'octocat-switch-repo)
-    (define-key map (kbd "C-c C-s") #'octocat-search-repo)
-    (define-key map (kbd "g")  g)
-    (define-key map (kbd "gr") #'octocat-workflow-refresh)
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-workflow-mode'.")
+(define-key octocat-workflow-mode-map (kbd "q") #'quit-window)
+(define-key octocat-workflow-mode-map (kbd "g") #'revert-buffer)
+(define-key octocat-workflow-mode-map (kbd "C-c C-o") #'octocat-workflow-browse)
+(define-key octocat-workflow-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-workflow-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 
-(define-derived-mode octocat-workflow-mode magit-section-mode "Octocat-Workflow"
+(define-derived-mode octocat-workflow-mode vui-mode "Octocat-Workflow"
   "Major mode for viewing a GitHub Actions Workflow.
 
 \\{octocat-workflow-mode-map}"
   :group 'octocat
   (setq-local buffer-read-only t)
-  (setq-local truncate-lines nil)
+  (setq-local truncate-lines t)
   (setq-local revert-buffer-function #'octocat-workflow-refresh)
-  (font-lock-mode -1)
   (octocat--ts-eldoc-setup))
 
 
 ;;;; Refresh
 
-(defun octocat--workflow-cache-render (cached)
-  "Render workflow detail from a CACHED hash-table loaded from disk.
-CACHED must contain a \\='workflow\\=' key (hash-table) and a \\='runs\\=' key (vector)."
-  (let ((wf   (gethash "workflow" cached))
-        (runs (cl-coerce (gethash "runs" cached) 'list)))
-    (octocat--render-workflow wf runs)))
-
 (defun octocat-workflow-refresh (&optional _ignore-auto _noconfirm)
-  "Refresh the current workflow detail buffer asynchronously.
-Renders a disk cache immediately (stale-while-revalidate) when available,
-then always fetches fresh data in the background."
+  "Refresh the current workflow buffer.
+Mounts the vui.el page, which paints the disk cache at once and fetches
+the workflow and its runs in the background."
   (interactive)
   (unless (and octocat--workflow-repo octocat--workflow-id)
     (user-error "Octocat: Buffer is not associated with a workflow"))
-  (unless octocat--workflow-runs-count
-    (setq octocat--workflow-runs-count octocat-workflow-runs-limit))
-  (let* ((buf         (current-buffer))
-         (repo        octocat--workflow-repo)
-         (id          octocat--workflow-id)
-         (runs-count  octocat--workflow-runs-count)
-         (saved-point (octocat--save-point)))
-    ;; Only render the cache when the run limit is at its default.  If the
-    ;; user has loaded more runs, the cached list is shorter than what is
-    ;; currently shown; rendering it would cause jitter.
-    (let ((cache (and (= runs-count octocat-workflow-runs-limit)
-                      (octocat--detail-cache-load repo "workflow" id))))
-      (when cache
-        (octocat--workflow-cache-render cache)
-        (octocat--restore-point saved-point)))
-    (setq mode-line-process " [refreshing…]")
-    (octocat--fetch-workflow
-     repo id runs-count
-     (lambda (result)
-       (when (buffer-live-p buf)
-         (with-current-buffer buf
-           (setq mode-line-process nil)
-           (if (eq (car-safe result) 'error)
-               (let ((inhibit-read-only t))
-                 (erase-buffer)
-                 (insert (propertize (format "  Error: %s\n" (cdr result))
-                                     'face 'error)))
-             (let* ((wf   (car result))
-                    (runs (cdr result))
-                    (obj  (let ((h (make-hash-table :test #'equal)))
-                            (puthash "workflow" wf             h)
-                            (puthash "runs"     (vconcat runs) h)
-                            h)))
-               ;; Only cache when the limit is at its default so "load
-               ;; more" results don't corrupt the stale-while-revalidate
-               ;; snapshot.
-               (when (= runs-count octocat-workflow-runs-limit)
-                 (octocat--detail-cache-save repo "workflow" id obj))
-               (octocat--render-workflow wf runs)
-               (octocat--restore-point saved-point)))))))))
-
-
-
-;;;; Workflows page
-;;
-;; Opened by `M-x octocat-workflows' (octocat.el): the repository's
-;; workflows and its recent runs (across all workflows) in one buffer.
-;; vui.el-rendered, unlike the magit-section workflow detail buffer above;
-;; see "UI frameworks" in CONTRIBUTING.md.
-
-(vui-defcomponent octocat-workflow--runs-section (repo current-branch on-loading)
-  "Workflow Runs section for REPO.
-ON-LOADING is called with whether the runs are refreshing, for the page's
-loading indicator."
-  :state ((limit octocat-section-limit))
-  :render
-  (let* ((result  (octocat-vui-use-async-sticky (list 'recent-runs repo limit)
-                    (lambda (resolve reject)
-                      (octocat-repo--list-recent-runs
-                       repo limit
-                       (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
-         (loading (and (plist-get result :refreshing) t)))
-    (vui-use-effect (loading)
-      (funcall on-loading loading)
-      nil)
-    (vui-collapsible
-     :title "Workflow Runs"
-     :key 'workflow-runs :initially-expanded t :indent 0
-     (pcase (plist-get result :status)
-       ('pending (vui-text "(loading…)\n" :face 'octocat-dimmed))
-       ('error   (vui-text (format "%s\n" (plist-get result :error)) :face 'octocat-dimmed))
-       ('ready
-        (let* ((runs (plist-get result :data))
-               (wf-w (if runs
-                         (min 25 (apply #'max 1
-                                        (mapcar (lambda (r) (length (or (gethash "workflowName" r) "")))
-                                                runs)))
-                       1)))
-          (vui-fragment
-           (if (null runs)
-               (vui-text "(no workflow runs)\n" :face 'octocat-dimmed)
-             (octocat-vui-reveal-list
-              runs
-              (lambda (r) (octocat-repo-vui--workflow-run-row repo r current-branch wf-w))
-              (lambda (r) (gethash "databaseId" r))))
-           (when (and runs (or (plist-get result :refreshing)
-                               (>= (length runs) limit)))
-             (octocat-vui-load-more-button
-              'load-more-runs octocat-section-limit
-              "RET: load more runs"
-              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
-              (plist-get result :refreshing) 0)))))))))
-
-(vui-defcomponent octocat-workflow--list-section (repo)
-  "Workflows section for REPO (no pagination: run history lives in
-`octocat-workflow--runs-section' instead)."
-  :render
-  (let ((result (vui-use-async (list 'workflows repo)
-                  (lambda (resolve reject)
-                    (octocat-repo--list-workflows
-                     repo
-                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
-    (vui-collapsible
-     :title "Workflows" :key 'workflows :initially-expanded t :indent 0
-     (pcase (plist-get result :status)
-       ('pending (vui-text "(loading…)\n" :face 'octocat-dimmed))
-       ('error   (vui-text (format "%s\n" (plist-get result :error)) :face 'octocat-dimmed))
-       ('ready
-        (let ((workflows (plist-get result :data)))
-          (if (null workflows)
-              (vui-text "(no workflows)\n" :face 'octocat-dimmed)
-            (vui-list workflows
-                      (lambda (wf) (octocat-repo-vui--workflow-row repo wf))
-                      (lambda (wf) (gethash "id" wf))))))))))
-
-(vui-defcomponent octocat-workflow--list-page (repo current-branch)
-  "Combined workflows + runs page for REPO."
-  :state ((loading nil))
-  :render
-  (vui-vstack
-   (vui-component 'octocat-vui-list-header
-                  :repo repo :tab 'actions :loading loading)
-   (vui-component 'octocat-workflow--list-section :repo repo)
-   (vui-newline)
-   (vui-component 'octocat-workflow--runs-section
-                  :repo repo :current-branch current-branch
-                  :on-loading (vui-async-callback (v)
-                                (vui-set-state :loading v)))))
-
-(defun octocat-workflow-list-refresh (&optional _ignore-auto _noconfirm)
-  "Refresh the current workflows page buffer."
-  (interactive)
-  (unless octocat-vui-list--repo
-    (user-error "Octocat: Buffer is not associated with a repository"))
   (octocat-vui-preserving-view
-    (vui-mount (vui-component 'octocat-workflow--list-page
-                              :repo octocat-vui-list--repo
-                              :current-branch (plist-get (octocat--head-info) :branch))
+    (vui-mount (vui-component 'octocat-workflow--page
+                              :repo octocat--workflow-repo
+                              :id octocat--workflow-id
+                              :name (or octocat--workflow-name ""))
                (buffer-name))))
 
-(define-derived-mode octocat-workflow-list-mode octocat-vui-list-mode "Octocat-Workflows"
-  "Major mode for the workflows and runs page of a repository.
-
-\\{octocat-workflow-list-mode-map}"
-  :group 'octocat
-  (setq-local revert-buffer-function #'octocat-workflow-list-refresh))
+(defun octocat-workflow-open (repo id name path)
+  "Show workflow ID of REPO in its own buffer.
+NAME is its display name and PATH its file, or nil."
+  (let ((buf (get-buffer-create (format "*octocat-workflow: %s/%s*" repo name))))
+    (pop-to-buffer buf)
+    (unless (derived-mode-p 'octocat-workflow-mode)
+      (octocat-workflow-mode))
+    (setq octocat--workflow-repo repo
+          octocat--workflow-id   id
+          octocat--workflow-name name
+          octocat--workflow-path path)
+    (octocat-workflow-refresh)))
 
 (provide 'octocat-workflow)
 ;;; octocat-workflow.el ends here

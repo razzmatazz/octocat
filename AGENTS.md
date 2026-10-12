@@ -153,7 +153,7 @@ string rather than `ok` is an error — fix it before proceeding):
                    "octocat-workflow.el" "octocat-pr-diff.el"
                    "octocat-timeline.el" "octocat-pr.el" "octocat-issue.el"
                    "octocat-checks.el" "octocat-tree.el" "octocat-repo.el"
-                   "octocat-search.el" "octocat-evil.el" "octocat.el"))
+                   "octocat-actions.el" "octocat-search.el" "octocat-evil.el" "octocat.el"))
     (condition-case err
         (with-temp-buffer
           (insert-file-contents (expand-file-name f "/Users/bob/src/octocat"))
@@ -213,20 +213,20 @@ divergence:
 
 ```elisp
 ;; CORRECT — all bindings in the same let block via define-key
-(let ((aux   (evil-get-auxiliary-keymap octocat-workflow-mode-map 'normal t))
-      (aux-m (evil-get-auxiliary-keymap octocat-workflow-mode-map 'motion t)))
+(let ((aux   (evil-get-auxiliary-keymap octocat-run-mode-map 'normal t))
+      (aux-m (evil-get-auxiliary-keymap octocat-run-mode-map 'motion t)))
   (define-key aux   (kbd "g")       nil)           ; clear stale g prefix
   (define-key aux   (kbd "RET")     #'octocat-visit)
   (define-key aux   (kbd "o")       #'octocat-browse)
   (define-key aux   (kbd "C-c C-o") #'octocat-browse)
   (define-key aux   (kbd "q")       #'quit-window)
-  (define-key aux   (kbd "gr")      #'octocat-workflow-refresh)
+  (define-key aux   (kbd "gr")      #'octocat-run-refresh)
   (define-key aux-m (kbd "RET")     #'octocat-visit))
 
 ;; BROKEN — evil-define-key* writes RET into a different slot
-(let ((aux (evil-get-auxiliary-keymap octocat-workflow-mode-map 'normal t)))
+(let ((aux (evil-get-auxiliary-keymap octocat-run-mode-map 'normal t)))
   (define-key aux (kbd "g") nil))
-(evil-define-key* 'normal octocat-workflow-mode-map
+(evil-define-key* 'normal octocat-run-mode-map
   (kbd "RET")  #'octocat-visit   ; ← silently shadowed at runtime
   (kbd "o")    #'octocat-browse)
 ```
@@ -234,12 +234,12 @@ divergence:
 **Modes affected:** any mode that derives from `magit-section-mode` and uses
 `gr` (or another `g`-prefixed two-key binding) — which requires the
 `define-key aux (kbd "g") nil` cleanup.  Currently:
-`octocat-workflow-mode`, `octocat-run-mode`, `octocat-job-mode`.
+`octocat-run-mode`, `octocat-job-mode`.
 
 The vui.el-rendered modes (`octocat-mode`, `octocat-repo-mode`,
 `octocat-user-mode`, `octocat-pr-mode`, `octocat-issue-mode`,
 `octocat-pr-diff-mode`, `octocat-commit-mode`, `octocat-checks-mode`,
-`octocat-tree-mode`,
+`octocat-workflow-mode`, `octocat-tree-mode`,
 `octocat-file-log-mode` and
 the list pages) do **not**
 derive from `magit-section-mode`, so they have no pre-existing
@@ -269,18 +269,18 @@ owned by the child map, bypassing the inherited parent slot:
 
 ```elisp
 ;; CORRECT — IGNORE-PARENT t ensures a child-owned aux keymap
-(let ((aux   (evil-get-auxiliary-keymap octocat-workflow-mode-map 'normal t t))
-      (aux-m (evil-get-auxiliary-keymap octocat-workflow-mode-map 'motion t t)))
+(let ((aux   (evil-get-auxiliary-keymap octocat-run-mode-map 'normal t t))
+      (aux-m (evil-get-auxiliary-keymap octocat-run-mode-map 'motion t t)))
   (define-key aux   (kbd "RET") #'octocat-visit)
   ...)
 
 ;; BROKEN — returns magit-section-mode-map's shared aux keymap
-(let ((aux (evil-get-auxiliary-keymap octocat-workflow-mode-map 'normal t)))
+(let ((aux (evil-get-auxiliary-keymap octocat-run-mode-map 'normal t)))
   (define-key aux (kbd "RET") #'octocat-visit))  ; ← mutates parent!
 ```
 
 This applies to **all** octocat modes that derive from `magit-section-mode`
-(workflow, run, job) for both `'normal` and `'motion`
+(run, job) for both `'normal` and `'motion`
 states.  The vui.el-rendered modes listed above do not derive from
 `magit-section-mode`, so they are unaffected and continue to use
 `evil-define-key*` directly.
