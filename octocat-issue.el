@@ -303,7 +303,7 @@ LOADING is the page's loading marker, shown on the top row."
                           (octocat-timeline-entries
                            (octocat-timeline-items (plist-get result :data)
                                                    "opened this issue" events)
-                           raw)))))
+                           raw (octocat--markdown-width))))))
     (vui-use-effect (fresh)
       (when fresh (octocat--detail-cache-save repo "issue" number fresh))
       nil)

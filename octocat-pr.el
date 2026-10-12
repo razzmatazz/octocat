@@ -536,7 +536,7 @@ Each is \"@login (state)\": the state of their latest review, or
                      (and (eq (plist-get result :status) 'ready)
                           (octocat-timeline-entries
                            (octocat-pr--items repo (plist-get result :data) events)
-                           raw)))))
+                           raw (octocat--markdown-width))))))
     (octocat-vui-use-spinner loading)
     (pcase (plist-get result :status)
       ('pending (vui-text (concat "  " repo " #" (number-to-string number) "  (loading…)")

@@ -26,7 +26,7 @@ WIDTH is passed on to `octocat-markdown-render'."
 
 (ert-deftest octocat-markdown-test-string ()
   "Every line gets the indent and a wrap prefix; raw text is kept verbatim."
-  (let ((out (octocat--markdown-string "a *b*\r\nc" "> " t)))
+  (let ((out (octocat--markdown-string "a *b*\r\nc" "> " t 80)))
     (should (equal (substring-no-properties out) "> a *b*\n> c\n"))
     (should (equal (get-text-property 0 'wrap-prefix out) "> "))))
 
@@ -35,6 +35,23 @@ WIDTH is passed on to `octocat-markdown-render'."
   (with-temp-buffer
     (should (= (octocat--markdown-width)
                (window-max-chars-per-line (selected-window))))))
+
+(ert-deftest octocat-markdown-test-width-keeps-point ()
+  "Reading the width leaves point alone in a buffer in an unselected window.
+`window-max-chars-per-line' selects the window, which would set point to
+the window's point; mid-render that scrambled the page."
+  (let ((buf (generate-new-buffer " *octocat-width-test*")))
+    (save-window-excursion
+      (unwind-protect
+          (let ((other (split-window)))
+            (set-window-buffer other buf)
+            (with-current-buffer buf
+              (insert "0123456789")
+              (set-window-point other 1)
+              (goto-char 5)
+              (octocat--markdown-width)
+              (should (= (point) 5))))
+        (kill-buffer buf)))))
 
 (ert-deftest octocat-markdown-test-insert-allows-folding ()
   "Inserting markdown lets folded <details> bodies be invisible."

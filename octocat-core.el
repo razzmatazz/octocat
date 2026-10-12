@@ -884,26 +884,34 @@ When nil (the default) `octocat--insert-markdown' processes text through
 Each markdown-displaying mode sets this to its own refresh command so the
 toggle can re-render the buffer after flipping `octocat--markdown-raw'.")
 
-(defun octocat--markdown-string (text &optional indent raw)
+(defun octocat--markdown-string (text indent raw width)
   "Return TEXT rendered by `octocat-markdown-render', one line per row.
-Each line is prefixed with INDENT (a string, default \"  \") and ends in a
+Each line is prefixed with INDENT (a string, nil for \"  \") and ends in a
 newline; INDENT is also repeated on the wrapped continuation lines of
 long lines.
 
 When RAW is non-nil the text is returned verbatim, without any
-rendering."
+rendering.
+
+WIDTH is the columns to fit, as for `octocat-markdown-render'; callers
+read it from the window once, with `octocat--markdown-width'."
   (if raw
       (octocat-markdown-render-verbatim text indent)
-    (octocat-markdown-render text indent (octocat--markdown-width))))
+    (octocat-markdown-render text indent width)))
 
 (defun octocat--markdown-width ()
   "Return the columns rendered markdown should fit in the current buffer.
 That is the number of characters that fit a line of the window showing
 the buffer (else of the selected window).  Emacs already leaves out the
 last column where it is taken by the continuation glyph (a terminal, or
-a window without fringes), so a full line does not wrap."
-  (window-max-chars-per-line (or (get-buffer-window (current-buffer) t)
-                                 (selected-window))))
+a window without fringes), so a full line does not wrap.
+
+`window-max-chars-per-line' selects the window, which resets the buffer's
+point to the window's point; mid-render that scrambles the page, so
+point is saved around it."
+  (save-excursion
+    (window-max-chars-per-line (or (get-buffer-window (current-buffer) t)
+                                   (selected-window)))))
 
 (defun octocat--insert-markdown (text &optional indent)
   "Insert TEXT rendered by `octocat--markdown-string' into the current buffer.
@@ -911,7 +919,8 @@ Each line is prefixed with INDENT, as for `octocat--markdown-string'.
 When `octocat--markdown-raw' is non-nil in the current buffer the text is
 inserted verbatim without any font-lock rendering."
   (octocat-markdown--ensure-invisibility)
-  (insert (octocat--markdown-string text indent octocat--markdown-raw)))
+  (insert (octocat--markdown-string text indent octocat--markdown-raw
+                                    (octocat--markdown-width))))
 
 (defun octocat--markdown-open-ref (kind repo id)
   "Open the reference of KIND (`issue' or `commit') ID in REPO.

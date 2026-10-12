@@ -396,7 +396,7 @@ no gh call is made."
          (entry (octocat-timeline--entry-string
                  (list :time "2026-01-04T10:00:00Z" :kind 'comment :actor "@bob"
                        :verb "commented" :body "hi\nthere" :target comment)
-                 t)))
+                 t 80)))
     (should (string-match-p "@bob commented" entry))
     (should (string-match-p "│ hi\n  │ there\\'" (substring-no-properties entry)))
     (should (eq (get-text-property (1- (length entry)) 'octocat-timeline-target entry)

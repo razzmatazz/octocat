@@ -345,10 +345,11 @@ The text lines up with the author's handle in the heading above it.")
     ("merged"                          'octocat-pr-state-merged)
     (_                                 'octocat-dimmed)))
 
-(defun octocat-timeline--entry-string (item raw)
+(defun octocat-timeline--entry-string (item raw width)
   "Return the text of timeline ITEM, without a final newline.
 ITEM is as described in the Commentary.  RAW non-nil shows markdown
-bodies verbatim.  The text carries ITEM's target in the
+bodies verbatim.  WIDTH is the columns markdown bodies fit, as for
+`octocat--markdown-string'.  The text carries ITEM's target in the
 `octocat-timeline-target' property."
   (let* ((line  (memq (plist-get item :kind) '(event commit)))
          (actor (propertize (plist-get item :actor) 'face 'octocat-pr-author))
@@ -370,7 +371,7 @@ bodies verbatim.  The text carries ITEM's target in the
                        ((not (string-empty-p (string-trim body)))
                         (concat "\n" (string-remove-suffix
                                       "\n" (octocat--markdown-string
-                                            body prefix raw))))
+                                            body prefix raw width))))
                        (empty
                         (concat "\n" prefix
                                 (propertize empty 'face 'octocat-dimmed)))))))))
@@ -478,13 +479,12 @@ folds it back."
 
 (vui-defcomponent octocat-timeline--entry (item raw width limit index)
   "One timeline ITEM; fold its body to LIMIT lines (nil: never).
-RAW is as for `octocat-timeline--entry-string'; WIDTH only invalidates the
-rendered text when the window is resized."
+RAW and WIDTH are as for `octocat-timeline--entry-string'."
   :render
   (let* ((cut (vui-use-memo (item raw width)
                 ;; Cut the text by position, not by splitting and joining
                 ;; it, so a folded <details> row keeps its invisible newline.
-                (let ((string (octocat-timeline--entry-string item raw))
+                (let ((string (octocat-timeline--entry-string item raw width))
                       (start 0) ends)
                   (while (string-match "\n" string start)
                     (push (match-beginning 0) ends)
@@ -508,13 +508,14 @@ rendered text when the window is resized."
                      (octocat-vui-row text visit (plist-get item :help))
                    (vui-text text)))))))
 
-(defun octocat-timeline-entries (items raw)
+(defun octocat-timeline-entries (items raw width)
   "Return the vnodes of timeline ITEMS, rail lines included.
-RAW is as for `octocat-timeline--entry-string'.  An item with an
-:on-visit function is a RET-able row.  Long bodies and comments are
-folded (see `octocat-timeline-body-lines'), except in the last item."
-  (let ((width (octocat-vui-window-width))
-        (index 0)
+RAW and WIDTH are as for `octocat-timeline--entry-string'; the page reads
+WIDTH from its window, so building the entries touches no window state.
+An item with an :on-visit function is a RET-able row.  Long bodies and
+comments are folded (see `octocat-timeline-body-lines'), except in the
+last item."
+  (let ((index 0)
         (seen (make-hash-table :test #'equal))
         nodes)
     (while items

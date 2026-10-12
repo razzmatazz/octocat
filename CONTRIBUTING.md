@@ -115,6 +115,30 @@ vui.el gotchas:
 - Rows use `vui-text` inside a `vui-region` (not `vui-button`) so per-segment
   faces are preserved; see "Row rendering" in `octocat-repo.el`.
 
+### Functional core
+
+Write functions to be as functional as possible: take everything they
+need as arguments and return a value, rather than reading ambient state
+(windows, the current buffer, buffer-local or global variables) or
+changing it.  Keep the core body of the code functional, and push side
+effects out to a thin layer of commands, effects and async callbacks.
+Prefer a required argument to an optional one that falls back to ambient
+state.
+
+In particular, render code (vui components, memo bodies, section
+inserters) and library modules (markdown, mermaid, avatar, timeline) must
+not select windows or frames, move point other than by inserting, or
+change global state, and must not prompt or `sit-for`.  Side effects
+belong in commands and `vui-use-effect`.
+
+vui re-renders from timers, often while the buffer sits in an unselected
+window.  Selecting that window resets the buffer's point mid-render and
+scrambles the page.  That happened via `window-max-chars-per-line`, which
+selects the window internally.  So read window state once in the page
+component and pass it down, e.g. `(octocat--markdown-width)` into
+`octocat-timeline-entries`.  Wrap any window query that might select a
+window in `save-excursion`.
+
 ### Dependencies
 
 Runtime dependencies are exactly those in the `Package-Requires` header of
