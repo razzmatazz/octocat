@@ -251,7 +251,7 @@
     (define-key aux-m (kbd "RET")   #'octocat-job-download-artifact))
 
   ;; ── octocat-tree-mode ─────────────────────────────────────────────────
-  ;; Derives from special-mode (not magit-section-mode): evil-define-key* is safe.
+  ;; Derives from vui-mode (not magit-section-mode): evil-define-key* is safe.
   (evil-define-key* 'normal octocat-tree-mode-map
     (kbd "RET")     #'octocat-tree-visit
     (kbd "TAB")     #'octocat-tree-expand

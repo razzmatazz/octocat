@@ -8,31 +8,33 @@ buffer-rendering code.
 
 ## Section tree structure
 
-Every octocat view is rendered inside a `magit-section-mode` buffer.
+Only some octocat views still use magit-section: commit, checks, workflow,
+run, job and the file log.  The dashboard, repo, user, PR, issue, PR diff,
+tree and list pages are rendered with vui.el (see "UI frameworks" in
+CONTRIBUTING.md) and none of this document applies to them.
+
 `magit-section-mode` maintains a single buffer-local `magit-root-section`
 object that is the root of the section tree.
 
-For the **dashboard** buffer the tree is:
+For the **run** buffer (`octocat-run.el`) the tree is:
 
 ```
-magit-root-section  ← IS the octocat-root section (outermost magit-insert-section call)
-  ├── pull-requests
-  │     ├── pr
-  │     └── pr  …
-  ├── issues
-  │     └── issue  …
-  └── workflows
-        └── workflow
-              └── workflow-run  …
+magit-root-section  ← IS the octocat-run-root section (outermost magit-insert-section call)
+  ├── run-info
+  │     └── repo-nav
+  ├── run-jobs
+  │     ├── run-job
+  │     └── run-job  …
+  └── run-annotations
 ```
 
 > **Gotcha — root is not a phantom wrapper.**  It is tempting to assume
 > `magit-root-section` is an invisible container *above* the outermost
 > `magit-insert-section` call.  It is not.  `magit-root-section` is set to the
 > return value of the outermost `magit-insert-section` call, which in the
-> dashboard is `(octocat-root)`.  Its direct children are therefore
-> `pull-requests`, `issues`, and `workflows` — **not** an intermediate
-> `octocat-root` node.  Walking one level too deep is a silent bug: the
+> run buffer is `(octocat-run-root)`.  Its direct children are therefore
+> `run-info`, `run-jobs` and `run-annotations` — **not** an intermediate
+> `octocat-run-root` node.  Walking one level too deep is a silent bug: the
 > sections are never found.
 
 ---
@@ -283,10 +285,8 @@ unnecessary empty line at the bottom.
 
 Apply the blank-line pattern everywhere sibling sections appear:
 
-- The top-level dashboard sections (Issues, Pull Requests, Commits, Workflow
-  Runs, Workflows).
-- All sections in every detail view: PR, issue, commit, workflow, run, and
-  job.
+- All sections in every magit-section view: commit, checks, workflow, run,
+  job and file log.
 - Both the **live render** function (`octocat--render-foo`) and the
   corresponding **loading-skeleton** function
   (`octocat--render-foo-loading`), so the spacing is consistent regardless
@@ -314,5 +314,5 @@ blank described here lives *outside* and *between* sections, not inside them.
 |---|---|---|
 | Collapse a section on first render | `(magit-section-hide (magit-insert-section …))` | Pass `t` as the `HIDE` argument |
 | Preserve collapse state across refreshes | Save types before erase; wrap with `magit-section-hide` during construction | Call `magit-section-hide` after the full tree is built |
-| Walk top-level dashboard sections | `(oref magit-root-section children)` | `(oref (car (oref magit-root-section children)) children)` |
+| Walk top-level sections | `(oref magit-root-section children)` | `(oref (car (oref magit-root-section children)) children)` |
 | Preserve cursor position across refreshes | `octocat--save-point` before first render; `octocat--restore-point` after each render | `(goto-char (point-min))` inside render functions |

@@ -78,20 +78,24 @@ they can be inspected directly.  Do **not** hardcode
 
 octocat uses two UI frameworks, split by buffer type:
 
-- **vui.el** — the repo overview buffer (`octocat-repo.el`,
-  `octocat-repo-mode`), the issue detail view (`octocat-issue-mode`, a
-  GitHub-style timeline of the opening post, comments and events; what
-  point is on is carried by the `octocat-issue-target` text property, not a
-  section) and the PR, issue and workflow list pages
+- **vui.el** — the dashboard (`octocat-mode`), the repo overview
+  (`octocat-repo.el`, `octocat-repo-mode`), the user page
+  (`octocat-user-mode`), the PR, issue and PR diff detail views
+  (`octocat-pr-mode`, `octocat-issue-mode`, `octocat-pr-diff-mode`), the
+  file tree (`octocat-tree-mode`) and the PR, issue and workflow list pages
   (`octocat-pr-list-mode`, `octocat-issue-list-mode`,
   `octocat-workflow-list-mode`, defined next to the matching detail views and
-  deriving from `octocat-vui-list-mode`).  The repo overview is a dashboard of independent async sections, each
-  with its own fetch (`vui-use-async`), pagination counter (`:state`) and
-  collapse state (`vui-collapsible`).  `octocat-repo-mode` does **not** derive
-  from `magit-section-mode`.
-- **magit-section** — every other view (PR, commit, diff, workflow,
-  run, job, checks).  These are document-style buffers (markdown bodies,
-  diffs, comments) where the section tree fits well.  See
+  deriving from `octocat-vui-list-mode`).  The issue and PR views are
+  GitHub-style timelines of the opening post, comments and events; what
+  point is on is carried by a text property (e.g. `octocat-issue-target`),
+  not a section.  The repo overview is a dashboard of independent async
+  sections, each with its own fetch (`vui-use-async`), pagination counter
+  (`:state`) and collapse state (`vui-collapsible`).  None of these modes
+  derive from `magit-section-mode`.
+- **magit-section** — the remaining views: commit (`octocat-commit-mode`),
+  checks (`octocat-checks-mode`), workflow, run and job detail
+  (`octocat-workflow-mode`, `octocat-run-mode`, `octocat-job-mode`) and the
+  file log (`octocat-file-log-mode`).  See
   [docs/magit-section.md](docs/magit-section.md) for the section tree
   structure, hiding/collapsing gotchas, and the correct patterns for
   preserving collapse state across refreshes.
@@ -102,10 +106,8 @@ Generic, repo-agnostic vui helpers (the RET-able `octocat-vui-row`,
 Put new reusable vui hooks/components there, and keep them free of GitHub
 knowledge.
 
-Do not convert other views to vui.el without a concrete reason; the split is
-deliberate.  New dashboard-style buffers (independent async sections) should
-use vui.el; new document-style buffers should use magit-section.  Never mix
-the two in one buffer.
+New buffers should use vui.el.  The magit-section views above are what is
+left of the older implementation.  Never mix the two in one buffer.
 
 vui.el gotchas:
 
@@ -178,8 +180,8 @@ for modes that derive from `magit-section-mode`**, then call `define-key` on
 the returned keymap for every binding:
 
 ```elisp
-(let ((aux   (evil-get-auxiliary-keymap octocat-issue-mode-map 'normal t t))
-      (aux-m (evil-get-auxiliary-keymap octocat-issue-mode-map 'motion t t)))
+(let ((aux   (evil-get-auxiliary-keymap octocat-commit-mode-map 'normal t t))
+      (aux-m (evil-get-auxiliary-keymap octocat-commit-mode-map 'motion t t)))
   (define-key aux (kbd "RET") #'octocat-visit)
   ...)
 ```
