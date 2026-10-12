@@ -319,32 +319,28 @@ end."
       (flush-group))
     (nreverse blocks)))
 
-(defun octocat-job--text-body (text)
-  "Return TEXT as the (TOTAL . RENDER) body of an `octocat-vui-fold'."
-  (let ((ends (octocat-vui-line-ends text)))
-    (cons (1+ (length ends))
-          (lambda (n) (list (vui-text (octocat-vui-take-lines text ends n)))))))
-
-(defun octocat-job--log-group (name text index)
+(defun octocat-job--log-group (name text index bulk)
   "Return a ##[group] of a step's log: NAME, folded over its TEXT.
-INDEX, its position in the step, keys it."
+INDEX, its position in the step, keys it.  BULK is as for `octocat-vui-fold'."
   (vui-component
    'octocat-vui-fold
    :key index
+   :bulk bulk
    :header (lambda (open toggle)
              (octocat-vui-fold-header "      " open toggle
                                       (propertize name 'face 'octocat-dimmed)
                                       '("RET: unfold" . "RET: fold")))
    :deps text
    :prepare (lambda ()
-              (octocat-job--text-body
+              (octocat-vui-text-body
                (if (string-empty-p text)
                    (propertize "(empty)" 'face 'octocat-dimmed)
                  text)))))
 
-(defun octocat-job--step-body (lines)
+(defun octocat-job--step-body (lines bulk)
   "Return the log LINES of a step as the (TOTAL . RENDER) body of a fold.
-A group counts as one line, its header; it unfolds on its own."
+A group counts as one line, its header; it unfolds on its own, or with
+the others by BULK (see `octocat-vui-fold')."
   (let* ((blocks (mapcar (lambda (block)
                            (pcase block
                              (`(text ,text) (list 'text text (octocat-vui-line-ends text)))
@@ -363,7 +359,7 @@ A group counts as one line, its header; it unfolds on its own."
                                   (cl-decf n (1+ (length ends)))))
                                (`(group ,name ,text)
                                 (cl-decf n)
-                                (octocat-job--log-group name text i))))))))
+                                (octocat-job--log-group name text i bulk))))))))
 
 
 ;;;; Steps
@@ -387,9 +383,10 @@ A group counts as one line, its header; it unfolds on its own."
             (when duration
               (propertize (concat "  " duration) 'face 'octocat-dimmed)))))
 
-(defun octocat-job--step (step lines)
+(defun octocat-job--step (step lines bulk)
   "Return STEP of a job, a REST hash-table, folded over its log LINES.
-The log is laid out only once the step is unfolded: a log can be long."
+The log is laid out only once the step is unfolded: a log can be long.
+BULK is as for `octocat-vui-fold'."
   (let ((title (octocat-job--step-title step)))
     (if (null lines)
         (vui-text (concat "    " title))
@@ -399,26 +396,37 @@ The log is laid out only once the step is unfolded: a log can be long."
       (vui-component
        'octocat-vui-fold
        :key (gethash "number" step)
+       :bulk bulk
        :header (lambda (open toggle)
                  (octocat-vui-fold-header "  " open toggle title
                                           '("RET: show log" . "RET: hide log")))
-       :deps lines
-       :prepare (lambda () (octocat-job--step-body lines))))))
+       ;; BULK too, for the log groups it unfolds.
+       :deps (cons lines bulk)
+       :prepare (lambda () (octocat-job--step-body lines bulk))))))
 
-(defun octocat-job--steps (job log)
-  "Return the vnodes of the Steps section of JOB.
-LOG is the parsed log, as from `octocat--job-parse-log', or \\=(error . MSG)."
+(defun octocat-job--steps (job log bulk on-bulk)
+  "Return the vnodes of the section listing each step of JOB.
+LOG is the parsed log, as from `octocat--job-parse-log', or \\=(error . MSG).
+The heading carries an \"Expand all\" button for the steps and their log
+groups: BULK and ON-BULK are as for `octocat-vui-expand-all-button'."
   (let ((steps (let ((v (gethash "steps" job)))
                  (if (vectorp v) (append v nil) nil)))
         (failed (eq (car-safe log) 'error)))
     (append
-     (list (vui-text (propertize (format "Steps (%d)" (length steps))
-                                 'face 'octocat-section-heading)))
+     (list (if (and steps (not failed))
+               (vui-hstack :spacing 2
+                           (vui-text (propertize (format "Steps (%d)" (length steps))
+                                                 'face 'octocat-section-heading))
+                           (octocat-vui-expand-all-button bulk on-bulk))
+             (vui-text (propertize (format "Steps (%d)" (length steps))
+                                   'face 'octocat-section-heading))))
      (if (null steps)
          (list (vui-text "  (no steps)" :face 'octocat-dimmed))
        (mapcar (lambda (step)
-                 (octocat-job--step step (unless failed
-                                           (cdr (assoc (or (gethash "name" step) "") log)))))
+                 (octocat-job--step step
+                                    (unless failed
+                                      (cdr (assoc (or (gethash "name" step) "") log)))
+                                    bulk))
                steps))
      (when failed
        (list (vui-text (format "  (log unavailable: %s)" (cdr log)) :face 'octocat-dimmed))))))
@@ -520,7 +528,7 @@ hash-table; a nil JOB-NAME is not shown."
   "Job JOB-ID of run RUN-ID of REPO; NAME shows while it loads.
 A new TICK refetches the job, keeping what is shown, and which steps are
 unfolded, until the fresh data replaces it."
-  :state ((spin 0))
+  :state ((spin 0) (bulk nil))
   :render
   (let* ((result  (octocat-vui-use-cached
                     (list 'job repo job-id tick)
@@ -550,7 +558,8 @@ unfolded, until the fresh data replaces it."
              (_ (let ((job (gethash "job" data)))
                   (append (octocat-job--header job)
                           (list (vui-newline))
-                          (octocat-job--steps job log)
+                          (octocat-job--steps job log bulk
+                                              (vui-async-callback (v) (vui-set-state :bulk v)))
                           (when-let* ((arts (octocat-job-artifacts
                                              repo run-id (gethash "artifacts" data))))
                             (cons (vui-newline) arts))

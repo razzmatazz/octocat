@@ -422,40 +422,26 @@ folds it back."
     ;; Unfold progressively: a timer adds more things each frame (see
     ;; `octocat-timeline--expand-growth') until all show.  It exists only
     ;; while that is going on.
-    (vui-use-effect (unfolding)
-      (when unfolding
-        (let ((timer (run-with-timer
-                      octocat-timeline--expand-interval
-                      octocat-timeline--expand-interval
-                      (vui-with-async-context
-                        (vui-set-state
-                         :shown (lambda (old)
-                                  (let ((now (or old limit)))
-                                    (min total
-                                         (+ now (max 2 (ceiling (* octocat-timeline--expand-growth
-                                                                   (- now limit)))))))))))))
-          (lambda () (cancel-timer timer)))))
+    (let ((now visible))
+      (octocat-vui-use-timer (unfolding) octocat-timeline--expand-interval unfolding
+        (setq now (min total
+                       (+ now (max 2 (ceiling (* octocat-timeline--expand-growth
+                                                 (- now limit)))))))
+        (vui-set-state :shown now)
+        (< now total)))
     ;; Fold back the same way, in reverse: each frame hides a fraction of
     ;; what is still unfolded, so it starts fast and eases out onto LIMIT.
-    (vui-use-effect (closing)
-      (when closing
-        (let* ((now visible)
-               (timer nil))
-          (setq timer
-                (run-with-timer
-                 octocat-timeline--expand-interval
-                 octocat-timeline--expand-interval
-                 (vui-with-async-context
-                   (setq now (max limit
-                                  (- now (max 2 (ceiling (* octocat-timeline--expand-growth
-                                                            (- now limit)))))))
-                   (if (> now limit)
-                       (vui-set-state :shown now)
-                     (cancel-timer timer)
-                     (vui-set-state :shown nil)
-                     (vui-set-state :open nil)
-                     (vui-set-state :closing nil)))))
-          (lambda () (cancel-timer timer)))))
+    (let ((now visible))
+      (octocat-vui-use-timer (closing) octocat-timeline--expand-interval closing
+        (setq now (max limit
+                       (- now (max 2 (ceiling (* octocat-timeline--expand-growth
+                                                 (- now limit)))))))
+        (if (> now limit)
+            (vui-set-state :shown now)
+          (vui-set-state :shown nil)
+          (vui-set-state :open nil)
+          (vui-set-state :closing nil))
+        (> now limit)))
     (vui-fragment
      (funcall render visible)
      (when folds

@@ -21,17 +21,18 @@
 ;;; Commentary:
 
 ;; The changed files of a diff page, shared by the commit page
-;; (octocat-commit.el) and the PR diff page (octocat-pr-diff.el): a
-;; collapsible section per file, its patch in the diff faces, with the
-;; inline comments boxed after the lines they are on.  Commit comments
-;; and PR review comments have the same shape, so both pass theirs in.
+;; (octocat-commit.el) and the PR diff page (octocat-pr-diff.el): a fold
+;; per file, its patch in the diff faces, with the inline comments boxed
+;; after the lines they are on.  The files start folded unless the whole
+;; diff fits in the window.  Commit comments and PR review comments have
+;; the same shape, so both pass theirs in.
 
 ;;; Code:
 
 (require 'cl-lib)
 (require 'octocat-core)
+(require 'octocat-vui)
 (require 'vui)
-(require 'vui-components) ; vui-collapsible
 
 
 ;;;; Faces
@@ -160,31 +161,41 @@ tracking the right-side line number (from the `@@' headers) and the
 
 ;;;; Components
 
-(vui-defcomponent octocat-diff--file (file comments)
-  "One changed FILE (a files-endpoint hash-table) with its inline COMMENTS.
-A collapsible section, expanded at first; a file without a patch (binary,
-or too large for GitHub to show) is just its heading."
-  :render
-  (let* ((filename  (or (gethash "filename" file) ""))
-         (status    (or (gethash "status" file) "modified"))
-         (patch     (let ((p (gethash "patch" file)))
-                      (and (stringp p) (not (string-empty-p p)) p)))
-         (title     (concat (octocat-diff--file-icon status)
-                            " "
-                            (propertize filename 'face (octocat-diff--file-face status))
-                            (propertize (format "  +%d -%d"
-                                                (or (gethash "additions" file) 0)
-                                                (or (gethash "deletions" file) 0))
-                                        'face 'octocat-dimmed)))
-         (text      (vui-use-memo (patch comments)
-                      (and patch
-                           (octocat-diff--patch-text
-                            patch (octocat-diff--index comments))))))
-    (if (null text)
+(defun octocat-diff--file (file comments bulk)
+  "Return one changed FILE (a files-endpoint hash-table) with its inline COMMENTS.
+It is folded unless BULK, as for `octocat-vui-fold', says otherwise; a
+file without a patch (binary, or too large for GitHub to show) is just
+its heading."
+  (let* ((filename (or (gethash "filename" file) ""))
+         (status   (or (gethash "status" file) "modified"))
+         (patch    (let ((p (gethash "patch" file)))
+                     (and (stringp p) (not (string-empty-p p)) p)))
+         (title    (concat (octocat-diff--file-icon status)
+                           " "
+                           (propertize filename 'face (octocat-diff--file-face status))
+                           (propertize (format "  +%d -%d"
+                                               (or (gethash "additions" file) 0)
+                                               (or (gethash "deletions" file) 0))
+                                       'face 'octocat-dimmed))))
+    (if (null patch)
         (vui-text (concat "  " title))
-      (vui-collapsible
-       :title title :key (intern filename) :initially-expanded t :indent 0
-       (vui-text text)))))
+      (vui-component
+       'octocat-vui-fold
+       :key (intern filename)
+       :bulk bulk
+       :header (lambda (open toggle)
+                 (octocat-vui-fold-header "" open toggle title
+                                          '("RET: show diff" . "RET: hide diff")))
+       :deps (cons patch comments)
+       :prepare (lambda ()
+                  (octocat-vui-text-body
+                   (octocat-diff--patch-text patch (octocat-diff--index comments))))))))
+
+(defun octocat-diff--line-count (files)
+  "Return how many lines FILES take with every patch shown."
+  (cl-loop for f across files
+           sum (let ((p (gethash "patch" f)))
+                 (1+ (if (stringp p) (1+ (cl-count ?\n p)) 0)))))
 
 (defun octocat-diff-by-path (comments)
   "Return an alist mapping a file path to the review COMMENTS made on it."
@@ -194,20 +205,36 @@ or too large for GitHub to show) is just its heading."
         (push c (alist-get path table nil nil #'equal))))
     (mapcar (lambda (e) (cons (car e) (reverse (cdr e)))) table)))
 
+(vui-defcomponent octocat-diff--files (files by-path fits)
+  "The Files section: FILES with the review comments BY-PATH, folded.
+They start unfolded when FITS, the whole diff fitting in the window.
+The heading's \"Expand all\" button unfolds or folds every file."
+  :state ((bulk (and fits (cons 0 t))))
+  :render
+  (let ((heading (vui-text (propertize (format "Files (%d)" (length files))
+                                       'face 'octocat-section-heading))))
+    (vui-vstack
+     (if (cl-some (lambda (f) (stringp (gethash "patch" f))) files)
+         (vui-hstack :spacing 2
+                     heading
+                     (octocat-vui-expand-all-button
+                      bulk (vui-async-callback (v) (vui-set-state :bulk v))))
+       heading)
+     (if (zerop (length files))
+         (vui-text "  (no files changed)" :face 'octocat-dimmed)
+       (vui-list (append files nil)
+                 (lambda (f)
+                   (octocat-diff--file f (cdr (assoc (gethash "filename" f) by-path)) bulk))
+                 (lambda (f) (gethash "filename" f)))))))
+
 (defun octocat-diff-files-section (files by-path)
   "Return the vnode of the Files section: the heading and one entry per file.
-FILES is the files vector and BY-PATH the review comments by file path."
-  (vui-vstack
-   (vui-text (propertize (format "Files (%d)" (length files))
-                         'face 'octocat-section-heading))
-   (if (zerop (length files))
-       (vui-text "  (no files changed)" :face 'octocat-dimmed)
-     (vui-list (append files nil)
-               (lambda (f)
-                 (vui-component 'octocat-diff--file
-                                :file f
-                                :comments (cdr (assoc (gethash "filename" f) by-path))))
-               (lambda (f) (gethash "filename" f))))))
+FILES is the files vector and BY-PATH the review comments by file path.
+Files start folded, unless the whole diff fits in the window."
+  (vui-component 'octocat-diff--files
+                 :files files
+                 :by-path by-path
+                 :fits (<= (octocat-diff--line-count files) (octocat-vui-window-height))))
 
 (provide 'octocat-diff)
 ;;; octocat-diff.el ends here

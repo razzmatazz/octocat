@@ -33,18 +33,37 @@
 (require 'octocat-repo) ; row builders and fetchers
 
 
-(vui-defcomponent octocat-actions--runs-section (repo current-branch on-loading)
+(defun octocat-actions--use-cached (repo type key loader &optional save-p)
+  "Return the result of LOADER for KEY, a list cached as TYPE of REPO.
+SAVE-P, when given, says whether to save a fresh result.  See
+`octocat-vui-use-cached'.  Must be called during render."
+  (octocat-vui-use-cached
+   key
+   (lambda () (plist-get (octocat--items-cache-load repo type "all") :items))
+   (lambda (items)
+     (when (or (null save-p) (funcall save-p))
+       (octocat--items-cache-save repo type "all" items)))
+   (lambda (resolve reject)
+     (funcall loader (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
+
+(defun octocat-actions--loading-p (result)
+  "Return whether RESULT is loading or showing data about to be replaced."
+  (and (or (eq (plist-get result :status) 'pending)
+           (plist-get result :refreshing))
+       t))
+
+(vui-defcomponent octocat-actions--runs-section (repo current-branch tick on-loading)
   "Workflow Runs section for REPO.
-ON-LOADING is called with whether the runs are refreshing, for the page's
-loading indicator."
+TICK is the page's refresh tick.  ON-LOADING is called with whether the
+runs are loading, for the page's loading indicator."
   :state ((limit octocat-section-limit))
   :render
-  (let* ((result  (octocat-vui-use-async-sticky (list 'recent-runs repo limit)
-                    (lambda (resolve reject)
-                      (octocat-repo--list-recent-runs
-                       repo limit
-                       (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
-         (loading (and (plist-get result :refreshing) t)))
+  (let* ((result  (octocat-actions--use-cached
+                   ;; Only the first page is cached: a longer list would shrink back.
+                   repo "recent-runs" (list 'recent-runs repo limit tick)
+                   (lambda (callback) (octocat-repo--list-recent-runs repo limit callback))
+                   (lambda () (= limit octocat-section-limit))))
+         (loading (octocat-actions--loading-p result)))
     (vui-use-effect (loading)
       (funcall on-loading loading)
       nil)
@@ -76,15 +95,18 @@ loading indicator."
               (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
               (plist-get result :refreshing) 0)))))))))
 
-(vui-defcomponent octocat-actions--workflows-section (repo)
+(vui-defcomponent octocat-actions--workflows-section (repo tick on-loading)
   "Workflows section for REPO (no pagination: run history lives in
-`octocat-actions--runs-section' instead)."
+`octocat-actions--runs-section' instead).
+TICK and ON-LOADING are as for `octocat-actions--runs-section'."
   :render
-  (let ((result (vui-use-async (list 'workflows repo)
-                  (lambda (resolve reject)
-                    (octocat-repo--list-workflows
-                     repo
-                     (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
+  (let* ((result  (octocat-actions--use-cached
+                   repo "workflows" (list 'workflows repo tick)
+                   (lambda (callback) (octocat-repo--list-workflows repo callback))))
+         (loading (octocat-actions--loading-p result)))
+    (vui-use-effect (loading)
+      (funcall on-loading loading)
+      nil)
     (vui-collapsible
      :title "Workflows" :key 'workflows :initially-expanded t :indent 0
      (pcase (plist-get result :status)
@@ -98,30 +120,35 @@ loading indicator."
                       (lambda (wf) (octocat-repo-vui--workflow-row repo wf))
                       (lambda (wf) (gethash "id" wf))))))))))
 
-(vui-defcomponent octocat-actions--page (repo current-branch)
-  "The Actions page of REPO: its workflows and recent runs."
-  :state ((loading nil))
+(vui-defcomponent octocat-actions--page (repo current-branch tick)
+  "The Actions page of REPO: its workflows and recent runs.
+A new TICK refetches both, keeping what is shown until the fresh data
+replaces it."
+  :state ((wf-loading nil) (runs-loading nil))
   :render
   (vui-vstack
    (vui-component 'octocat-vui-list-header
-                  :repo repo :tab 'actions :loading loading)
-   (vui-component 'octocat-actions--workflows-section :repo repo)
+                  :repo repo :tab 'actions :loading (or wf-loading runs-loading))
+   (vui-component 'octocat-actions--workflows-section
+                  :repo repo :tick tick
+                  :on-loading (vui-async-callback (v)
+                                (vui-set-state :wf-loading v)))
    (vui-newline)
    (vui-component 'octocat-actions--runs-section
-                  :repo repo :current-branch current-branch
+                  :repo repo :current-branch current-branch :tick tick
                   :on-loading (vui-async-callback (v)
-                                (vui-set-state :loading v)))))
+                                (vui-set-state :runs-loading v)))))
 
 (defun octocat-actions-refresh (&optional _ignore-auto _noconfirm)
-  "Refresh the current Actions page buffer."
+  "Refresh the current Actions page buffer.
+The page paints the disk cache at once and fetches the workflows and runs
+in the background; a refresh keeps the old content up meanwhile."
   (interactive)
   (unless octocat-vui-list--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
-  (octocat-vui-preserving-view
-    (vui-mount (vui-component 'octocat-actions--page
-                              :repo octocat-vui-list--repo
-                              :current-branch (plist-get (octocat--head-info) :branch))
-               (buffer-name))))
+  (octocat-vui-refresh-page 'octocat-actions--page octocat-vui-list--repo
+                            (list :repo octocat-vui-list--repo
+                                  :current-branch (plist-get (octocat--head-info) :branch))))
 
 (define-derived-mode octocat-actions-mode octocat-vui-list-mode "Octocat-Actions"
   "Major mode for the Actions page of a repository.

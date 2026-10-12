@@ -417,6 +417,13 @@ no gh call is made."
                             :text)
                  "make compile ok")))
 
+(ert-deftest octocat-test-diff-line-count ()
+  "A file takes its heading line plus its patch lines; no patch, just one."
+  (should (= (octocat-diff--line-count
+              (vector (json-parse-string "{\"patch\":\"@@ -1 +1 @@\\n-a\\n+b\"}")
+                      (json-parse-string "{\"filename\":\"logo.png\"}")))
+             5)))
+
 (ert-deftest octocat-test-counts-query-and-parse ()
   "Pull requests also count merged; the response parses to a plist."
   (should (string-match-p "merged:pullRequests(states:MERGED)"

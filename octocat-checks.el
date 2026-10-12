@@ -133,8 +133,9 @@ with the exact time on hover (see `octocat--format-ts-relative')."
           (octocat--format-ts-relative started))))
 
 (defun octocat-checks--widths (checks)
-  "Return the width of each column: the widest field of any of CHECKS.
-The name and workflow columns stop at `octocat-checks--column-max'."
+  "Return the width of each column: its widest field over all entries.
+The entries are CHECKS.  The name and workflow columns stop at
+`octocat-checks--column-max'."
   (let ((widths (list 0 0 0 0)))
     (seq-doseq (check checks)
       (setq widths (cl-mapcar (lambda (w field) (max w (string-width field)))
@@ -172,7 +173,7 @@ The rest expands on RET.  Nil never folds."
   :group 'octocat)
 
 (defun octocat-checks-block (checks on-visit)
-  "Return the vnodes of a section listing CI runs, with a CI summary.
+  "Return the vnodes of the CI section, with a CI summary.
 The runs are CHECKS, a `statusCheckRollup' vector, as a PR has (see
 `octocat-checks-from-rest' for a commit's check-runs).  ON-VISIT is
 called by RET on a check."
@@ -211,7 +212,7 @@ A check not created by GitHub Actions opens in the browser instead."
         (browse-url url)))))
 
 (defun octocat-checks--list (repo checks)
-  "Return the vnodes of the Check runs section: CHECKS of REPO, one per row.
+  "Return the vnodes of the section of the CI results of REPO, one per row.
 CHECKS is a list of REST check-runs."
   (let* ((entries (mapcar #'octocat-checks-from-rest checks))
          (widths  (octocat-checks--widths entries)))
@@ -257,7 +258,7 @@ CHECKS is a list of REST check-runs."
 ;;;; Major mode
 
 (defun octocat-checks-browse ()
-  "Open the checks of this commit in a browser."
+  "Open the CI results of this commit in a browser."
   (interactive)
   (unless (and octocat--checks-repo octocat--checks-sha)
     (user-error "Octocat: Buffer is not associated with a commit"))
@@ -304,7 +305,7 @@ the check-runs in the background."
                (buffer-name))))
 
 (defun octocat-checks-open (repo sha ref)
-  "Show the checks of commit SHA of REPO in their own buffer.
+  "Show the CI results of commit SHA of REPO in their own buffer.
 REF is the branch the commit is the head of, or nil."
   (let ((buf (get-buffer-create
               (format "*octocat-checks: %s@%s*" repo

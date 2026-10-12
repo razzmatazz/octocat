@@ -362,7 +362,7 @@ LOADING is the page's loading marker, shown on the top row."
 (defun octocat-issue-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current issue buffer.
 Mounts the vui.el page for the issue, which paints the disk cache at once
-(stale-while-revalidate) and then fetches fresh data in the background."
+\(stale-while-revalidate) and then fetches fresh data in the background."
   (interactive)
   (unless (and octocat--issue-repo octocat--issue-number)
     (user-error "Octocat: Buffer is not associated with an issue"))

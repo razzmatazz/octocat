@@ -173,9 +173,9 @@ The latest of RUNS gives the status icon after the state."
                 (propertize " · " 'face 'octocat-dimmed))))))
 
 (defun octocat-workflow--runs (repo runs more on-more loading)
-  "Return the vnodes of the Workflow runs section: RUNS of REPO.
-MORE says a further page may exist, loaded by ON-MORE; LOADING disables
-its button while a page is fetched."
+  "Return the vnodes of the section listing each workflow run of REPO.
+RUNS is the list of them.  MORE says a further page may exist, loaded
+by ON-MORE; LOADING disables its button while a page is fetched."
   (cons
    (vui-text (propertize (format "%d workflow runs" (length runs))
                          'face 'octocat-section-heading))
@@ -193,7 +193,7 @@ its button while a page is fetched."
                  "RET: load more runs" on-more loading))))))))
 
 (defun octocat-workflow--cache-pair (cached)
-  "Return the disk-cache hash-table CACHED as (WORKFLOW . RUNS), or nil."
+  "Return the disk-cache hash-table CACHED as (WORKFLOW . RUN-LIST), or nil."
   (and cached
        (cons (gethash "workflow" cached)
              (cl-coerce (gethash "runs" cached) 'list))))

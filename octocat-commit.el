@@ -159,7 +159,7 @@ EMPTY is the text shown when it is ready but has no data."
                         'face 'octocat-section-heading)))
 
 (defun octocat-commit--checks (repo sha checks)
-  "Return the section listing the CI runs of commit SHA of REPO.
+  "Return the CI section of commit SHA of REPO.
 Its check-runs are in CHECKS, a `vui-use-async' result."
   (or (when-let* ((status (octocat-commit--async-status checks "(no checks)")))
         (vui-vstack (octocat-commit--heading "Checks" checks) status))

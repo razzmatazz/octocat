@@ -43,6 +43,29 @@ Unfolding and folding are animated like the timeline's long entries, and
 a body that is costly to lay out (a step's log) is built only once
 unfolded.
 
+### Expand all
+
+Wherever a section hides content by default, its heading carries an
+`[Expand all]` button, which turns into `[Collapse all]`.  It unfolds
+everything in the section, nested folds included, so isearch and other
+buffer searches can find text that would otherwise be hidden; RET on one
+fold's header still toggles just that fold.
+
+```
+Steps (8)  [Expand all]
+```
+
+`octocat-vui-expand-all-button` draws it.  The section keeps its last
+value in its state and passes it to each `octocat-vui-fold` as `:bulk`,
+and a fold passes it on to the folds in its body.  The job page's Steps
+and the Files of the commit and PR diff pages do this; other folded
+content (long timeline entries, the PR checks list) should follow.
+
+Content hidden by default may start shown when it is small: the Files
+section starts unfolded when the whole diff fits in the window, by
+starting with the value Expand all would give (a fold that mounts with
+it open paints open, without animating).
+
 ### Decision table
 
 | Situation | Approach |

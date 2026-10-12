@@ -40,6 +40,7 @@
 ;;                                   unfold progressively
 ;;   `octocat-vui-fold'              header row with an animated fold
 ;;   `octocat-vui-fold-header'       its ▸/▾ header, a TAB stop
+;;   `octocat-vui-expand-all-button' unfolds or folds every fold of a section
 ;;   `octocat-vui-list-mode'         base mode of the PR/issue list pages
 ;;                                   and the Actions page
 ;;   `octocat-vui-actions-top-row'   top row of workflow, run and job pages
@@ -167,6 +168,31 @@ button starts on a fresh line and carries the same indent, INDENT columns
                :help-echo (if loading nil help-echo)
                :on-click on-click)))
 
+(defmacro octocat-vui-use-timer (deps interval active &rest body)
+  "Run BODY every INTERVAL seconds while ACTIVE, tied to the component.
+The timer is started when the component renders with ACTIVE true, and
+restarted when DEPS, a list of variables like `vui-use-effect' takes,
+change; ACTIVE should depend only on them.  It is cancelled when DEPS
+change, when the component unmounts, when BODY returns nil (done), and
+when BODY signals an error, so a broken frame is reported once instead
+of on every tick.  BODY runs in the component's context, so it may call
+`vui-set-state'.  Every octocat timer goes through here."
+  (declare (indent 3))
+  (let ((timer (make-symbol "timer")))
+    `(vui-use-effect ,deps
+       (when ,active
+         (let ((,timer nil))
+           (setq ,timer
+                 (run-with-timer
+                  ,interval ,interval
+                  (vui-with-async-context
+                    (condition-case err
+                        (unless (progn ,@body)
+                          (cancel-timer ,timer))
+                      (error (cancel-timer ,timer)
+                             (signal (car err) (cdr err)))))))
+           (lambda () (cancel-timer ,timer)))))))
+
 (defconst octocat-vui-unfold-growth 0.5
   "How much faster each frame of an unfolding animation is than the last.
 Every frame reveals this fraction of what is already unfolded (at least
@@ -204,25 +230,17 @@ The timer exists only while items are being revealed."
     (let* ((v          (car cell))
            (visible    (aref v 0))
            (unfolding  (< visible total)))
-      (vui-use-effect (unfolding)
-        (when unfolding
-          (let ((timer nil))
-            (setq timer
-                  (run-with-timer
-                   octocat-vui-unfold-interval octocat-vui-unfold-interval
-                   (vui-with-async-context
-                     (let* ((now  (aref v 0))
-                            (all  (aref v 1))
-                            (step (max 2 (ceiling (* octocat-vui-unfold-growth
-                                                     (- now (aref v 2)))))))
-                       (aset v 0 (min all (+ now step)))
-                       (when (>= (aref v 0) all)
-                         (cancel-timer timer))
-                       (vui-set-state :tick (lambda (n) (1+ n)))))))
-            (lambda () (cancel-timer timer)))))
+      (octocat-vui-use-timer (unfolding) octocat-vui-unfold-interval unfolding
+        (let* ((now  (aref v 0))
+               (all  (aref v 1))
+               (step (max 2 (ceiling (* octocat-vui-unfold-growth
+                                        (- now (aref v 2)))))))
+          (aset v 0 (min all (+ now step)))
+          (vui-set-state :tick (lambda (n) (1+ n)))
+          (< (aref v 0) all)))
       (funcall render (seq-take items visible)))))
 
-(vui-defcomponent octocat-vui-fold (header prepare deps)
+(vui-defcomponent octocat-vui-fold (header prepare deps bulk)
   "A header row and a folded body that unfolds and folds back animated.
 HEADER is a function of whether the body is open and of a command that
 toggles it, returning the header vnode; typically an `octocat-vui-row'
@@ -231,32 +249,48 @@ first unfolded and again when DEPS change: it returns (TOTAL . RENDER),
 the body's number of lines and a function of how many of them to show
 returning a list of vnodes.  Unfolding reveals lines at a growing pace,
 as `octocat-timeline-fold' does; folding hides them the same way in
-reverse.  Lines added while open, say by a refresh, unfold too."
-  :state ((open nil) (shown 0))
+reverse.  Lines added while open, say by a refresh, unfold too.
+BULK, from an \"Expand all\" button (see `octocat-vui-expand-all-button'),
+is nil or (GENERATION . OPEN): each new value unfolds or folds it.  A
+fold that mounts while BULK says open starts open, without animating."
+  :state ((open (cdr bulk)) (shown (if (cdr bulk) most-positive-fixnum 0)))
   :render
   (let* ((active (or open (> shown 0)))
          (body   (vui-use-memo (deps active) (and active (funcall prepare))))
          (total  (or (car body) 0))
          (target (if open total 0))
          (moving (/= shown target))
-         (toggle (vui-async-callback () (vui-set-state :open (not open)))))
-    (vui-use-effect (moving open total)
-      (when moving
-        (let ((timer (run-with-timer
-                      octocat-vui-unfold-interval octocat-vui-unfold-interval
-                      (vui-with-async-context
-                        (vui-set-state
-                         :shown (lambda (now)
-                                  ;; A fraction of what shows: unfolding speeds up,
-                                  ;; folding starts fast and eases out.
-                                  (let ((step (max 2 (ceiling (* octocat-vui-unfold-growth now)))))
-                                    (if open
-                                        (min total (+ now step))
-                                      (max 0 (- (min now total) step))))))))))
-          (lambda () (cancel-timer timer)))))
+         (toggle (vui-async-callback () (vui-set-state :open (not open))))
+         (set-open (vui-async-callback (v) (vui-set-state :open v))))
+    (vui-use-effect (bulk)
+      (when bulk (funcall set-open (cdr bulk)))
+      nil)
+    (let ((now (min shown total)))
+      (octocat-vui-use-timer (moving open total) octocat-vui-unfold-interval moving
+        ;; A fraction of what shows: unfolding speeds up, folding starts
+        ;; fast and eases out.
+        (let ((step (max 2 (ceiling (* octocat-vui-unfold-growth now)))))
+          (setq now (if open (min target (+ now step)) (max target (- now step))))
+          (vui-set-state :shown now)
+          ;; Done at the target: setting the same value again would not
+          ;; re-render, so the timer would never be cleaned up.
+          (/= now target))))
     (apply #'vui-vstack
            (funcall header open toggle)
            (and body (> shown 0) (funcall (cdr body) (min shown total))))))
+
+(defun octocat-vui-expand-all-button (bulk on-click)
+  "Return an \"[Expand all]\" button, \"[Collapse all]\" once pressed.
+BULK is the value the button last produced for its folds' BULK prop (see
+`octocat-vui-fold'), or nil.  ON-CLICK is called with the next value,
+which the caller keeps, typically in its state, and passes to every fold."
+  (let ((gen  (or (car bulk) 0))
+        (open (cdr bulk)))
+    (vui-button (if open "Collapse all" "Expand all")
+                :face 'octocat-dimmed
+                :key 'expand-all
+                :help-echo (if open "RET: fold everything" "RET: unfold everything")
+                :on-click (lambda () (funcall on-click (cons (1+ gen) (not open)))))))
 
 (defun octocat-vui-fold-header (indent open toggle title help)
   "Return a header row for `octocat-vui-fold': a ▸/▾ marker, then TITLE.
@@ -275,6 +309,12 @@ faces show (a button would draw it in one face).  RET on either toggles."
                  :help-echo hint
                  :on-click toggle)
      (octocat-vui-row (concat " " title) toggle hint))))
+
+(defun octocat-vui-text-body (text)
+  "Return TEXT as the (TOTAL . RENDER) body of an `octocat-vui-fold'."
+  (let ((ends (octocat-vui-line-ends text)))
+    (cons (1+ (length ends))
+          (lambda (n) (list (vui-text (octocat-vui-take-lines text ends n)))))))
 
 (defun octocat-vui-line-ends (string)
   "Return the positions of the newlines in STRING, for `octocat-vui-take-lines'."
@@ -310,12 +350,14 @@ must declare a `(spin 0)' entry in its `:state'; pass that value as the
 SPIN argument of `octocat-vui-loading-suffix' to draw the frame.  The
 timer only exists while ACTIVE, and is cancelled when it turns nil or the
 component unmounts."
-  `(vui-use-effect (,active)
-     (when ,active
-       (let ((timer (run-with-timer 0.1 0.1
-                                    (vui-with-async-context
-                                      (vui-set-state :spin #'1+)))))
-         (lambda () (cancel-timer timer))))))
+  `(octocat-vui-use-timer (,active) 0.1 ,active
+     (vui-set-state :spin #'1+)
+     t))
+
+(defun octocat-vui-window-height ()
+  "Return the body height of the window showing the current buffer, or 40."
+  (let ((win (get-buffer-window (current-buffer) t)))
+    (if win (window-body-height win) 40)))
 
 (defun octocat-vui-window-width ()
   "Return the body width of the window showing the current buffer, or 80."
@@ -323,7 +365,7 @@ component unmounts."
     (if win (window-body-width win) 80)))
 
 (defmacro octocat-vui-use-window-width ()
-  "Return the width of the buffer's window, re-rendering when it changes.
+  "Return the width of the buffer's window; a resize re-renders.
 The component must declare a `(win-width nil)' entry in its `:state'.
 The size-change hook only exists while the component is mounted."
   `(progn
@@ -365,7 +407,7 @@ Each entry is (WINDOW POINT-LINE POINT-COLUMN START-LINE)."
     (point)))
 
 (defun octocat-vui--restore-view (view)
-  "Put point and scroll back as VIEW, from `octocat-vui--save-view', says."
+  "Put point and scroll back to VIEW, from `octocat-vui--save-view'."
   (dolist (entry view)
     (pcase-let ((`(,win ,line ,col ,start) entry))
       (when (and (window-live-p win)

@@ -30,8 +30,9 @@ clean:
 compile: deps
 	$(DOCKER_RUN) sh -c "cp -a /src /tmp/build && cd /tmp/build && eask compile --strict"
 
+# checkdoc only prints its findings, so fail on any FILE:LINE: message.
 lint: deps
-	$(DOCKER_RUN) sh -c "eask lint checkdoc && eask lint package"
+	$(DOCKER_RUN) sh -c 'eask lint checkdoc 2>&1 | tee /tmp/checkdoc.log && ! grep -E "\.el:[0-9]+: " /tmp/checkdoc.log > /dev/null && eask lint package'
 
 test: deps
 	$(DOCKER_RUN) sh -c 'for f in test/*-tests.el; do eask test ert "$$f" || exit 1; done'

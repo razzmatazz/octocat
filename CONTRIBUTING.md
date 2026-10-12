@@ -107,6 +107,13 @@ vui.el gotchas:
   passes `:indent 0`; otherwise the first row is indented by four spaces.
 - Rows use `vui-text` inside a `vui-region` (not `vui-button`) so per-segment
   faces are preserved; see "Row rendering" in `octocat-repo.el`.
+- Every repeating timer goes through `octocat-vui-use-timer`, never a bare
+  `run-with-timer`.  It ties the timer to the component: it is cancelled
+  when the component unmounts or the hook's dependencies change, when the
+  callback returns nil (done), and when the callback signals, so a broken
+  frame is reported once instead of on every tick.  A callback that sets
+  state to the value it already has does not re-render, so a timer that
+  only stopped on a re-render would run forever: return nil instead.
 
 ### Functional core
 

@@ -101,8 +101,8 @@ in detached mode — tracking a remote repository without a local clone.")
 
 (defvar-local octocat-repo--current-branch nil
   "Name of the local HEAD branch, or nil when detached or unknown.
-Set by `octocat-repo-refresh'.  Read by `octocat-tree.el' (`C-c C-t',
-`C-c C-f') to pick the branch whose tree to browse.")
+Set by `octocat-repo-refresh'.  Read by `octocat-tree.el' (`octocat-tree-open',
+`octocat-tree-find-file') to pick the branch whose tree to browse.")
 
 
 ;;;; Repo detection
@@ -409,7 +409,7 @@ highlighted with `octocat-branch-current'."
                               'face 'octocat-pr-author))))
 
 (defun octocat-repo-vui--layout (cells width)
-  "Return the column layout for the list of row CELLS in a WIDTH-wide window.
+  "Return the column layout for the list of row CELLS in a window WIDTH wide.
 CELLS are plists as made by `octocat-repo-vui--cells'.  The result has
 :single, non-nil for the compact shape (one line per row), :width, and
 the width of each column, as :title :chips :branch :ci :author :prs
