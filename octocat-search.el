@@ -58,16 +58,16 @@
          (state  (or (octocat--nonempty (gethash "state" pr)) "OPEN"))
          (author (octocat--author-login pr))
          (state-face (pcase state
-                       ("MERGED" 'magit-branch-remote)
-                       ("CLOSED" 'error)
-                       (_        'success)))
+                       ("MERGED" 'octocat-pr-state-merged)
+                       ("CLOSED" 'octocat-pr-state-closed)
+                       (_        'octocat-pr-state-open)))
          (display
           (format "%-8s #%-5d  %-42s  %s  %s"
-                  (propertize "[PR]" 'face 'magit-section-heading)
+                  (propertize "[PR]" 'face 'octocat-section-heading)
                   number
                   (octocat--format-title title)
                   (propertize (format "(%s)" state) 'face state-face)
-                  (propertize author 'face 'magit-blame-name)))
+                  (propertize author 'face 'octocat-pr-author)))
          (cand (copy-sequence display)))
     (put-text-property 0 1 'octocat-search-item
                        (list :type 'pr :repo repo :number number
@@ -81,14 +81,16 @@
          (title  (or (octocat--nonempty (gethash "title" issue)) ""))
          (state  (or (octocat--nonempty (gethash "state" issue)) "OPEN"))
          (author (octocat--author-login issue))
-         (state-face (if (equal state "OPEN") 'success 'error))
+         (state-face (if (equal state "OPEN")
+                         'octocat-pr-state-open
+                       'octocat-pr-state-closed))
          (display
           (format "%-8s #%-5d  %-42s  %s  %s"
-                  (propertize "[Issue]" 'face 'magit-section-heading)
+                  (propertize "[Issue]" 'face 'octocat-section-heading)
                   number
                   (octocat--format-title title)
                   (propertize (format "(%s)" state) 'face state-face)
-                  (propertize author 'face 'magit-blame-name)))
+                  (propertize author 'face 'octocat-pr-author)))
          (cand (copy-sequence display)))
     (put-text-property 0 1 'octocat-search-item
                        (list :type 'issue :repo repo :number number
@@ -109,10 +111,10 @@ shape (\"oid\", nested \"commit\") used in different parts of the codebase."
          (author  (octocat--commit-author commit))
          (display
           (format "%-8s %s  %-42s  %s"
-                  (propertize "[Commit]" 'face 'magit-section-heading)
-                  (propertize short 'face 'magit-hash)
+                  (propertize "[Commit]" 'face 'octocat-section-heading)
+                  (propertize short 'face 'octocat-commit-sha)
                   (octocat--format-title subject)
-                  (propertize author 'face 'magit-blame-name)))
+                  (propertize author 'face 'octocat-pr-author)))
          (cand (copy-sequence display)))
     (put-text-property 0 1 'octocat-search-item
                        (list :type 'commit :repo repo :sha sha)
@@ -125,7 +127,7 @@ FILE is a (PATH . BLOB-SHA) cons."
   (let* ((path (car file))
          (cand (copy-sequence
                 (format "%-8s %s"
-                        (propertize "[File]" 'face 'magit-section-heading)
+                        (propertize "[File]" 'face 'octocat-section-heading)
                         path))))
     (put-text-property 0 1 'octocat-search-item
                        (list :type 'file :repo repo :path path :sha (cdr file))
