@@ -268,12 +268,9 @@ matching comments immediately after each rendered diff line."
     (magit-insert-section (octocat-commit-root)
       (magit-insert-heading
         (concat (propertize (or octocat--commit-repo "") 'face 'octocat-repo)
+                (propertize (concat "@" short) 'face 'octocat-commit-sha)
                 "  "
-                (octocat--repo-tabs-string octocat--commit-repo 'code)
-                "  "
-                (propertize "commit" 'face 'octocat-dimmed)
-                " "
-                (propertize short 'face 'octocat-commit-sha)))
+                (octocat--repo-tabs-string octocat--commit-repo 'code)))
       (magit-insert-section (commit-meta)
         (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))
         (let ((hint (list 'mouse-face 'magit-section-highlight
@@ -329,14 +326,11 @@ is shown instead."
       ;; ── Header ────────────────────────────────────────────────────────
       (magit-insert-heading
         (concat (propertize (or octocat--commit-repo "") 'face 'octocat-repo)
+                (propertize (concat "@" short) 'face 'octocat-commit-sha)
                 "  "
-                (octocat--repo-tabs-string octocat--commit-repo 'code)
-                "  "
-                (propertize "commit" 'face 'octocat-dimmed)
-                " "
-                (propertize short 'face 'octocat-commit-sha)
-                "  "
-                subject))
+                (octocat--repo-tabs-string octocat--commit-repo 'code)))
+      ;; The subject has its own row, as an issue's or PR's title does.
+      (insert subject "\n")
       ;; ── Meta ──────────────────────────────────────────────────────────
       (magit-insert-section (commit-meta)
         (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))

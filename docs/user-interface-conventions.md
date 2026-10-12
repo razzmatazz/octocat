@@ -554,6 +554,20 @@ the same strip on their top line, right after `owner/repo#N` (or the
 heading's repo name, on the magit-section pages), so every page of a
 repository has one header and a way back to the lists and the tree.
 
+The top line holds only the identity, the strip and the loading indicator.
+The item's title goes on the row below it:
+
+```
+owner/repo#42  [Code]  [Issues]  [Pull requests]  [Actions]
+OPEN  The PR title  labels
+
+owner/repo@abc1234  [Code]  [Issues]  [Pull requests]  [Actions]
+The commit subject
+```
+
+A commit (and its checks page) is identified as `owner/repo@sha`, the
+short SHA in `octocat-commit-sha`, as an issue or PR is by `owner/repo#N`.
+
 - The tab the page belongs to (Pull requests for a PR and its diff, Issues
   for an issue, Actions for workflow / run / job, Code for a commit and
   its checks) is drawn in `octocat-section-heading`, but stays a button:

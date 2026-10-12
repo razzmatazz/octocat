@@ -113,6 +113,13 @@ Returns nil when the check was not created by GitHub Actions."
 
 ;;;; Rendering
 
+(defun octocat--checks-title-line (ref)
+  "Return the row below the checks page's top line, naming the page.
+REF, when non-nil, is the branch or tag the commit was opened from."
+  (concat "Checks"
+          (when ref (concat "  " (propertize ref 'face 'octocat-branch)))
+          "\n"))
+
 (defun octocat--render-checks-loading (sha)
   "Render a loading skeleton for the check-runs view of commit SHA."
   (let* ((short (substring sha 0 (min 7 (length sha))))
@@ -121,16 +128,11 @@ Returns nil when the check was not created by GitHub Actions."
     (magit-insert-section (octocat-checks-root)
       (magit-insert-heading
         (concat (propertize (or octocat--checks-repo "") 'face 'octocat-repo)
+                (propertize (concat "@" short) 'face 'octocat-commit-sha)
                 "  "
-                (octocat--repo-tabs-string octocat--checks-repo 'code)
-                "  "
-                (propertize "checks" 'face 'octocat-dimmed)
-                "  "
-                (propertize short 'face 'octocat-commit-sha)
-                (when (and octocat--checks-ref
-                           (not (string-empty-p (or octocat--checks-ref ""))))
-                  (concat "  " (propertize octocat--checks-ref
-                                           'face 'octocat-branch)))))
+                (octocat--repo-tabs-string octocat--checks-repo 'code)))
+      (insert (octocat--checks-title-line
+               (and (octocat--nonempty octocat--checks-ref) octocat--checks-ref)))
       (let ((hint (list 'mouse-face 'magit-section-highlight
                         'help-echo  "RET: open repo view")))
         (magit-insert-section (repo-nav octocat--checks-repo)
@@ -157,14 +159,10 @@ CHECKS-LIST is a list of check-run hash-tables from the GitHub Checks API."
       ;; ── Header ──────────────────────────────────────────────────────────
       (magit-insert-heading
         (concat (propertize (or octocat--checks-repo "") 'face 'octocat-repo)
+                (propertize (concat "@" short) 'face 'octocat-commit-sha)
                 "  "
-                (octocat--repo-tabs-string octocat--checks-repo 'code)
-                "  "
-                (propertize "checks" 'face 'octocat-dimmed)
-                "  "
-                (propertize short 'face 'octocat-commit-sha)
-                (when ref
-                  (concat "  " (propertize ref 'face 'octocat-branch)))))
+                (octocat--repo-tabs-string octocat--checks-repo 'code)))
+      (insert (octocat--checks-title-line ref))
       ;; ── Repo breadcrumb ─────────────────────────────────────────────────
       (let ((hint (list 'mouse-face 'magit-section-highlight
                         'help-echo  "RET: open repo view")))
