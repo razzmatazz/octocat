@@ -100,7 +100,8 @@ succeeded or crashed; splitting makes failures attributable.
 
 Load order: `octocat-mermaid.el` first (standalone), then
 `octocat-markdown.el` (requires it; `octocat-core.el` requires that), then
-`octocat-core.el` (everything else depends on it);
+`octocat-core.el` (everything else depends on it), then `octocat-vui.el`
+and `octocat-diff.el` (which the commit and PR diff pages require);
 `octocat-evil.el` before `octocat.el` (the last lines of `octocat.el` call
 `octocat-evil-setup`, and `require` is a no-op on an already-provided
 feature, so a stale evil file silently wins).
@@ -145,9 +146,10 @@ string rather than `ok` is an error — fix it before proceeding):
 ```elisp
 (let (results)
   (dolist (f (list "octocat-mermaid.el" "octocat-markdown.el"
-                   "octocat-core.el" "octocat-edit.el"
+                   "octocat-core.el" "octocat-vui.el" "octocat-diff.el"
+                   "octocat-edit.el"
                    "octocat-commit.el" "octocat-job.el" "octocat-run.el"
-                   "octocat-workflow.el" "octocat-pr-diff.el" "octocat-vui.el"
+                   "octocat-workflow.el" "octocat-pr-diff.el"
                    "octocat-timeline.el" "octocat-pr.el" "octocat-issue.el"
                    "octocat-checks.el" "octocat-tree.el" "octocat-repo.el"
                    "octocat-search.el" "octocat-evil.el" "octocat.el"))
@@ -210,32 +212,33 @@ divergence:
 
 ```elisp
 ;; CORRECT — all bindings in the same let block via define-key
-(let ((aux   (evil-get-auxiliary-keymap octocat-commit-mode-map 'normal t))
-      (aux-m (evil-get-auxiliary-keymap octocat-commit-mode-map 'motion t)))
+(let ((aux   (evil-get-auxiliary-keymap octocat-workflow-mode-map 'normal t))
+      (aux-m (evil-get-auxiliary-keymap octocat-workflow-mode-map 'motion t)))
   (define-key aux   (kbd "g")       nil)           ; clear stale g prefix
   (define-key aux   (kbd "RET")     #'octocat-visit)
   (define-key aux   (kbd "o")       #'octocat-browse)
   (define-key aux   (kbd "C-c C-o") #'octocat-browse)
   (define-key aux   (kbd "q")       #'quit-window)
-  (define-key aux   (kbd "gr")      #'octocat-commit-refresh)
+  (define-key aux   (kbd "gr")      #'octocat-workflow-refresh)
   (define-key aux-m (kbd "RET")     #'octocat-visit))
 
 ;; BROKEN — evil-define-key* writes RET into a different slot
-(let ((aux (evil-get-auxiliary-keymap octocat-commit-mode-map 'normal t)))
+(let ((aux (evil-get-auxiliary-keymap octocat-workflow-mode-map 'normal t)))
   (define-key aux (kbd "g") nil))
-(evil-define-key* 'normal octocat-commit-mode-map
+(evil-define-key* 'normal octocat-workflow-mode-map
   (kbd "RET")  #'octocat-visit   ; ← silently shadowed at runtime
   (kbd "o")    #'octocat-browse)
 ```
 
 **Modes affected:** any mode that derives from `magit-section-mode` and uses
 `gr` (or another `g`-prefixed two-key binding) — which requires the
-`define-key aux (kbd "g") nil` cleanup.  Currently: `octocat-commit-mode`,
+`define-key aux (kbd "g") nil` cleanup.  Currently:
 `octocat-workflow-mode`, `octocat-run-mode`, `octocat-job-mode`.
 
 The vui.el-rendered modes (`octocat-mode`, `octocat-repo-mode`,
 `octocat-user-mode`, `octocat-pr-mode`, `octocat-issue-mode`,
-`octocat-pr-diff-mode`, `octocat-tree-mode`, `octocat-file-log-mode` and
+`octocat-pr-diff-mode`, `octocat-commit-mode`, `octocat-tree-mode`,
+`octocat-file-log-mode` and
 the list pages) do **not**
 derive from `magit-section-mode`, so they have no pre-existing
 `normal-state` slot conflict and `evil-define-key*` is safe for them.
@@ -264,18 +267,18 @@ owned by the child map, bypassing the inherited parent slot:
 
 ```elisp
 ;; CORRECT — IGNORE-PARENT t ensures a child-owned aux keymap
-(let ((aux   (evil-get-auxiliary-keymap octocat-commit-mode-map 'normal t t))
-      (aux-m (evil-get-auxiliary-keymap octocat-commit-mode-map 'motion t t)))
+(let ((aux   (evil-get-auxiliary-keymap octocat-workflow-mode-map 'normal t t))
+      (aux-m (evil-get-auxiliary-keymap octocat-workflow-mode-map 'motion t t)))
   (define-key aux   (kbd "RET") #'octocat-visit)
   ...)
 
 ;; BROKEN — returns magit-section-mode-map's shared aux keymap
-(let ((aux (evil-get-auxiliary-keymap octocat-commit-mode-map 'normal t)))
+(let ((aux (evil-get-auxiliary-keymap octocat-workflow-mode-map 'normal t)))
   (define-key aux (kbd "RET") #'octocat-visit))  ; ← mutates parent!
 ```
 
 This applies to **all** octocat modes that derive from `magit-section-mode`
-(commit, workflow, run, job) for both `'normal` and `'motion`
+(workflow, run, job) for both `'normal` and `'motion`
 states.  The vui.el-rendered modes listed above do not derive from
 `magit-section-mode`, so they are unaffected and continue to use
 `evil-define-key*` directly.

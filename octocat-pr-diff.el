@@ -32,22 +32,18 @@
 ;; patch text (with the comments interleaved) is only rebuilt when that
 ;; file or its comments change.
 ;;
-;; Depends on octocat-core.el and octocat-commit.el (for the file status
-;; icon and face).  Must not depend on octocat.el to avoid a circular
-;; require.
+;; The files themselves are rendered by octocat-diff.el, shared with the
+;; commit page.  Must not depend on octocat.el to avoid a circular require.
 
 ;;; Code:
 
-(require 'cl-lib)
 (require 'octocat-core)
-(require 'octocat-commit)
+(require 'octocat-diff)
 (require 'octocat-vui)
 (require 'vui)
-(require 'vui-components) ; vui-collapsible
 
-(declare-function octocat--commit-file-icon "octocat-commit" (status))
-(declare-function octocat--commit-file-face "octocat-commit" (status))
-(declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
+(declare-function octocat-repo-vui-use-cached "octocat-repo"
+                  (type repo number fetch &optional as-list))
 (declare-function octocat-pr--use-data "octocat-pr" (repo number))
 (declare-function octocat-pr--header "octocat-pr" (repo pr &optional tab loading))
 (declare-function octocat-pr--tabs "octocat-pr" (current repo number &optional files))
@@ -98,138 +94,7 @@ Uses the GitHub REST API via `gh api'."
    callback))
 
 
-;;;; Patch text
-;;
-;; The patch of a file is built as one string: the diff lines in the diff
-;; faces, each inline review comment boxed right after the line it is on.
-
-(defun octocat-pr-diff--comment-lines (comment)
-  "Return the lines of the boxed inline review COMMENT, without newlines."
-  (let* ((user   (gethash "user" comment))
-         (login  (or (and (hash-table-p user)
-                          (octocat--nonempty (gethash "login" user)))
-                     ""))
-         (author (if (string-empty-p login) "(unknown)" (concat "@" login)))
-         (body   (string-trim (or (gethash "body" comment) "")))
-         (date   (octocat--format-ts-relative
-                  (or (octocat--nonempty (gethash "created_at" comment)) "")))
-         (bar    (propertize "  │ " 'face 'octocat-dimmed)))
-    (append
-     (list (concat (propertize "  ┌─ " 'face 'octocat-dimmed)
-                   (propertize author 'face 'octocat-pr-author)
-                   (propertize (concat "  " date) 'face 'octocat-dimmed)))
-     (if (string-empty-p body)
-         (list (concat bar (propertize "(empty)" 'face 'octocat-dimmed)))
-       (mapcar (lambda (line) (concat bar line)) (split-string body "\n")))
-     (list (propertize "  └─" 'face 'octocat-dimmed)))))
-
-(defun octocat-pr-diff--index (comments)
-  "Index the review COMMENTS of one file for `octocat-pr-diff--patch-text'.
-Returns (BY-LINE . BY-POS): alists mapping a right-side line number, and
-for older comments that have no line a diff position, to the list of
-comments there, in order."
-  (let (by-line by-pos)
-    (dolist (c comments)
-      (let ((line (let ((v (gethash "line" c))) (and (integerp v) v)))
-            (pos  (let ((v (gethash "position" c))) (and (integerp v) v))))
-        (cond (line (push c (alist-get line by-line)))
-              (pos  (push c (alist-get pos by-pos))))))
-    (cons (mapcar (lambda (e) (cons (car e) (reverse (cdr e)))) by-line)
-          (mapcar (lambda (e) (cons (car e) (reverse (cdr e)))) by-pos))))
-
-(defun octocat-pr-diff--patch-text (patch index)
-  "Return the unified diff PATCH as a propertized string, without final newline.
-INDEX is the comment index of the file, see `octocat-pr-diff--index'.
-Each comment is placed right after the diff line it is on, found by
-tracking the right-side line number (from the `@@' headers) and the
-1-based position in the diff."
-  (let ((by-line (car index))
-        (by-pos  (cdr index))
-        (right 0)
-        (pos   0)
-        (lines (split-string patch "\n"))
-        out)
-    (when (equal (car (last lines)) "")
-      (setq lines (butlast lines)))
-    (cl-flet ((emit (text &optional face)
-                (push (if face
-                          (propertize (concat "  " text) 'face face)
-                        (concat "  " text))
-                      out))
-              (comments (key table)
-                (dolist (c (cdr (assq key table)))
-                  (dolist (l (octocat-pr-diff--comment-lines c))
-                    (push l out)))))
-      (dolist (raw lines)
-        (cl-incf pos)
-        (cond
-         ((string-prefix-p "@@" raw)
-          (when (string-match "@@ -[0-9]+\\(?:,[0-9]+\\)? \\+\\([0-9]+\\)" raw)
-            (setq right (string-to-number (match-string 1 raw))))
-          (emit raw 'octocat-diff-hunk-heading)
-          (comments pos by-pos))
-         ;; Deleted: only in the old file, so the right line stays.
-         ((string-prefix-p "-" raw)
-          (emit raw 'diff-removed)
-          (comments pos by-pos))
-         (t
-          (if (string-prefix-p "+" raw) (emit raw 'diff-added) (emit raw))
-          (comments right by-line)
-          (comments pos by-pos)
-          (cl-incf right)))))
-    (mapconcat #'identity (nreverse out) "\n")))
-
-
 ;;;; Components
-
-(vui-defcomponent octocat-pr-diff--file (file comments)
-  "One changed FILE (a files-endpoint hash-table) with its inline COMMENTS.
-A collapsible section, expanded at first; a file without a patch (binary,
-or too large for GitHub to show) is just its heading."
-  :render
-  (let* ((filename  (or (gethash "filename" file) ""))
-         (status    (or (gethash "status" file) "modified"))
-         (patch     (let ((p (gethash "patch" file)))
-                      (and (stringp p) (not (string-empty-p p)) p)))
-         (title     (concat (octocat--commit-file-icon status)
-                            " "
-                            (propertize filename 'face (octocat--commit-file-face status))
-                            (propertize (format "  +%d -%d"
-                                                (or (gethash "additions" file) 0)
-                                                (or (gethash "deletions" file) 0))
-                                        'face 'octocat-dimmed)))
-         (text      (vui-use-memo (patch comments)
-                      (and patch
-                           (octocat-pr-diff--patch-text
-                            patch (octocat-pr-diff--index comments))))))
-    (if (null text)
-        (vui-text (concat "  " title))
-      (vui-collapsible
-       :title title :key (intern filename) :initially-expanded t :indent 0
-       (vui-text text)))))
-
-(defun octocat-pr-diff--by-path (comments)
-  "Return an alist mapping a file path to the review COMMENTS made on it."
-  (let (table)
-    (dolist (c comments)
-      (when-let* ((path (octocat--nonempty (gethash "path" c))))
-        (push c (alist-get path table nil nil #'equal))))
-    (mapcar (lambda (e) (cons (car e) (reverse (cdr e)))) table)))
-
-(defun octocat-pr-diff--files-section (files by-path)
-  "Return the vnode of the Files section: the heading and one entry per file.
-FILES is the files vector and BY-PATH the review comments by file path."
-  (vui-vstack
-   (vui-text (propertize (format "Files (%d)" (length files))
-                         'face 'octocat-section-heading))
-   (if (zerop (length files))
-       (vui-text "  (no files changed)" :face 'octocat-dimmed)
-     (vui-list (append files nil)
-               (lambda (f)
-                 (vui-component 'octocat-pr-diff--file
-                                :file f
-                                :comments (cdr (assoc (gethash "filename" f) by-path))))
-               (lambda (f) (gethash "filename" f))))))
 
 (defun octocat-pr-diff--comments-section (comments)
   "Return the vnode of the Review Comments section.
@@ -248,37 +113,14 @@ COMMENTS is the `vui-use-async' result for the review comments."
                               n (if (= n 1) "" "s")))
                     :face 'octocat-dimmed))))))
 
-(defun octocat-pr-diff--use-cached (type repo number fetch &optional as-list)
-  "Return the `vui-use-async' result of FETCH for pull request NUMBER of REPO.
-TYPE is the disk-cache type (see `octocat--detail-cache-file').  The last
-saved data shows at once with :refreshing t (see `octocat-vui-with-stale')
-while FETCH, called with REPO, NUMBER and a callback, runs on every open
-of the page; fresh data replaces it in place and is saved.  AS-LIST says
-the data is a list, which the cache stores as a vector.
-Must be called during render, like any hook."
-  (let* ((cached (vui-use-memo (repo number)
-                   (let ((raw (octocat--detail-cache-load repo type number)))
-                     (and raw (if as-list (cl-coerce raw 'list) raw)))))
-         (async  (vui-use-async (list type repo number)
-                   (lambda (resolve reject)
-                     (funcall fetch repo number
-                              (lambda (r)
-                                (octocat-repo-vui--resolve-or-reject r resolve reject))))))
-         (fresh  (and (eq (plist-get async :status) 'ready)
-                      (plist-get async :data))))
-    (vui-use-effect (fresh)
-      (when fresh (octocat--detail-cache-save repo type number (vconcat fresh)))
-      nil)
-    (octocat-vui-with-stale async cached)))
-
 (vui-defcomponent octocat-pr-diff--page (repo number)
   "The diff of pull request NUMBER of REPO, under the PR page's header."
   :state ((spin 0))
   :render
   (let* ((pr       (octocat-pr--use-data repo number))
-         (files    (octocat-pr-diff--use-cached
+         (files    (octocat-repo-vui-use-cached
                     "pr-diff" repo number #'octocat--fetch-pr-diff))
-         (comments (octocat-pr-diff--use-cached
+         (comments (octocat-repo-vui-use-cached
                     "pr-review-comments" repo number
                     #'octocat--fetch-pr-review-comments t))
          (loading  (and (or (plist-get pr :refreshing)
@@ -286,7 +128,7 @@ Must be called during render, like any hook."
                             (plist-get comments :refreshing))
                         t))
          (by-path  (vui-use-memo ((plist-get comments :data))
-                     (octocat-pr-diff--by-path (plist-get comments :data)))))
+                     (octocat-diff-by-path (plist-get comments :data)))))
     (octocat-vui-use-spinner loading)
     (vui-vstack
      ;; The same header as the conversation, so the pages read as tabs.
@@ -306,7 +148,7 @@ Must be called during render, like any hook."
      (pcase (plist-get files :status)
        ('pending (vui-text "  (loading files…)" :face 'octocat-dimmed))
        ('error   (vui-text (format "  Error: %s" (plist-get files :error)) :face 'error))
-       (_ (octocat-pr-diff--files-section (plist-get files :data) by-path)))
+       (_ (octocat-diff-files-section (plist-get files :data) by-path)))
      (vui-newline)
      (octocat-pr-diff--comments-section comments))))
 

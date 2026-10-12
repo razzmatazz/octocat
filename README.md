@@ -100,28 +100,33 @@ it directly in your browser.
 ### Commit detail view (`octocat-commit-mode`)
 
 Navigate to a commit from the PR detail view (press `RET` on a commit row).
-The commit buffer mirrors Magit's commit layout:
+The commit buffer:
 
 ```
-owner/repo  commit a1b2c3d  Commit subject line
-├── Info
-│     Author   Jane Doe
-│     Date     2026-06-01
-│     SHA      a1b2c3d…
-│     <optional multi-line commit body>
-└── Files (3)
-      M  src/foo.el       +12 -3
-         @@ -10,6 +10,18 @@
-          (context line)
-         +(added line)
-         -(removed line)
-      A  src/bar.el       +40 -0
-      D  src/old.el       +0  -15
+owner/repo@a1b2c3d  [Code]  [Issues]  [Pull requests]  [Actions]
+Commit subject line
+Jane Doe  <jane@example.com> · @jane · 3 days ago
+SHA a1b2c3d…
+
+Message
+  <optional multi-line commit body>
+
+Checks (2)
+  ✓  build                github-actions        1m 2s
+
+Files (3)
+  M src/foo.el  +12 -3
+  @@ -10,6 +10,18 @@
+   (context line)
+  +(added line)
+  -(removed line)
+  A src/bar.el  +40 -0
+
+Comments (0)
 ```
 
-Each file entry is a collapsible section.  The diff hunks are rendered with
-`diff-added` / `diff-removed` faces, and hunk headers (`@@…@@`) use the
-`magit-diff-hunk-heading` face.
+Each file is collapsible.  `RET` on the top line opens the repo, on a
+check opens the commit's checks.
 
 ---
 

@@ -281,6 +281,13 @@ or `""` give `""`.
 
 ---
 
+## Copyable content is not indented
+
+Text a user may copy out verbatim (diff lines, code) starts at column 0,
+so it pastes as-is.  Decoration (headings, comment boxes) may indent.
+
+---
+
 ## Indicating the active (currently checked-out) branch
 
 ### Background: Magit's convention
@@ -459,7 +466,7 @@ so it reads as a breadcrumb rather than a metadata field.
 |---|---|
 | PR | First in `pr-meta` section (before Title) |
 | Issue | First in `issue-meta` section (before Title) |
-| Commit | First in `commit-meta` section (before Author) |
+| Commit | The top line, `owner/repo@sha` |
 | Workflow | First in `workflow-info` section (before State) |
 | Run | First in `run-info` section (before Workflow) |
 | Job | First in `job-info` section (before Status) |

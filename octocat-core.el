@@ -42,9 +42,6 @@
 (declare-function octocat-pr-open              "octocat-pr"   (repo number))
 (declare-function octocat-issue-open           "octocat-issue" (repo number))
 (declare-function octocat-commit-open          "octocat-commit" (repo sha))
-(declare-function octocat-commit-mode          "octocat-commit" ())
-(declare-function octocat-commit-refresh       "octocat-commit" (&optional _ignore-auto _noconfirm))
-(declare-function octocat--render-commit-loading "octocat-commit" (sha))
 
 ;; Buffer-local variable stubs: defined as defvar-local in their respective
 ;; files (loaded after octocat-core.el).  The plain defvar here lets the
@@ -56,7 +53,6 @@
 (defvar octocat--issue-repo)
 (defvar octocat--issue-number)
 (defvar octocat--commit-repo)
-(defvar octocat--commit-sha)
 (defvar octocat--workflow-repo)
 (defvar octocat--run-repo)
 (defvar octocat--job-repo)
@@ -485,8 +481,8 @@ Treats the JSON null sentinel `:null' and empty strings as absent values."
 (defun octocat--run-icon (status conclusion)
   "Return a propertized status icon for STATUS and CONCLUSION strings.
 STATUS takes priority over CONCLUSION for in-progress detection."
-  (let ((st (or status ""))
-        (co (octocat--nonempty conclusion)))
+  (let ((st (downcase (or status "")))
+        (co (let ((c (octocat--nonempty conclusion))) (and c (downcase c)))))
     (cond
      ((equal st "in_progress")
       (propertize "●" 'face 'octocat-ci-pending))
@@ -520,19 +516,24 @@ either timestamp is unavailable."
 (defun octocat--ci-status (pr)
   "Return a one-character CI-status indicator for PR hash-table PR.
 Returns \"✓\" (success), \"✗\" (failure), or \"●\" (pending/unknown)."
-  (let* ((checks (gethash "statusCheckRollup" pr))
-         (conclusions
-          (when (and checks (not (eq checks :null)))
-            (mapcar (lambda (c) (gethash "conclusion" c)) checks)))
-         (states
-          (when (and checks (not (eq checks :null)))
-            (mapcar (lambda (c) (gethash "state" c)) checks))))
+  (octocat--checks-ci-status (gethash "statusCheckRollup" pr)))
+
+(defun octocat--checks-ci-status (checks)
+  "Return a CI-status indicator, as `octocat--ci-status' does.
+The status is that of CHECKS, a `statusCheckRollup' sequence, or nil or
+:null.  A check's outcome is its conclusion (a check-run) or its state
+\(a commit status); one with neither is still running."
+  (let ((outcomes
+         (and checks (not (eq checks :null))
+              (mapcar (lambda (c)
+                        (upcase (or (octocat--nonempty (gethash "conclusion" c))
+                                    (octocat--nonempty (gethash "state" c))
+                                    "PENDING")))
+                      checks))))
     (cond
-     ((cl-some (lambda (s) (member s '("FAILURE" "ERROR" "TIMED_OUT")))
-               (append conclusions states))
+     ((cl-some (lambda (s) (member s '("FAILURE" "ERROR" "TIMED_OUT"))) outcomes)
       (propertize "✗" 'face 'octocat-ci-failure))
-     ((cl-every (lambda (s) (equal s "SUCCESS"))
-                (append conclusions states))
+     ((cl-every (lambda (s) (member s '("SUCCESS" "NEUTRAL" "SKIPPED"))) outcomes)
       (propertize "✓" 'face 'octocat-ci-success))
      (t
       (propertize "●" 'face 'octocat-ci-pending)))))

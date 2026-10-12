@@ -344,6 +344,33 @@ no gh call is made."
   (should (equal (substring-no-properties (octocat-repo-vui--state-label "OPEN" t)) "draft "))
   (should (equal (substring-no-properties (octocat-repo-vui--state-label "OPEN" :false)) "open  ")))
 
+(ert-deftest octocat-test-checks-ci-status ()
+  "A check's outcome is its conclusion or state, in any case."
+  (cl-flet ((status (&rest checks)
+              (substring-no-properties
+               (octocat--checks-ci-status
+                (mapcar (lambda (fields)
+                          (let ((h (make-hash-table :test #'equal)))
+                            (while fields (puthash (pop fields) (pop fields) h))
+                            h))
+                        checks)))))
+    (should (equal (status '("conclusion" "SUCCESS")) "✓"))
+    (should (equal (status '("conclusion" "success") '("state" "SUCCESS")) "✓"))
+    (should (equal (status '("conclusion" "SUCCESS") '("conclusion" "FAILURE")) "✗"))
+    (should (equal (status '("conclusion" "SUCCESS") '("status" "IN_PROGRESS")) "●"))))
+
+(ert-deftest octocat-test-checks-from-rest ()
+  "A REST check-run takes the shape of a statusCheckRollup entry."
+  (let ((entry (octocat-checks-from-rest
+                (json-parse-string
+                 "{\"name\":\"test\",\"status\":\"completed\",\"conclusion\":\"success\",\"started_at\":\"2026-01-01T00:00:00Z\",\"completed_at\":null,\"app\":{\"name\":\"GitHub Actions\"}}"))))
+    (should (equal (gethash "name" entry) "test"))
+    (should (equal (gethash "workflowName" entry) "GitHub Actions"))
+    (should (equal (gethash "status" entry) "COMPLETED"))
+    (should (equal (gethash "conclusion" entry) "SUCCESS"))
+    (should (equal (gethash "startedAt" entry) "2026-01-01T00:00:00Z"))
+    (should-not (gethash "completedAt" entry))))
+
 (ert-deftest octocat-test-counts-query-and-parse ()
   "Pull requests also count merged; the response parses to a plist."
   (should (string-match-p "merged:pullRequests(states:MERGED)"

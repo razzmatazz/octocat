@@ -74,6 +74,7 @@
 (declare-function octocat-pr-edit            "octocat-pr"        ())
 (declare-function octocat-commit-refresh     "octocat-commit"    (&optional _ignore-auto _noconfirm))
 (declare-function octocat-pr-diff-browse    "octocat-pr-diff"   ())
+(declare-function octocat-commit-browse     "octocat-commit"    ())
 (declare-function octocat-issue-refresh      "octocat-issue"     (&optional _ignore-auto _noconfirm))
 (declare-function octocat-issue-add-comment  "octocat-issue"     ())
 (declare-function octocat-issue-edit-body    "octocat-issue"     ())
@@ -171,21 +172,16 @@
     (kbd "q")       #'quit-window)
 
   ;; ── octocat-commit-mode ───────────────────────────────────────────────
-  ;; Use define-key directly on the aux keymap retrieved by
-  ;; evil-get-auxiliary-keymap for every binding, not evil-define-key*.
-  ;; See AGENTS.md "evil-define-key* aux-keymap slot divergence" for why.
-  (let ((aux   (evil-get-auxiliary-keymap octocat-commit-mode-map 'normal t t))
-        (aux-m (evil-get-auxiliary-keymap octocat-commit-mode-map 'motion t t)))
-    (define-key aux   (kbd "g")     nil)
-    (define-key aux   (kbd "RET")   #'octocat-visit)
-    (define-key aux   (kbd "C-c C-o") #'octocat-browse)
-    (define-key aux   (kbd "C-c C-v") #'octocat-toggle-markdown)
-    (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
-    (define-key aux   (kbd "C-c C-s") #'octocat-search-repo)
-    (define-key aux   (kbd "gs")    #'octocat-search-repo)
-    (define-key aux   (kbd "q")     #'quit-window)
-    (define-key aux   (kbd "gr")    #'octocat-commit-refresh)
-    (define-key aux-m (kbd "RET")   #'octocat-visit))
+  ;; vui.el-rendered like octocat-pr-diff-mode: row RET actions come from
+  ;; per-row keymaps, so only the global commands are bound here.
+  (evil-define-key* 'normal octocat-commit-mode-map
+    (kbd "C-c C-o") #'octocat-commit-browse
+    (kbd "C-c C-v") #'octocat-toggle-markdown
+    (kbd "C-c C-r") #'octocat-switch-repo
+    (kbd "C-c C-s") #'octocat-search-repo
+    (kbd "gs")      #'octocat-search-repo
+    (kbd "gr")      #'octocat-commit-refresh
+    (kbd "q")       #'quit-window)
 
   ;; ── octocat-pr-diff-mode ──────────────────────────────────────────────
   ;; vui.el-rendered like octocat-repo-mode, so only the global commands

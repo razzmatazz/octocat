@@ -61,8 +61,6 @@
 (defvar octocat--workflow-name)  ; defined as buffer-local in octocat-workflow.el
 (defvar octocat--run-repo)       ; defined as buffer-local in octocat-run.el
 (defvar octocat--run-id)         ; defined as buffer-local in octocat-run.el
-(defvar octocat--commit-repo)    ; defined as buffer-local in octocat-commit.el
-(defvar octocat--commit-sha)     ; defined as buffer-local in octocat-commit.el
 (defvar octocat--job-repo)       ; defined as buffer-local in octocat-job.el
 (defvar octocat--job-run-id)     ; defined as buffer-local in octocat-job.el
 (defvar octocat--job-id)         ; defined as buffer-local in octocat-job.el
@@ -97,9 +95,6 @@
 ;; declared here so octocat-visit can call them without the byte-compiler
 ;; warning about forward references).
 (declare-function octocat-checks-open            "octocat-checks" (repo sha ref))
-(declare-function octocat-commit-mode            "octocat-commit" ())
-(declare-function octocat-commit-refresh          "octocat-commit" (&optional _ignore-auto _noconfirm))
-(declare-function octocat--render-commit-loading  "octocat-commit" (sha))
 
 ;; Repo-mode entry point (defined in octocat-repo.el, already required).
 (declare-function octocat-repo-refresh      "octocat-repo" (&optional _ignore-auto _noconfirm))
@@ -121,24 +116,9 @@
        (octocat-pr-open (or octocat-repo--repo octocat--pr-repo)
                         (gethash "number" (oref section value))))
       ('octocat-commit
-       (let* ((commit   (oref section value))
-              (c        (gethash "commit" commit))
-              (oid      (or (gethash "oid" commit)
-                            (gethash "sha" commit)
-                            ""))
-              (msg      (or (and c (gethash "message" c)) ""))
-              (_subject (car (split-string msg "\n")))
-              (repo     (or octocat--pr-repo octocat-repo--repo))
-              (short    (substring oid 0 (min 7 (length oid))))
-              (buf-name (format "*octocat-commit: %s@%s*" repo short))
-              (buf      (get-buffer-create buf-name)))
-         (pop-to-buffer buf)
-         (unless (derived-mode-p 'octocat-commit-mode)
-           (octocat-commit-mode))
-         (setq octocat--commit-repo repo
-               octocat--commit-sha  oid)
-         (octocat--render-commit-loading oid)
-         (octocat-commit-refresh)))
+       (let ((commit (oref section value)))
+         (octocat-commit-open (or octocat--pr-repo octocat-repo--repo)
+                              (or (gethash "oid" commit) (gethash "sha" commit) ""))))
       ('issue
        (octocat-issue-open (or octocat-repo--repo octocat--issue-repo)
                            (gethash "number" (oref section value))))
@@ -170,12 +150,6 @@
                octocat--run-id   run-id)
          (octocat--render-run-loading run-id)
          (octocat-run-refresh)))
-      ;; RET on an individual check-run row of a commit buffer opens the
-      ;; checks detail buffer for that commit.  (The PR page opens its
-      ;; checks itself; see `octocat-pr--check-row'.)
-      ('check-run
-       (when (and (boundp 'octocat--commit-sha) octocat--commit-sha)
-         (octocat-checks-open octocat--commit-repo octocat--commit-sha nil)))
       ;; NOTE: the dashboard and the repo view are rendered with vui.el, so
       ;; their rows (and "load more" buttons) carry their own RET handlers
       ;; instead of being dispatched through here.
@@ -226,7 +200,6 @@ Section types handled:
 
 Major-mode fallback (used when the section type does not have its own
 handler, e.g. point is on a title/header line):
-  `octocat-commit-mode'   → https://github.com/REPO/commit/SHA
   `octocat-workflow-mode' → https://github.com/REPO/actions/workflows/ID
   `octocat-run-mode'      → https://github.com/REPO/actions/runs/ID
   `octocat-job-mode'      → https://github.com/REPO/actions/runs/RUN/job/JOB
@@ -311,14 +284,6 @@ handler, e.g. point is on a title/header line):
      ;; active at all.  Each branch uses the buffer-local vars set when the
      ;; detail buffer was opened.
      (cond
-      ((derived-mode-p 'octocat-commit-mode)
-       (when (and octocat--commit-repo octocat--commit-sha)
-         (let* ((sha octocat--commit-sha)
-                (url (format "https://github.com/%s/commit/%s"
-                             octocat--commit-repo sha)))
-           (message "Octocat: Opening commit %s in browser…"
-                    (substring sha 0 (min 7 (length sha))))
-           (browse-url url))))
       ((derived-mode-p 'octocat-workflow-mode)
        (when (and octocat--workflow-repo octocat--workflow-id)
          (let ((url (format "https://github.com/%s/actions/workflows/%s"

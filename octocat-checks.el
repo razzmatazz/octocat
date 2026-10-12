@@ -28,13 +28,21 @@
 ;; Data is retrieved from the GitHub Checks REST API:
 ;;   GET /repos/{owner}/{repo}/commits/{ref}/check-runs?per_page=100
 ;;
+;; Also the vui.el Checks section the PR and commit pages share,
+;; `octocat-checks-block'.
+;;
 ;; Depends on octocat-core.el (shared infrastructure) and octocat-run.el
 ;; (to open the run detail view).  Must not depend on octocat.el to avoid
 ;; a circular require.
 
 ;;; Code:
 
+(require 'cl-lib)
+(require 'seq)
 (require 'octocat-core)
+(require 'octocat-timeline)
+(require 'octocat-vui)
+(require 'vui)
 
 ;; octocat-run.el is loaded before this file in the package load order, but
 ;; declare the functions anyway to silence the byte-compiler.
@@ -110,6 +118,110 @@ Returns nil when the check was not created by GitHub Actions."
     (when (and (equal slug "github-actions") suite-id)
       suite-id)))
 
+
+;;;; Checks section (vui)
+;;
+;; Shared by the PR and commit pages.
+
+(defun octocat-checks-from-rest (check)
+  "Return the REST check-run CHECK in the shape of a `statusCheckRollup' entry.
+The REST API's snake_case, lowercase fields become the camelCase,
+uppercase ones `gh pr view' gives; the app name stands in for the
+workflow name, which the REST check-run does not carry."
+  (let ((entry (make-hash-table :test #'equal)))
+    (dolist (field `(("name"         . ,(gethash "name" check))
+                     ("workflowName" . ,(octocat-timeline--get check "app" "name"))
+                     ("status"       . ,(octocat--nonempty (gethash "status" check)))
+                     ("conclusion"   . ,(octocat--nonempty (gethash "conclusion" check)))
+                     ("startedAt"    . ,(octocat--nonempty (gethash "started_at" check)))
+                     ("completedAt"  . ,(octocat--nonempty (gethash "completed_at" check)))))
+      (when (cdr field)
+        (puthash (car field)
+                 (if (member (car field) '("status" "conclusion"))
+                     (upcase (cdr field))
+                   (cdr field))
+                 entry)))
+    entry))
+
+(defconst octocat-checks--column-max '(50 30)
+  "Widest the name and workflow columns of the checks list grow.")
+
+(defun octocat-checks--fields (check)
+  "Return the text columns of status CHECK (a hash-table).
+That is a list (NAME WORKFLOW DURATION STARTED); STARTED is the age,
+with the exact time on hover (see `octocat--format-ts-relative')."
+  (let ((started (octocat-timeline--get check "startedAt")))
+    (list (or (gethash "name" check) "")
+          (or (gethash "workflowName" check) "")
+          (or (octocat--run-duration started (octocat-timeline--get check "completedAt")) "")
+          (octocat--format-ts-relative started))))
+
+(defun octocat-checks--widths (checks)
+  "Return the width of each column: the widest field of any of CHECKS.
+The name and workflow columns stop at `octocat-checks--column-max'."
+  (let ((widths (list 0 0 0 0)))
+    (seq-doseq (check checks)
+      (setq widths (cl-mapcar (lambda (w field) (max w (string-width field)))
+                              widths (octocat-checks--fields check))))
+    (cl-mapcar (lambda (w cap) (if cap (min w cap) w))
+               widths (append octocat-checks--column-max '(nil nil)))))
+
+(defun octocat-checks--row (check widths on-visit)
+  "Return a RET-able vnode for the status CHECK (a hash-table).
+WIDTHS are the column widths, as from `octocat-checks--widths'.  A
+column no check has anything in takes no space.  ON-VISIT is called by
+RET."
+  (let ((cells (cl-mapcar
+                (lambda (field width face)
+                  (and (> width 0)
+                       (propertize (truncate-string-to-width field width nil ?\s "…")
+                                   'face face)))
+                (octocat-checks--fields check) widths
+                '(nil octocat-dimmed octocat-dimmed octocat-dimmed))))
+    (octocat-vui-row
+     (string-trim-right
+      (concat "  "
+              (octocat--run-icon (or (gethash "status" check) "")
+                                 (octocat-timeline--get check "conclusion"))
+              " "
+              (mapconcat #'identity (delq nil cells) "  ")))
+     on-visit
+     "RET: view checks for this commit")))
+
+(define-obsolete-variable-alias 'octocat-pr-checks-shown 'octocat-checks-shown "0.1.0")
+(defcustom octocat-checks-shown 5
+  "Number of checks shown on a PR or commit page before the rest folds away.
+The rest expands on RET.  Nil never folds."
+  :type '(choice (const :tag "Never fold" nil) integer)
+  :group 'octocat)
+
+(defun octocat-checks-block (checks on-visit)
+  "Return the vnodes of a section listing CI runs, with a CI summary.
+The runs are CHECKS, a `statusCheckRollup' vector, as a PR has (see
+`octocat-checks-from-rest' for a commit's check-runs).  ON-VISIT is
+called by RET on a check."
+  (let* (;; From all checks, so unfolding the rest shifts no column.
+         (widths (octocat-checks--widths checks)))
+    (cons
+     (vui-text (concat (propertize (format "Checks (%d)" (length checks))
+                                   'face 'octocat-section-heading)
+                       (unless (zerop (length checks))
+                         (concat "  " (propertize "CI:" 'face 'octocat-dimmed)
+                                 " " (octocat--checks-ci-status checks)))))
+     (if (zerop (length checks))
+         (list (vui-text (propertize "  (no checks)" 'face 'octocat-dimmed)))
+       (list (vui-component
+              'octocat-timeline-fold
+              :total (length checks)
+              :limit octocat-checks-shown
+              :noun "checks"
+              :key 'checks-fold
+              :prefix "  "
+              :render (lambda (shown)
+                        (apply #'vui-vstack
+                               (cl-loop for check across checks
+                                        repeat shown
+                                        collect (octocat-checks--row check widths on-visit))))))))))
 
 ;;;; Rendering
 

@@ -20,21 +20,27 @@
 
 ;;; Commentary:
 
-;; Commit data fetching, Magit-style detail rendering, and the
-;; `octocat-commit-mode' major mode.  Depends on octocat-core.el;
-;; must not depend on octocat.el or octocat-pr.el to avoid circular
-;; requires.
+;; Commit data fetching and the `octocat-commit-mode' page, rendered with
+;; vui.el like the issue and PR pages.  The commit, its check-runs and its
+;; comments are three independent `vui-use-async' fetches, each shown
+;; from the disk cache until it arrives.  The changed files are rendered
+;; by octocat-diff.el, like the PR diff page's.
+;;
+;; Depends on octocat-core.el; must not depend on octocat.el or
+;; octocat-pr.el to avoid circular requires.
 
 ;;; Code:
 
+(require 'seq)
 (require 'octocat-core)
+(require 'octocat-checks)
+(require 'octocat-diff)
+(require 'octocat-vui)
+(require 'vui)
 
-;; These commands are defined in octocat.el which loads this file, so we
-;; cannot require it here.  Declare them to silence the byte-compiler.
-(declare-function octocat-browse        "octocat"        ())
-(declare-function octocat-visit         "octocat"        ())
-;; octocat-checks.el is loaded after this file; declare to silence compiler.
-(declare-function octocat--fetch-checks "octocat-checks" (repo sha callback))
+(declare-function octocat-search-repo "octocat-search" ())
+(declare-function octocat-repo-vui-use-cached "octocat-repo"
+                  (type repo number fetch &optional as-list))
 
 
 
@@ -44,32 +50,6 @@
   '((t :inherit font-lock-constant-face))
   "Face for a commit SHA in the commit view."
   :group 'octocat)
-
-(defface octocat-commit-file-modified
-  '((t :inherit default))
-  "Face for a modified file in the commit view."
-  :group 'octocat)
-
-(defface octocat-commit-file-added
-  '((t :inherit diff-added))
-  "Face for an added file in the commit view."
-  :group 'octocat)
-
-(defface octocat-commit-file-removed
-  '((t :inherit diff-removed))
-  "Face for a removed file in the commit view."
-  :group 'octocat)
-
-(defface octocat-commit-file-renamed
-  '((t :inherit octocat-branch))
-  "Face for a renamed file in the commit view."
-  :group 'octocat)
-
-(defface octocat-diff-hunk-heading
-  '((t :inherit diff-header))
-  "Face for a diff hunk header line."
-  :group 'octocat)
-
 
 ;;;; Buffer-local declarations
 
@@ -108,420 +88,210 @@ general comments (\\='path\\=' is :null or nil) and inline comments
    callback))
 
 
-;;;; Comment rendering
-
-(defun octocat--render-commit-comment-list (comments)
-  "Insert commit COMMENTS into the current buffer as collapsible sections.
-COMMENTS is a list of comment hash-tables from the GitHub REST commits
-comments endpoint (snake_case keys).  Only general comments (those with
-no \\='path\\=' field) are rendered here; inline comments are displayed
-directly in the diff within the Files section.  A dimmed note states how
-many inline comments were shown there."
-  (if (null comments)
-      (insert (propertize "  (no comments)\n" 'face 'octocat-dimmed))
-    (let* ((general  (cl-remove-if
-                      (lambda (c) (octocat--nonempty (gethash "path" c)))
-                      comments))
-           (n-inline (- (length comments) (length general))))
-      ;; Note about inline comments shown in the Files diff above.
-      (when (> n-inline 0)
-        (insert (propertize
-                 (format "  (%d inline comment%s shown in diff above)\n"
-                         n-inline (if (= n-inline 1) "" "s"))
-                 'face 'octocat-dimmed)))
-      ;; General comments.
-      (if (null general)
-          (when (zerop n-inline)
-            (insert (propertize "  (no comments)\n" 'face 'octocat-dimmed)))
-        (dolist (comment general)
-          (let* ((user   (gethash "user" comment))
-                 (login  (or (and user (octocat--nonempty (gethash "login" user))) ""))
-                 (author (if (string-empty-p login) "(unknown)" (concat "@" login)))
-                 (body   (or (gethash "body" comment) ""))
-                 (date   (octocat--format-ts-relative
-                          (or (octocat--nonempty (gethash "created_at" comment)) ""))))
-            (magit-insert-section (commit-comment comment)
-              (magit-insert-heading
-                (concat "  "
-                        (propertize author 'face 'octocat-pr-author)
-                        "  "
-                        (propertize date 'face 'octocat-dimmed)
-                        "\n"))
-              (if (string-empty-p (string-trim body))
-                  (insert (propertize "  (empty)\n" 'face 'octocat-dimmed))
-                (octocat--insert-markdown body))
-              (insert "\n"))))))))
-
-
 ;;;; Internal helpers
 
-(defun octocat--commit-file-face (status)
-  "Return a face for a file with given STATUS string."
-  (cond ((equal status "added")    'octocat-commit-file-added)
-        ((equal status "removed")  'octocat-commit-file-removed)
-        ((equal status "renamed")  'octocat-commit-file-renamed)
-        (t                         'octocat-commit-file-modified)))
+;;;; Sections
+;;
+;; Each returns the vnodes of one part of the page.  The files reuse the
+;; PR diff's file component: commit comments have the same shape as PR
+;; review comments.
 
-(defun octocat--commit-file-icon (status)
-  "Return a one-char icon string for STATUS."
-  (cond ((equal status "added")    (propertize "A" 'face 'octocat-commit-file-added))
-        ((equal status "removed")  (propertize "D" 'face 'octocat-commit-file-removed))
-        ((equal status "renamed")  (propertize "R" 'face 'octocat-commit-file-renamed))
-        (t                         (propertize "M" 'face 'octocat-commit-file-modified))))
+(defun octocat-commit--header (repo sha commit suffix)
+  "Return the header vnodes of commit SHA of REPO.
+COMMIT is the commit hash-table, or nil while it loads.  The top row is
+the repo and short SHA, as `owner/repo#N' on an issue, then the tab strip
+and SUFFIX, the loading indicator.  The subject is on the row below, and
+the author, date and full SHA under it."
+  (let* ((short  (substring sha 0 (min 7 (length sha))))
+         (c      (and commit (gethash "commit" commit)))
+         (msg    (or (and c (gethash "message" c)) ""))
+         (author (and c (gethash "author" c)))
+         (login  (and commit (octocat--commit-author-login commit))))
+    (delq nil
+          (list
+           (apply #'vui-hstack :spacing 2
+                  (octocat-vui-row
+                   (concat (propertize repo 'face 'octocat-repo)
+                           (propertize (concat "@" short) 'face 'octocat-commit-sha))
+                   (lambda () (octocat-visit-repo repo))
+                   "RET: open repo view")
+                  (append (octocat-vui-repo-tabs repo nil nil nil 'code)
+                          (and suffix (not (string-empty-p suffix))
+                               (list (vui-text (string-trim-left suffix))))))
+           (if commit
+               (vui-text (car (split-string msg "\n")))
+             (vui-text "(loading…)" :face 'octocat-dimmed))
+           (and commit
+                (vui-text
+                 (mapconcat
+                  #'identity
+                  (delq nil
+                        (list (propertize (octocat--commit-author-full commit)
+                                          'face 'octocat-pr-author)
+                              (and login (propertize login 'face 'octocat-pr-author))
+                              (octocat--format-ts-relative
+                               (or (and author (octocat--nonempty (gethash "date" author)))
+                                   ""))))
+                  (propertize " · " 'face 'octocat-dimmed))))
+           (and commit
+                (vui-text (concat (propertize "SHA " 'face 'octocat-dimmed)
+                                  (propertize (or (gethash "sha" commit) sha)
+                                              'face 'octocat-commit-sha))))))))
 
-(defun octocat--insert-patch (patch)
-  "Insert a unified diff PATCH string with appropriate faces."
-  (dolist (line (split-string patch "\n"))
-    (cond
-     ((string-prefix-p "@@" line)
-      (insert (propertize (concat "  " line "\n")
-                          'face 'octocat-diff-hunk-heading)))
-     ((string-prefix-p "+" line)
-      (insert (propertize (concat "  " line "\n")
-                          'face 'diff-added)))
-     ((string-prefix-p "-" line)
-      (insert (propertize (concat "  " line "\n")
-                          'face 'diff-removed)))
-     (t
-      (insert "  " line "\n")))))
+(defun octocat-commit--body (commit raw width)
+  "Return the Message section of COMMIT: the message below its subject.
+Nil when the message is the subject alone.  RAW and WIDTH are as for
+`octocat--markdown-string'."
+  (let* ((c    (gethash "commit" commit))
+         (msg  (or (and c (gethash "message" c)) ""))
+         (body (string-trim (mapconcat #'identity (cdr (split-string msg "\n")) "\n"))))
+    (unless (string-empty-p body)
+      (vui-vstack
+       (vui-text (propertize "Message" 'face 'octocat-section-heading))
+       (vui-text (string-remove-suffix
+                  "\n" (octocat--markdown-string body nil raw width)))))))
 
-(defun octocat--insert-patch-comment (comment)
-  "Insert one inline diff COMMENT as a collapsible magit section.
-COMMENT is a commit comment hash-table from the REST API.  Renders a
-compact bordered block using box-drawing characters, intended to be
-called from within a diff-rendering context."
+(defun octocat-commit--async-status (result empty)
+  "Return a dimmed vnode for RESULT while it is pending or failed, else nil.
+EMPTY is the text shown when it is ready but has no data."
+  (pcase (plist-get result :status)
+    ('pending (vui-text "  (loading…)" :face 'octocat-dimmed))
+    ('error   (vui-text (format "  %s" (plist-get result :error)) :face 'octocat-dimmed))
+    (_ (and (zerop (length (plist-get result :data)))
+            (vui-text (concat "  " empty) :face 'octocat-dimmed)))))
+
+(defun octocat-commit--heading (label result)
+  "Return the section heading LABEL, with RESULT's count once it is ready."
+  (vui-text (propertize (if (eq (plist-get result :status) 'ready)
+                            (format "%s (%d)" label (length (plist-get result :data)))
+                          label)
+                        'face 'octocat-section-heading)))
+
+(defun octocat-commit--checks (repo sha checks)
+  "Return the section listing the CI runs of commit SHA of REPO.
+Its check-runs are in CHECKS, a `vui-use-async' result."
+  (or (when-let* ((status (octocat-commit--async-status checks "(no checks)")))
+        (vui-vstack (octocat-commit--heading "Checks" checks) status))
+      (apply #'vui-vstack
+             (octocat-checks-block
+              (vconcat (mapcar #'octocat-checks-from-rest (plist-get checks :data)))
+              (lambda () (octocat-checks-open repo sha nil))))))
+
+(defun octocat-commit--comment (comment raw width)
+  "Return the vnode of the general COMMENT, its author, date and body.
+RAW and WIDTH are as for `octocat--markdown-string'."
   (let* ((user   (gethash "user" comment))
-         (login  (or (and user (octocat--nonempty (gethash "login" user))) ""))
-         (author (if (string-empty-p login) "(unknown)" (concat "@" login)))
-         (body   (or (gethash "body" comment) ""))
-         (date   (octocat--format-ts-relative
-                  (or (octocat--nonempty (gethash "created_at" comment)) ""))))
-    (magit-insert-section (commit-comment comment)
-      (magit-insert-heading
-        (concat (propertize "  ┌─ " 'face 'octocat-dimmed)
-                (propertize author 'face 'octocat-pr-author)
-                (propertize (concat "  " date) 'face 'octocat-dimmed)
-                "\n"))
-      (if (string-empty-p (string-trim body))
-          (insert (propertize "  │ (empty)\n" 'face 'octocat-dimmed))
-        (dolist (bline (split-string (string-trim body) "\n"))
-          (insert (propertize "  │ " 'face 'octocat-dimmed) bline "\n")))
-      (insert (propertize "  └─\n" 'face 'octocat-dimmed)))))
+         (login  (or (and (hash-table-p user) (octocat--nonempty (gethash "login" user)))
+                     ""))
+         (body   (string-trim (or (gethash "body" comment) ""))))
+    (vui-text
+     (concat "  "
+             (propertize (if (string-empty-p login) "(unknown)" (concat "@" login))
+                         'face 'octocat-pr-author)
+             "  "
+             (propertize (octocat--format-ts-relative
+                          (or (octocat--nonempty (gethash "created_at" comment)) ""))
+                         'face 'octocat-dimmed)
+             "\n"
+             (if (string-empty-p body)
+                 (propertize "  (empty)" 'face 'octocat-dimmed)
+               (string-remove-suffix
+                "\n" (octocat--markdown-string body nil raw width)))))))
 
-(defun octocat--insert-patch-with-comments (patch comments-by-line
-                                            &optional comments-by-pos)
-  "Insert PATCH with inline comments interleaved at the correct lines.
-PATCH is a unified diff string.
-COMMENTS-BY-LINE is an alist mapping integer right-side (new-file) line
-numbers to lists of comment hash-tables.  Used for comments that carry a
-\\='line\\=' field from the GitHub API.
-COMMENTS-BY-POS is an optional alist mapping integer diff-position numbers
-\(1-based, counting every line in the diff including hunk headers and removed
-lines) to lists of comment hash-tables.  Used for older-style comments that
-carry only a \\='position\\=' field and no \\='line\\=' field.
-Parses `@@' hunk headers to track both counters simultaneously and inserts
-matching comments immediately after each rendered diff line."
-  (let ((right-line 0)
-        (diff-pos   0))
-    (dolist (raw-line (split-string patch "\n"))
-      (cl-incf diff-pos)   ; every line counts toward position (1-based)
-      (cond
-       ;; Hunk header — extract the new-file start line from `+N' field.
-       ((string-prefix-p "@@" raw-line)
-        (when (string-match
-               "@@ -[0-9]+\\(?:,[0-9]+\\)? \\+\\([0-9]+\\)" raw-line)
-          (setq right-line (string-to-number (match-string 1 raw-line))))
-        (insert (propertize (concat "  " raw-line "\n")
-                            'face 'octocat-diff-hunk-heading))
-        (dolist (c (cdr (assq diff-pos comments-by-pos)))
-          (octocat--insert-patch-comment c)))
-       ;; Deleted line — exists only in old file; do not advance right-line.
-       ((string-prefix-p "-" raw-line)
-        (insert (propertize (concat "  " raw-line "\n") 'face 'diff-removed))
-        (dolist (c (cdr (assq diff-pos comments-by-pos)))
-          (octocat--insert-patch-comment c)))
-       ;; Added line — exists in new file at right-line.
-       ((string-prefix-p "+" raw-line)
-        (insert (propertize (concat "  " raw-line "\n") 'face 'diff-added))
-        (dolist (c (cdr (assq right-line comments-by-line)))
-          (octocat--insert-patch-comment c))
-        (dolist (c (cdr (assq diff-pos comments-by-pos)))
-          (octocat--insert-patch-comment c))
-        (cl-incf right-line))
-       ;; Context line — exists in both; also in new file at right-line.
-       (t
-        (insert "  " raw-line "\n")
-        (dolist (c (cdr (assq right-line comments-by-line)))
-          (octocat--insert-patch-comment c))
-        (dolist (c (cdr (assq diff-pos comments-by-pos)))
-          (octocat--insert-patch-comment c))
-        (cl-incf right-line))))))
+(defun octocat-commit--comments (comments raw width)
+  "Return the Comments section.
+COMMENTS is the `vui-use-async' result for the commit's comments.  Only
+general comments are listed; inline ones are in the diff, and counted in
+a dimmed note.  RAW and WIDTH are as for `octocat--markdown-string'."
+  (let* ((all     (plist-get comments :data))
+         (general (seq-remove (lambda (c) (octocat--nonempty (gethash "path" c))) all))
+         (inline  (- (length all) (length general))))
+    (apply #'vui-vstack
+           (octocat-commit--heading "Comments" comments)
+           (or (delq nil (list (octocat-commit--async-status comments "(no comments)")))
+               (append
+                (and (> inline 0)
+                     (list (vui-text (format "  (%d inline comment%s shown in the diff above)"
+                                             inline (if (= inline 1) "" "s"))
+                                     :face 'octocat-dimmed)))
+                (mapcar (lambda (c) (octocat-commit--comment c raw width)) general))))))
 
 
-;;;; Rendering
+;;;; Page
 
-(defun octocat--render-commit-loading (sha)
-  "Render a loading skeleton for commit SHA."
-  (let ((inhibit-read-only t)
-        (short (substring sha 0 (min 7 (length sha)))))
-    (erase-buffer)
-    (magit-insert-section (octocat-commit-root)
-      (magit-insert-heading
-        (concat (propertize (or octocat--commit-repo "") 'face 'octocat-repo)
-                (propertize (concat "@" short) 'face 'octocat-commit-sha)
-                "  "
-                (octocat--repo-tabs-string octocat--commit-repo 'code)))
-      (magit-insert-section (commit-meta)
-        (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))
-        (let ((hint (list 'mouse-face 'magit-section-highlight
-                          'help-echo  "RET: open repo view")))
-          (magit-insert-section (repo-nav octocat--commit-repo)
-            (magit-insert-heading
-              (concat (apply #'propertize "  Repo     " hint)
-                      (apply #'propertize (or octocat--commit-repo "")
-                             'face 'octocat-repo hint)
-                      (apply #'propertize "\n" hint)))))
-        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
-      (insert "\n")
-      (magit-insert-section (commit-message)
-        (magit-insert-heading (propertize "Message" 'face 'octocat-section-heading))
-        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
-      (insert "\n")
-      (magit-insert-section (commit-checks)
-        (magit-insert-heading (propertize "Checks" 'face 'octocat-section-heading))
-        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
-      (insert "\n")
-      (magit-insert-section (commit-files)
-        (magit-insert-heading (propertize "Files" 'face 'octocat-section-heading))
-        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
-      (insert "\n")
-      (magit-insert-section (commit-comments)
-        (magit-insert-heading (propertize "Comments" 'face 'octocat-section-heading))
-        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))))
-
-(defun octocat--render-commit (commit &optional checks-list comments-list)
-  "Erase the current buffer and render commit detail from hash-table COMMIT.
-COMMIT is the JSON object returned by the GitHub commits API endpoint.
-CHECKS-LIST is an optional list of check-run hash-tables from the Checks
-API; when the symbol `loading\\=' a placeholder is shown instead.
-COMMENTS-LIST is an optional list of comment hash-tables from the GitHub
-REST commits comments endpoint; when the symbol `loading\\=' a placeholder
-is shown instead."
-  (let* ((sha       (or (gethash "sha" commit) ""))
-         (short     (substring sha 0 (min 7 (length sha))))
-         (c         (gethash "commit" commit))
-         (message   (or (and c (gethash "message" c)) ""))
-         (lines     (split-string message "\n"))
-         (subject   (car lines))
-         (author-obj    (and c (gethash "author" c)))
-         (author        (octocat--commit-author-full commit))
-         (github-handle (octocat--commit-author-login commit))
-         (date-raw      (or (and author-obj (gethash "date" author-obj)) ""))
-         (date      (octocat--format-ts-relative date-raw))
-         (files     (let ((v (gethash "files" commit)))
-                      (if (or (null v) (eq v :null)) [] v)))
-         (inhibit-read-only t))
-    (erase-buffer)
-    (magit-insert-section (octocat-commit-root)
-      ;; ── Header ────────────────────────────────────────────────────────
-      (magit-insert-heading
-        (concat (propertize (or octocat--commit-repo "") 'face 'octocat-repo)
-                (propertize (concat "@" short) 'face 'octocat-commit-sha)
-                "  "
-                (octocat--repo-tabs-string octocat--commit-repo 'code)))
-      ;; The subject has its own row, as an issue's or PR's title does.
-      (insert subject "\n")
-      ;; ── Meta ──────────────────────────────────────────────────────────
-      (magit-insert-section (commit-meta)
-        (magit-insert-heading (propertize "Info" 'face 'octocat-section-heading))
-        (let ((hint (list 'mouse-face 'magit-section-highlight
-                          'help-echo  "RET: open repo view")))
-          (magit-insert-section (repo-nav octocat--commit-repo)
-            (magit-insert-heading
-              (concat (apply #'propertize "  Repo    " hint)
-                      (apply #'propertize (or octocat--commit-repo "")
-                             'face 'octocat-repo hint)
-                      (apply #'propertize "\n" hint)))))
-        (insert (format "  Author  %s\n"
-                        (propertize author 'face 'octocat-pr-author)))
-        (when github-handle
-          (insert (format "  GitHub  %s\n"
-                          (propertize github-handle 'face 'octocat-pr-author))))
-        (insert (format "  Date    %s\n" date))
-        (insert (format "  SHA     %s\n"
-                        (propertize sha 'face 'octocat-commit-sha))))
-      ;; ── Message ───────────────────────────────────────────────────────
-      (insert "\n")
-      (magit-insert-section (commit-message)
-        (magit-insert-heading (propertize "Message" 'face 'octocat-section-heading))
-        (if (string-empty-p (string-trim message))
-            (insert (propertize "  (no message)\n" 'face 'octocat-dimmed))
-          (octocat--insert-markdown message)))
-      ;; ── Checks ────────────────────────────────────────────────────────
-      (insert "\n")
-      (magit-insert-section (commit-checks)
-        (magit-insert-heading
-          (if (and checks-list (listp checks-list))
-              (propertize (format "Checks (%d)" (length checks-list))
-                          'face 'octocat-section-heading)
-            (propertize "Checks" 'face 'octocat-section-heading)))
-        (cond
-         ((eq checks-list 'loading)
-          (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
-         ((or (null checks-list) (zerop (length checks-list)))
-          (insert (propertize "  (no checks)\n" 'face 'octocat-dimmed)))
-         (t
-          (dolist (check checks-list)
-            (let* ((name       (or (gethash "name"       check) ""))
-                   (status     (downcase (or (gethash "status"  check) "")))
-                   (conc-raw   (gethash "conclusion" check))
-                   (conclusion (and (octocat--nonempty conc-raw) (downcase conc-raw)))
-                   (started    (octocat--nonempty (gethash "started_at"  check)))
-                   (completed  (octocat--nonempty (gethash "completed_at" check)))
-                   (duration   (octocat--run-duration started completed))
-                   (app        (gethash "app" check))
-                   (app-name   (or (and app (octocat--nonempty (gethash "name" app))) ""))
-                   (icon       (octocat--run-icon status conclusion))
-                   (hint       '(mouse-face magit-section-highlight
-                                 help-echo  "RET: view checks for this commit")))
-              (magit-insert-section (check-run check)
-                (magit-insert-heading
-                  (concat "  "
-                          icon
-                          "  "
-                          (apply #'propertize
-                                 (truncate-string-to-width name 40 nil ?\s "…")
-                                 hint)
-                          "  "
-                          (propertize (truncate-string-to-width
-                                       (format "%-20s" app-name) 20 nil ?\s "…")
-                                      'face 'octocat-dimmed)
-                          (if duration
-                              (concat "  " (propertize duration 'face 'octocat-dimmed))
-                            "")
-                          "\n"))))))))
-      ;; ── Files ─────────────────────────────────────────────────────────
-      ;; Build two path-keyed lookup tables for inline comments:
-      ;;   inline-by-path     — keyed by actual right-side line number (line field)
-      ;;   inline-by-path-pos — keyed by diff-position (position field), for older
-      ;;                        comments that have no line field
-      (let* ((inline-by-path
-              (when (and comments-list (listp comments-list))
-                (let ((tbl '()))
-                  (dolist (c comments-list)
-                    (let* ((path (octocat--nonempty (gethash "path" c)))
-                           (lv   (gethash "line" c))
-                           (line (and lv (not (eq lv :null)) lv)))
-                      (when (and path line)
-                        (let ((entry (assoc path tbl)))
-                          (if entry
-                              (setcdr entry
-                                      (append (cdr entry) (list (cons line c))))
-                            (push (cons path (list (cons line c))) tbl))))))
-                  tbl)))
-             (inline-by-path-pos
-              (when (and comments-list (listp comments-list))
-                (let ((tbl '()))
-                  (dolist (c comments-list)
-                    (let* ((path (octocat--nonempty (gethash "path" c)))
-                           (lv   (gethash "line" c))
-                           (line (and lv (not (eq lv :null)) lv))
-                           (pv   (gethash "position" c))
-                           (pos  (and pv (not (eq pv :null)) pv)))
-                      ;; Only use position for comments that lack a line number.
-                      (when (and path pos (not line))
-                        (let ((entry (assoc path tbl)))
-                          (if entry
-                              (setcdr entry
-                                      (append (cdr entry) (list (cons pos c))))
-                            (push (cons path (list (cons pos c))) tbl))))))
-                  tbl))))
-        (insert "\n")
-        (magit-insert-section (commit-files)
-          (magit-insert-heading
-            (propertize (format "Files (%d)" (length files))
-                        'face 'octocat-section-heading))
-          (if (zerop (length files))
-              (insert (propertize "  (no files)\n" 'face 'octocat-dimmed))
-            (cl-loop for file across files do
-                     (let* ((filename  (or (gethash "filename"  file) ""))
-                            (status    (or (gethash "status"    file) "modified"))
-                            (additions (or (gethash "additions" file) 0))
-                            (deletions (or (gethash "deletions" file) 0))
-                            (patch      (gethash "patch" file))
-                            (icon       (octocat--commit-file-icon status))
-                            (fface      (octocat--commit-file-face status))
-                            (has-patch  (and patch (not (eq patch :null))
-                                             (not (string-empty-p patch))))
-                            ;; Inline comments for this file keyed by line number
-                            ;; and by diff-position (for older position-only comments).
-                            (file-by-line
-                             (cdr (assoc filename inline-by-path)))
-                            (file-by-pos
-                             (cdr (assoc filename inline-by-path-pos))))
-                       (magit-insert-section (commit-file file)
-                         (magit-insert-heading
-                           (concat "  "
-                                   icon
-                                   " "
-                                   (propertize filename 'face fface)
-                                   (propertize
-                                    (format "  +%d -%d" additions deletions)
-                                    'face 'octocat-dimmed)
-                                   "\n"))
-                         (when has-patch
-                           (if (or file-by-line file-by-pos)
-                               ;; Group multiple comments on the same key into
-                               ;; lists for assq lookup.
-                               (cl-flet ((group (pairs)
-                                           (let ((tbl2 '()))
-                                             (dolist (p pairs)
-                                               (let* ((k (car p)) (v (cdr p))
-                                                      (e (assq k tbl2)))
-                                                 (if e
-                                                     (setcdr e (append (cdr e) (list v)))
-                                                   (push (cons k (list v)) tbl2))))
-                                             tbl2)))
-                                 (octocat--insert-patch-with-comments
-                                  patch
-                                  (group file-by-line)
-                                  (group file-by-pos)))
-                             (octocat--insert-patch patch)))))))))
-
-      ;; ── Comments ──────────────────────────────────────────────────────
-      (insert "\n")
-      (magit-insert-section (commit-comments)
-        (magit-insert-heading
-          (if (and comments-list (listp comments-list))
-              (propertize (format "Comments (%d)" (length comments-list))
-                          'face 'octocat-section-heading)
-            (propertize "Comments" 'face 'octocat-section-heading)))
-        (cond
-         ((eq comments-list 'loading)
-          (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))
-         (t
-          (octocat--render-commit-comment-list comments-list)))))))
+(vui-defcomponent octocat-commit--page (repo sha raw)
+  "Commit SHA of REPO: header, message, checks, files and comments.
+RAW shows markdown verbatim.  The commit, its checks and its comments
+are fetched independently; each shows its cached copy until then."
+  :state ((spin 0) (win-width nil))
+  :render
+  (let* ((width    (octocat-vui-use-window-width))
+         (commit   (octocat-repo-vui-use-cached "commit" repo sha #'octocat--fetch-commit))
+         (checks   (octocat-repo-vui-use-cached "checks" repo sha #'octocat--fetch-checks t))
+         (comments (octocat-repo-vui-use-cached
+                    "commit-comments" repo sha #'octocat--fetch-commit-comments t))
+         (data     (and (eq (plist-get commit :status) 'ready) (plist-get commit :data)))
+         (loading  (and (or (memq 'pending (list (plist-get commit :status)
+                                                 (plist-get checks :status)
+                                                 (plist-get comments :status)))
+                            (plist-get commit :refreshing)
+                            (plist-get checks :refreshing)
+                            (plist-get comments :refreshing))
+                        t))
+         (md-width (progn width (octocat--markdown-width)))
+         (by-path  (vui-use-memo ((plist-get comments :data))
+                     (octocat-diff-by-path (plist-get comments :data))))
+         (body     (vui-use-memo (data raw width)
+                     (and data (octocat-commit--body data raw md-width)))))
+    (octocat-vui-use-spinner loading)
+    (apply #'vui-vstack
+           (append
+            (octocat-commit--header repo sha data
+                                    (and loading (octocat-vui-loading-suffix
+                                                  '(:refreshing t) spin)))
+            (pcase (plist-get commit :status)
+              ('error (list (vui-newline)
+                            (vui-text (format "Error: %s" (plist-get commit :error))
+                                      :face 'error)))
+              ('pending nil)
+              (_ (delq nil
+                       (list (and body (vui-newline))
+                             body
+                             (vui-newline)
+                             (octocat-commit--checks repo sha checks)
+                             (vui-newline)
+                             (octocat-diff-files-section
+                              (or (gethash "files" data) []) by-path)
+                             (vui-newline)
+                             (octocat-commit--comments comments raw md-width)))))))))
 
 
 ;;;; Major mode
 
+(defun octocat-commit-browse ()
+  "Open this commit in a browser."
+  (interactive)
+  (unless (and octocat--commit-repo octocat--commit-sha)
+    (user-error "Octocat: Buffer is not associated with a commit"))
+  (message "Octocat: Opening commit %s in browser…"
+           (substring octocat--commit-sha 0 (min 7 (length octocat--commit-sha))))
+  (browse-url (format "https://github.com/%s/commit/%s"
+                      octocat--commit-repo octocat--commit-sha)))
+
 (defvar octocat-commit-mode-map
-  (let ((map (make-sparse-keymap))
-        (g   (make-sparse-keymap)))   ; "g" prefix — lets evil's "gg" through
-    (set-keymap-parent map magit-section-mode-map)
-    (define-key map (kbd "q")       #'quit-window)
-    (define-key map (kbd "RET")     #'octocat-visit)
-    (define-key map (kbd "C-c C-o") #'octocat-browse)
-    (define-key map (kbd "C-c C-v") #'octocat-toggle-markdown)
-    (define-key map (kbd "C-c C-r") #'octocat-switch-repo)
-    (define-key map (kbd "C-c C-s") #'octocat-search-repo)
-    ;; Shadow magit-section-mode-map's "g" → revert-buffer with a prefix map.
-    (define-key map (kbd "g")  g)
-    (define-key map (kbd "gr") #'octocat-commit-refresh)
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-commit-mode'.")
-(define-derived-mode octocat-commit-mode magit-section-mode "Octocat-Commit"
-  "Major mode for viewing a GitHub commit in Magit style.
+(define-key octocat-commit-mode-map (kbd "q") #'quit-window)
+(define-key octocat-commit-mode-map (kbd "g") #'revert-buffer)
+(define-key octocat-commit-mode-map (kbd "C-c C-o") #'octocat-commit-browse)
+(define-key octocat-commit-mode-map (kbd "C-c C-v") #'octocat-toggle-markdown)
+(define-key octocat-commit-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-commit-mode-map (kbd "C-c C-s") #'octocat-search-repo)
+
+(define-derived-mode octocat-commit-mode vui-mode "Octocat-Commit"
+  "Major mode for viewing a GitHub commit.
 
 \\{octocat-commit-mode-map}"
   :group 'octocat
@@ -529,93 +299,24 @@ is shown instead."
   (setq-local truncate-lines nil)
   (setq-local revert-buffer-function #'octocat-commit-refresh)
   (setq-local octocat--refresh-fn #'octocat-commit-refresh)
-  (font-lock-mode -1)
   (octocat--ts-eldoc-setup))
 
 
 ;;;; Refresh
 
 (defun octocat-commit-refresh (&optional _ignore-auto _noconfirm)
-  "Refresh the current commit detail buffer asynchronously.
-Renders a cached copy immediately when one is available, then always
-fetches fresh data in the background and re-renders on arrival.
-Check-run and comment data are fetched in parallel with the commit
-data; their sections show Loading… placeholders until they arrive."
+  "Refresh the current commit buffer.
+Mounts the vui.el page, which paints the disk cache at once and fetches
+the commit, its checks and its comments in the background."
   (interactive)
   (unless (and octocat--commit-repo octocat--commit-sha)
     (user-error "Octocat: Buffer is not associated with a commit"))
-  (let* ((buf         (current-buffer))
-         (repo        octocat--commit-repo)
-         (sha         octocat--commit-sha)
-         (saved-point (octocat--save-point))
-         ;; Load commit, checks, and comments caches immediately.
-         (cache          (octocat--detail-cache-load repo "commit" sha))
-         (checks-cache   (let ((raw (octocat--detail-cache-load repo "checks" sha)))
-                           (and raw (if (vectorp raw)
-                                        (cl-coerce raw 'list)
-                                      (list raw)))))
-         (comments-cache (let ((raw (octocat--detail-cache-load repo "commit-comments" sha)))
-                           (and raw (if (vectorp raw)
-                                        (cl-coerce raw 'list)
-                                      (list raw))))))
-    (when cache
-      (octocat--render-commit cache checks-cache comments-cache)
-      (octocat--restore-point saved-point))
-    (setq mode-line-process " [refreshing…]")
-    ;; Fire all three fetches in parallel; do a final render once all arrive.
-    (let ((commit-result   'pending)
-          (checks-result   'pending)
-          (comments-result 'pending))
-      (cl-labels
-          ((maybe-done ()
-             (unless (or (eq commit-result   'pending)
-                         (eq checks-result   'pending)
-                         (eq comments-result 'pending))
-               (when (buffer-live-p buf)
-                 (with-current-buffer buf
-                   (setq mode-line-process nil)
-                   (if (eq (car-safe commit-result) 'error)
-                       (let ((inhibit-read-only t))
-                         (erase-buffer)
-                         (insert (propertize
-                                  (format "  Error: %s\n" (cdr commit-result))
-                                  'face 'error)))
-                     (octocat--detail-cache-save repo "commit" sha commit-result)
-                     (octocat--render-commit commit-result checks-result comments-result)
-                     (octocat--restore-point saved-point)))))))
-        (octocat--fetch-commit
-         repo sha
-         (lambda (result)
-           (setq commit-result result)
-           ;; Intermediate render: show commit content immediately with
-           ;; loading placeholders for whichever sibling fetches are still
-           ;; in flight.
-           (when (and (buffer-live-p buf)
-                      (not (eq (car-safe result) 'error))
-                      (or (eq checks-result   'pending)
-                          (eq comments-result 'pending)))
-             (with-current-buffer buf
-               (octocat--render-commit
-                result
-                (if (eq checks-result   'pending) 'loading checks-result)
-                (if (eq comments-result 'pending) 'loading comments-result))
-               (octocat--restore-point saved-point)))
-           (maybe-done)))
-        (octocat--fetch-checks
-         repo sha
-         (lambda (result)
-           (setq checks-result (if (eq (car-safe result) 'error) nil result))
-           (when (and checks-result (listp checks-result))
-             (octocat--detail-cache-save repo "checks" sha (vconcat checks-result)))
-           (maybe-done)))
-        (octocat--fetch-commit-comments
-         repo sha
-         (lambda (result)
-           (setq comments-result (if (eq (car-safe result) 'error) nil result))
-           (when (and comments-result (listp comments-result))
-             (octocat--detail-cache-save repo "commit-comments" sha
-                                         (vconcat comments-result)))
-           (maybe-done)))))))
+  (octocat-vui-preserving-view
+    (vui-mount (vui-component 'octocat-commit--page
+                              :repo octocat--commit-repo
+                              :sha octocat--commit-sha
+                              :raw octocat--markdown-raw)
+               (buffer-name))))
 
 (defun octocat-commit-open (repo sha)
   "Show commit SHA of REPO in its own buffer."
@@ -627,7 +328,6 @@ data; their sections show Loading… placeholders until they arrive."
       (octocat-commit-mode))
     (setq octocat--commit-repo repo
           octocat--commit-sha  sha)
-    (octocat--render-commit-loading sha)
     (octocat-commit-refresh)))
 
 (provide 'octocat-commit)

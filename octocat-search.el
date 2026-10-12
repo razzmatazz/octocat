@@ -39,14 +39,10 @@
 
 (declare-function octocat-pr-open                "octocat-pr"     (repo number))
 (declare-function octocat-issue-open             "octocat-issue"  (repo number))
-(declare-function octocat-commit-mode            "octocat-commit" ())
-(declare-function octocat-commit-refresh         "octocat-commit" (&optional _ignore-auto _noconfirm))
-(declare-function octocat--render-commit-loading "octocat-commit" (sha))
+(declare-function octocat-commit-open            "octocat-commit" (repo sha))
 (declare-function octocat-tree--fetch-all-files  "octocat-tree"   (repo sha callback))
 (declare-function octocat-tree--open-file-by-path "octocat-tree"  (repo branch path sha))
 
-(defvar octocat--commit-repo)
-(defvar octocat--commit-sha)
 
 
 ;;;; Candidates
@@ -147,17 +143,7 @@ FILE is a (PATH . BLOB-SHA) cons."
       ('issue
        (octocat-issue-open repo (plist-get item :number)))
       ('commit
-       (let* ((sha      (plist-get item :sha))
-              (short    (substring sha 0 (min 7 (length sha))))
-              (buf-name (format "*octocat-commit: %s@%s*" repo short))
-              (buf      (get-buffer-create buf-name)))
-         (pop-to-buffer buf)
-         (unless (derived-mode-p 'octocat-commit-mode)
-           (octocat-commit-mode))
-         (setq octocat--commit-repo repo
-               octocat--commit-sha  sha)
-         (octocat--render-commit-loading sha)
-         (octocat-commit-refresh))))))
+       (octocat-commit-open repo (plist-get item :sha))))))
 
 
 ;;;; Disk cache

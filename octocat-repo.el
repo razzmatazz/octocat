@@ -214,6 +214,32 @@ rendering's \"(no pull requests)\" treatment of disabled features."
    ((octocat-repo--disabled-feature-p result) (funcall resolve nil))
    (t (funcall reject (cdr result)))))
 
+
+(defun octocat-repo-vui-use-cached (type repo number fetch &optional as-list)
+  "Return the `vui-use-async' result of FETCH for item NUMBER of REPO.
+NUMBER is what identifies the item, such as a PR number or a commit SHA.
+TYPE is the disk-cache type (see `octocat--detail-cache-file').  The last
+saved data shows at once with :refreshing t (see `octocat-vui-with-stale')
+while FETCH, called with REPO, NUMBER and a callback, runs on every open
+of the page; fresh data replaces it in place and is saved.  AS-LIST says
+the data is a list, which the cache stores as a vector.
+Must be called during render, like any hook."
+  (let* ((cached (vui-use-memo (repo number)
+                   (let ((raw (octocat--detail-cache-load repo type number)))
+                     (and raw (if as-list (cl-coerce raw 'list) raw)))))
+         (async  (vui-use-async (list type repo number)
+                   (lambda (resolve reject)
+                     (funcall fetch repo number
+                              (lambda (r)
+                                (octocat-repo-vui--resolve-or-reject r resolve reject))))))
+         (fresh  (and (eq (plist-get async :status) 'ready)
+                      (plist-get async :data))))
+    (vui-use-effect (fresh)
+      (when fresh
+        (octocat--detail-cache-save repo type number
+                                    (if as-list (vconcat fresh) fresh)))
+      nil)
+    (octocat-vui-with-stale async cached)))
 (defun octocat-repo--list-workflows (repo callback)
   "Fetch workflows for REPO asynchronously and call CALLBACK with results.
 CALLBACK is called with a list of workflow hash-tables, or a cons \\=(error . MSG)."
