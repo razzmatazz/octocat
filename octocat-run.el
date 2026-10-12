@@ -445,5 +445,16 @@ then always fetches fresh data in the background."
                     (setq art-result arts)
                     (maybe-done))))))))))))
 
+(defun octocat-run-open (repo run-id)
+  "Show workflow run RUN-ID of REPO in its own buffer."
+  (let ((buf (get-buffer-create (format "*octocat-run: %s#%d*" repo run-id))))
+    (pop-to-buffer buf)
+    (unless (derived-mode-p 'octocat-run-mode)
+      (octocat-run-mode))
+    (setq octocat--run-repo repo
+          octocat--run-id   run-id)
+    (octocat--render-run-loading run-id)
+    (octocat-run-refresh)))
+
 (provide 'octocat-run)
 ;;; octocat-run.el ends here

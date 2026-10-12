@@ -11,6 +11,7 @@ See "Functional core" in [CONTRIBUTING.md](CONTRIBUTING.md): keep functions as f
 - **Never commit or modify git state.** The developer handles all commits.
 - **Always run `make ci`** (compile + lint + test) after making changes. Fix all errors and warnings before finishing.
 - **Only call functions from declared dependencies.** The declared deps are in the `Package-Requires` header of `octocat.el`. Do not call into magit internals, transient internals, or any other package not listed there — even when taking inspiration from them. Re-implement the idea in plain Elisp instead.
+- **Keep docs and comments minimal.** Say only what the code doesn't: the why, the non-obvious. Short, but complete enough to understand.
 - **Never modify source files through Emacs** (`emacs__eval-elisp`, buffer edits, `save-buffer`, etc.); it risks a live buffer and the file on disk drifting apart. Use the file-editing tools or any shell tool (`sed`, Python, etc.).
 
 ## Sub-agent parallelism
@@ -237,7 +238,8 @@ divergence:
 
 The vui.el-rendered modes (`octocat-mode`, `octocat-repo-mode`,
 `octocat-user-mode`, `octocat-pr-mode`, `octocat-issue-mode`,
-`octocat-pr-diff-mode`, `octocat-commit-mode`, `octocat-tree-mode`,
+`octocat-pr-diff-mode`, `octocat-commit-mode`, `octocat-checks-mode`,
+`octocat-tree-mode`,
 `octocat-file-log-mode` and
 the list pages) do **not**
 derive from `magit-section-mode`, so they have no pre-existing

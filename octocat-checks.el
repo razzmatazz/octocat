@@ -20,20 +20,18 @@
 
 ;;; Commentary:
 
-;; Fetches and displays all GitHub check-runs for a commit SHA, and provides
-;; `octocat-checks-mode' for browsing them.  Each check-run row is a
-;; RET-able magit section; pressing RET on a check that has an associated
-;; GitHub Actions run opens the `octocat-run-mode' detail buffer for it.
+;; The check-runs of a commit: `octocat-checks-mode', a vui.el page
+;; opened from the PR and commit pages.  RET on a GitHub Actions check
+;; opens its workflow run; on any other, its page in the browser.
+;;
+;; Also the Checks section the PR and commit pages share,
+;; `octocat-checks-block'.
 ;;
 ;; Data is retrieved from the GitHub Checks REST API:
 ;;   GET /repos/{owner}/{repo}/commits/{ref}/check-runs?per_page=100
 ;;
-;; Also the vui.el Checks section the PR and commit pages share,
-;; `octocat-checks-block'.
-;;
-;; Depends on octocat-core.el (shared infrastructure) and octocat-run.el
-;; (to open the run detail view).  Must not depend on octocat.el to avoid
-;; a circular require.
+;; Depends on octocat-core.el.  Must not depend on octocat.el to avoid a
+;; circular require.
 
 ;;; Code:
 
@@ -44,16 +42,10 @@
 (require 'octocat-vui)
 (require 'vui)
 
-;; octocat-run.el is loaded before this file in the package load order, but
-;; declare the functions anyway to silence the byte-compiler.
-(declare-function octocat-run-refresh "octocat-run" (&optional _ignore-auto _noconfirm))
-(declare-function octocat-browse      "octocat"     ())
-
-;; Buffer-locals set by the mode that are referenced in rendering functions
-;; defined in this file but that live in octocat-run.el buffers.  Declare
-;; them so the byte-compiler won't warn about free variables.
-(defvar octocat--run-repo)
-(defvar octocat--run-id)
+(declare-function octocat-run-open "octocat-run" (repo run-id))
+(declare-function octocat-repo-vui-use-cached "octocat-repo"
+                  (type repo number fetch &optional as-list))
+(declare-function octocat-search-repo "octocat-search" ())
 
 
 ;;;; Buffer-local declarations
@@ -93,30 +85,14 @@ Requests up to 100 check-runs; pagination is not yet supported."
 
 ;;;; Rendering helpers
 
-(defun octocat--checks-status-face (status conclusion)
-  "Return the appropriate face for STATUS and CONCLUSION strings."
-  (let ((st (or status ""))
-        (co (octocat--nonempty conclusion)))
-    (cond
-     ((equal st "in_progress")                                   'octocat-ci-pending)
-     ((equal co "success")                                       'octocat-ci-success)
-     ((member co '("failure" "timed_out" "startup_failure"))     'octocat-ci-failure)
-     (t                                                          'octocat-ci-pending))))
-
 (defun octocat--check-run-id (check)
-  "Return the GitHub Actions run database ID for CHECK, or nil.
-CHECK is a check-run hash-table.  The run ID is stored in the nested
-\\='check_suite\\=' → \\='app\\=' → GitHub Actions app, but is most reliably
-reached via the \\='app.slug\\=' field (\\='github-actions\\=') combined with
-\\='check_suite.id\\='.  When available we return the suite ID so the caller
-can open the matching `octocat-run-mode' buffer.
-Returns nil when the check was not created by GitHub Actions."
-  (let* ((app       (gethash "app" check))
-         (slug      (and app (gethash "slug" app)))
-         (suite     (gethash "check_suite" check))
-         (suite-id  (and suite (gethash "id" suite))))
-    (when (and (equal slug "github-actions") suite-id)
-      suite-id)))
+  "Return the GitHub Actions workflow run ID of the REST check-run CHECK, or nil.
+It is read from the check's details URL, `.../actions/runs/ID/job/...';
+a check not created by GitHub Actions has none."
+  (let ((url (or (octocat--nonempty (gethash "details_url" check))
+                 (octocat--nonempty (gethash "html_url" check)))))
+    (and url (string-match "/actions/runs/\\([0-9]+\\)" url)
+         (string-to-number (match-string 1 url)))))
 
 
 ;;;; Checks section (vui)
@@ -166,11 +142,11 @@ The name and workflow columns stop at `octocat-checks--column-max'."
     (cl-mapcar (lambda (w cap) (if cap (min w cap) w))
                widths (append octocat-checks--column-max '(nil nil)))))
 
-(defun octocat-checks--row (check widths on-visit)
+(defun octocat-checks--row (check widths on-visit &optional help-echo)
   "Return a RET-able vnode for the status CHECK (a hash-table).
 WIDTHS are the column widths, as from `octocat-checks--widths'.  A
 column no check has anything in takes no space.  ON-VISIT is called by
-RET."
+RET, described by HELP-ECHO."
   (let ((cells (cl-mapcar
                 (lambda (field width face)
                   (and (> width 0)
@@ -186,7 +162,7 @@ RET."
               " "
               (mapconcat #'identity (delq nil cells) "  ")))
      on-visit
-     "RET: view checks for this commit")))
+     (or help-echo "RET: view checks for this commit"))))
 
 (define-obsolete-variable-alias 'octocat-pr-checks-shown 'octocat-checks-shown "0.1.0")
 (defcustom octocat-checks-shown 5
@@ -223,220 +199,109 @@ called by RET on a check."
                                         repeat shown
                                         collect (octocat-checks--row check widths on-visit))))))))))
 
-;;;; Rendering
+;;;; Page
 
-(defun octocat--checks-title-line (ref)
-  "Return the row below the checks page's top line, naming the page.
-REF, when non-nil, is the branch or tag the commit was opened from."
-  (concat "Checks"
-          (when ref (concat "  " (propertize ref 'face 'octocat-branch)))
-          "\n"))
+(defun octocat-checks--visit (repo check)
+  "Open the workflow run of the REST check-run CHECK of REPO.
+A check not created by GitHub Actions opens in the browser instead."
+  (let ((run-id (octocat--check-run-id check)))
+    (if run-id
+        (octocat-run-open repo run-id)
+      (when-let* ((url (octocat--nonempty (gethash "html_url" check))))
+        (browse-url url)))))
 
-(defun octocat--render-checks-loading (sha)
-  "Render a loading skeleton for the check-runs view of commit SHA."
-  (let* ((short (substring sha 0 (min 7 (length sha))))
-         (inhibit-read-only t))
-    (erase-buffer)
-    (magit-insert-section (octocat-checks-root)
-      (magit-insert-heading
-        (concat (propertize (or octocat--checks-repo "") 'face 'octocat-repo)
-                (propertize (concat "@" short) 'face 'octocat-commit-sha)
-                "  "
-                (octocat--repo-tabs-string octocat--checks-repo 'code)))
-      (insert (octocat--checks-title-line
-               (and (octocat--nonempty octocat--checks-ref) octocat--checks-ref)))
-      (let ((hint (list 'mouse-face 'magit-section-highlight
-                        'help-echo  "RET: open repo view")))
-        (magit-insert-section (repo-nav octocat--checks-repo)
-          (magit-insert-heading
-            (concat (apply #'propertize "  Repo     " hint)
-                    (apply #'propertize (or octocat--checks-repo "")
-                           'face 'octocat-repo hint)
-                    (apply #'propertize "\n" hint)))))
-      (insert "\n")
-      (magit-insert-section (checks-list)
-        (magit-insert-heading
-          (propertize "Check Runs" 'face 'octocat-section-heading))
-        (insert (propertize "  Loading…\n" 'face 'octocat-dimmed))))))
+(defun octocat-checks--list (repo checks)
+  "Return the vnodes of the Check runs section: CHECKS of REPO, one per row.
+CHECKS is a list of REST check-runs."
+  (let* ((entries (mapcar #'octocat-checks-from-rest checks))
+         (widths  (octocat-checks--widths entries)))
+    (cons
+     (vui-text (concat (propertize (format "Check runs (%d)" (length checks))
+                                   'face 'octocat-section-heading)
+                       (when checks
+                         (concat "  " (propertize "CI:" 'face 'octocat-dimmed)
+                                 " " (octocat--checks-ci-status entries)))))
+     (if (null checks)
+         (list (vui-text "  (no checks)" :face 'octocat-dimmed))
+       (cl-mapcar (lambda (check entry)
+                    (octocat-checks--row
+                     entry widths
+                     (lambda () (octocat-checks--visit repo check))
+                     (if (octocat--check-run-id check)
+                         "RET: open workflow run"
+                       "RET: open in browser")))
+                  checks entries)))))
 
-(defun octocat--render-checks (checks-list)
-  "Erase the current buffer and render a list of check-run CHECKS-LIST.
-CHECKS-LIST is a list of check-run hash-tables from the GitHub Checks API."
-  (let* ((sha   (or octocat--checks-sha ""))
-         (short (substring sha 0 (min 7 (length sha))))
-         (ref   (and (octocat--nonempty octocat--checks-ref) octocat--checks-ref))
-         (inhibit-read-only t))
-    (erase-buffer)
-    (magit-insert-section (octocat-checks-root)
-      ;; ── Header ──────────────────────────────────────────────────────────
-      (magit-insert-heading
-        (concat (propertize (or octocat--checks-repo "") 'face 'octocat-repo)
-                (propertize (concat "@" short) 'face 'octocat-commit-sha)
-                "  "
-                (octocat--repo-tabs-string octocat--checks-repo 'code)))
-      (insert (octocat--checks-title-line ref))
-      ;; ── Repo breadcrumb ─────────────────────────────────────────────────
-      (let ((hint (list 'mouse-face 'magit-section-highlight
-                        'help-echo  "RET: open repo view")))
-        (magit-insert-section (repo-nav octocat--checks-repo)
-          (magit-insert-heading
-            (concat (apply #'propertize "  Repo     " hint)
-                    (apply #'propertize (or octocat--checks-repo "")
-                           'face 'octocat-repo hint)
-                    (apply #'propertize "\n" hint)))))
-      (insert "\n")
-      ;; ── Check Runs list ─────────────────────────────────────────────────
-      (magit-insert-section (checks-list)
-        (magit-insert-heading
-          (propertize (format "Check Runs (%d)" (length checks-list))
-                      'face 'octocat-section-heading))
-        (if (null checks-list)
-            (insert (propertize "  (no checks)\n" 'face 'octocat-dimmed))
-          (dolist (check checks-list)
-            (let* ((name       (or (gethash "name"       check) ""))
-                   (status     (downcase (or (gethash "status"  check) "")))
-                   (conc-raw   (gethash "conclusion" check))
-                   (conclusion (and (octocat--nonempty conc-raw) (downcase conc-raw)))
-                   (started    (octocat--nonempty (gethash "started_at"  check)))
-                   (completed  (octocat--nonempty (gethash "completed_at" check)))
-                   (duration   (octocat--run-duration started completed))
-                   (app        (gethash "app" check))
-                   (app-name   (or (and app (octocat--nonempty (gethash "name" app))) ""))
-                   (icon       (octocat--run-icon status conclusion))
-                   (run-id     (octocat--check-run-id check))
-                   (navigable  (not (null run-id)))
-                   (hint       (when navigable
-                                 (list 'mouse-face 'magit-section-highlight
-                                       'help-echo  "RET: open workflow run"))))
-              (magit-insert-section (check-run check)
-                (magit-insert-heading
-                  (apply #'concat
-                         (append
-                          (list "  "
-                                icon
-                                "  "
-                                (if navigable
-                                    (apply #'propertize
-                                           (truncate-string-to-width
-                                            (format "%-40s" name) 40 nil ?\s "…")
-                                           hint)
-                                  (truncate-string-to-width
-                                   (format "%-40s" name) 40 nil ?\s "…"))
-                                "  "
-                                (propertize (truncate-string-to-width
-                                             (format "%-20s" app-name) 20 nil ?\s "…")
-                                            'face 'octocat-dimmed))
-                          (when duration
-                            (list "  "
-                                  (propertize duration 'face 'octocat-dimmed)))
-                          (list "\n"))))))))))))
-
-
-;;;; Visitor
-
-(defun octocat-checks-visit ()
-  "Open the workflow-run detail view for the check-run at point.
-If the check-run was created by GitHub Actions and its suite ID is
-available, opens an `octocat-run-mode' buffer for that run.  Otherwise
-falls back to opening the check in the browser via `octocat-browse'."
-  (interactive)
-  (let* ((section (magit-current-section))
-         (type    (and section (oref section type))))
-    (when (eq type 'check-run)
-      (let* ((check   (oref section value))
-             (run-id  (octocat--check-run-id check))
-             (repo    octocat--checks-repo))
-        (if run-id
-            (let* ((buf-name (format "*octocat-run: %s#%d*" repo run-id))
-                   (buf      (get-buffer-create buf-name)))
-              (pop-to-buffer buf)
-              (unless (derived-mode-p 'octocat-run-mode)
-                ;; Avoid a circular require by loading octocat-run lazily.
-                (require 'octocat-run)
-                (octocat-run-mode))
-              (setq octocat--run-repo repo
-                    octocat--run-id   run-id)
-              (octocat--render-run-loading run-id)
-              (octocat-run-refresh))
-          (octocat-browse))))))
-
-;; Forward-declare rendering helpers from octocat-run.el so the byte-compiler
-;; doesn't warn about them being called in `octocat-checks-visit'.
-(declare-function octocat-run-mode          "octocat-run" ())
-(declare-function octocat--render-run-loading "octocat-run" (run-id))
+(vui-defcomponent octocat-checks--page (repo sha ref)
+  "The check-runs of commit SHA of REPO; REF is its branch, or nil."
+  :state ((spin 0))
+  :render
+  (let* ((checks  (octocat-repo-vui-use-cached "checks" repo sha #'octocat--fetch-checks t))
+         (loading (and (or (eq (plist-get checks :status) 'pending)
+                           (plist-get checks :refreshing))
+                       t)))
+    (octocat-vui-use-spinner loading)
+    (apply #'vui-vstack
+           (octocat-vui-commit-top-row
+            repo sha (and loading (octocat-vui-loading-suffix '(:refreshing t) spin)))
+           (vui-text (concat "Checks"
+                             (when ref (concat "  " (propertize ref 'face 'octocat-branch)))))
+           (vui-newline)
+           (pcase (plist-get checks :status)
+             ('pending (list (vui-text "  (loading…)" :face 'octocat-dimmed)))
+             ('error   (list (vui-text (format "  Error: %s" (plist-get checks :error))
+                                       :face 'error)))
+             (_ (octocat-checks--list repo (plist-get checks :data)))))))
 
 
 ;;;; Major mode
 
+(defun octocat-checks-browse ()
+  "Open the checks of this commit in a browser."
+  (interactive)
+  (unless (and octocat--checks-repo octocat--checks-sha)
+    (user-error "Octocat: Buffer is not associated with a commit"))
+  (message "Octocat: Opening checks in browser…")
+  (browse-url (format "https://github.com/%s/commit/%s/checks"
+                      octocat--checks-repo octocat--checks-sha)))
+
 (defvar octocat-checks-mode-map
-  (let ((map (make-sparse-keymap))
-        (g   (make-sparse-keymap)))   ; "g" prefix — lets evil's "gg" through
-    (set-keymap-parent map magit-section-mode-map)
-    (define-key map (kbd "q")       #'quit-window)
-    (define-key map (kbd "RET")     #'octocat-checks-visit)
-    (define-key map (kbd "C-c C-o") #'octocat-browse)
-    (define-key map (kbd "C-c C-r") #'octocat-switch-repo)
-    (define-key map (kbd "C-c C-s") #'octocat-search-repo)
-    (define-key map (kbd "g")  g)
-    (define-key map (kbd "gr") #'octocat-checks-refresh)
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-checks-mode'.")
+(define-key octocat-checks-mode-map (kbd "q") #'quit-window)
+(define-key octocat-checks-mode-map (kbd "g") #'revert-buffer)
+(define-key octocat-checks-mode-map (kbd "C-c C-o") #'octocat-checks-browse)
+(define-key octocat-checks-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-checks-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 
-(define-derived-mode octocat-checks-mode magit-section-mode "Octocat-Checks"
-  "Major mode for viewing GitHub check-runs for a commit.
-
-Each row represents one check-run.  Press RET on a GitHub Actions check
-to open the workflow-run detail in `octocat-run-mode'.  Press \\[octocat-browse]
-to open the check in the browser.
+(define-derived-mode octocat-checks-mode vui-mode "Octocat-Checks"
+  "Major mode for viewing the GitHub check-runs of a commit.
 
 \\{octocat-checks-mode-map}"
   :group 'octocat
   (setq-local buffer-read-only t)
   (setq-local truncate-lines t)
   (setq-local revert-buffer-function #'octocat-checks-refresh)
-  (font-lock-mode -1))
+  (octocat--ts-eldoc-setup))
 
 
 ;;;; Refresh
 
 (defun octocat-checks-refresh (&optional _ignore-auto _noconfirm)
-  "Refresh the current check-runs buffer asynchronously.
-Render a disk cache immediately (stale-while-revalidate) when available,
-then always fetch fresh data in the background."
+  "Refresh the current check-runs buffer.
+Mounts the vui.el page, which paints the disk cache at once and fetches
+the check-runs in the background."
   (interactive)
   (unless (and octocat--checks-repo octocat--checks-sha)
     (user-error "Octocat: Buffer is not associated with a commit"))
-  (let* ((buf         (current-buffer))
-         (repo        octocat--checks-repo)
-         (sha         octocat--checks-sha)
-         (saved-point (octocat--save-point))
-         (cache       (octocat--detail-cache-load repo "checks" sha)))
-    (when cache
-      ;; The cache stores a vector (JSON array); convert to list for rendering.
-      (let ((cached-list (if (vectorp cache)
-                             (cl-coerce cache 'list)
-                           (list cache))))
-        (octocat--render-checks cached-list)
-        (octocat--restore-point saved-point)))
-    (setq mode-line-process " [refreshing…]")
-    (octocat--fetch-checks
-     repo sha
-     (lambda (result)
-       (when (buffer-live-p buf)
-         (with-current-buffer buf
-           (setq mode-line-process nil)
-           (if (eq (car-safe result) 'error)
-               (let ((inhibit-read-only t))
-                 (erase-buffer)
-                 (insert (propertize
-                          (format "  Error: %s\n" (cdr result))
-                          'face 'error)))
-             ;; Persist as a JSON array so cache loading can use the
-             ;; standard detail-cache machinery.
-             (let ((vec (vconcat result)))
-               (octocat--detail-cache-save repo "checks" sha vec))
-             (octocat--render-checks result)
-             (octocat--restore-point saved-point))))))))
+  (octocat-vui-preserving-view
+    (vui-mount (vui-component 'octocat-checks--page
+                              :repo octocat--checks-repo
+                              :sha octocat--checks-sha
+                              :ref (octocat--nonempty octocat--checks-ref))
+               (buffer-name))))
 
 (defun octocat-checks-open (repo sha ref)
   "Show the checks of commit SHA of REPO in their own buffer.
@@ -450,7 +315,6 @@ REF is the branch the commit is the head of, or nil."
     (setq octocat--checks-repo repo
           octocat--checks-sha  sha
           octocat--checks-ref  ref)
-    (octocat--render-checks-loading sha)
     (octocat-checks-refresh)))
 
 (provide 'octocat-checks)

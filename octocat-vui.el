@@ -369,6 +369,22 @@ spinner frame appended to the marker."
   (setq-local truncate-lines t)
   (octocat--ts-eldoc-setup))
 
+(defun octocat-vui-commit-top-row (repo sha suffix)
+  "Return the top row of a page about commit SHA of REPO.
+That is `owner/repo@sha', RET-able to the repo page, as `owner/repo#N'
+is on an issue, then the repo tab strip with Code highlighted and
+SUFFIX, the page's loading indicator (see `octocat-vui-loading-suffix')."
+  (apply #'vui-hstack :spacing 2
+         (octocat-vui-row
+          (concat (propertize repo 'face 'octocat-repo)
+                  (propertize (concat "@" (substring sha 0 (min 7 (length sha))))
+                              'face 'octocat-commit-sha))
+          (lambda () (octocat-visit-repo repo))
+          "RET: open repo view")
+         (append (octocat-vui-repo-tabs repo nil nil nil 'code)
+                 (and suffix (not (string-empty-p suffix))
+                      (list (vui-text (string-trim-left suffix)))))))
+
 (defun octocat-vui-repo-tabs (repo current &optional issues prs highlight)
   "Return a list of vnodes: the tab strip of REPO's pages, as on GitHub.
 The tabs are those of `octocat--repo-tabs'.  CURRENT is the symbol of

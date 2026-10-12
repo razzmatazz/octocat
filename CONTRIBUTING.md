@@ -80,9 +80,10 @@ octocat uses two UI frameworks, split by buffer type:
 
 - **vui.el** — the dashboard (`octocat-mode`), the repo overview
   (`octocat-repo.el`, `octocat-repo-mode`), the user page
-  (`octocat-user-mode`), the PR, issue, PR diff and commit detail views
-  (`octocat-pr-mode`, `octocat-issue-mode`, `octocat-pr-diff-mode`,
-  `octocat-commit-mode`; the last two share `octocat-diff.el`), the
+  (`octocat-user-mode`), the PR, issue, PR diff, commit and checks detail
+  views (`octocat-pr-mode`, `octocat-issue-mode`, `octocat-pr-diff-mode`,
+  `octocat-commit-mode`, `octocat-checks-mode`; PR diff and commit share
+  `octocat-diff.el`), the
   file tree and file log (`octocat-tree-mode`, `octocat-file-log-mode`)
   and the PR, issue and workflow list pages
   (`octocat-pr-list-mode`, `octocat-issue-list-mode`,
@@ -94,8 +95,7 @@ octocat uses two UI frameworks, split by buffer type:
   sections, each with its own fetch (`vui-use-async`), pagination counter
   (`:state`) and collapse state (`vui-collapsible`).  None of these modes
   derive from `magit-section-mode`.
-- **magit-section** — the remaining views: checks (`octocat-checks-mode`)
-  and workflow, run and job detail
+- **magit-section** — the remaining views: workflow, run and job detail
   (`octocat-workflow-mode`, `octocat-run-mode`, `octocat-job-mode`).  See
   [docs/magit-section.md](docs/magit-section.md) for the section tree
   structure, hiding/collapsing gotchas, and the correct patterns for

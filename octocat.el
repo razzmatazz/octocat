@@ -94,7 +94,6 @@
 ;; Entry points of other files (already loaded via `require' above, but
 ;; declared here so octocat-visit can call them without the byte-compiler
 ;; warning about forward references).
-(declare-function octocat-checks-open            "octocat-checks" (repo sha ref))
 
 ;; Repo-mode entry point (defined in octocat-repo.el, already required).
 (declare-function octocat-repo-refresh      "octocat-repo" (&optional _ignore-auto _noconfirm))
@@ -194,7 +193,6 @@ Section types handled:
   `octocat-commit'→ https://github.com/REPO/commit/SHA
   `workflow'      → https://github.com/REPO/actions/workflows/FILE
   `workflow-run'  → https://github.com/REPO/actions/runs/ID
-  `check-run'     → html_url from the GitHub Checks API response
   `comment'       → url field from the GitHub comment object
   `octocat-root'  → https://github.com/REPO
 
@@ -202,8 +200,7 @@ Major-mode fallback (used when the section type does not have its own
 handler, e.g. point is on a title/header line):
   `octocat-workflow-mode' → https://github.com/REPO/actions/workflows/ID
   `octocat-run-mode'      → https://github.com/REPO/actions/runs/ID
-  `octocat-job-mode'      → https://github.com/REPO/actions/runs/RUN/job/JOB
-  `octocat-checks-mode'   → https://github.com/REPO/commit/SHA/checks"
+  `octocat-job-mode'      → https://github.com/REPO/actions/runs/RUN/job/JOB"
   (interactive)
   (let* ((section (magit-current-section))
          (type    (and section (oref section type)))
@@ -247,11 +244,6 @@ handler, e.g. point is on a title/header line):
                                repo (number-to-string run-id))))
           (message "Octocat: Opening run #%s in browser…" run-id)
           (browse-url url)))
-       ('check-run
-        (let ((url (gethash "html_url" value)))
-          (when url
-            (message "Octocat: Opening check run in browser…")
-            (browse-url url))))
        ('comment
         (let ((url (gethash "url" value)))
           (when url
@@ -301,12 +293,6 @@ handler, e.g. point is on a title/header line):
          (let ((url (format "https://github.com/%s/actions/runs/%s/job/%s"
                             octocat--job-repo octocat--job-run-id octocat--job-id)))
            (message "Octocat: Opening job in browser…")
-           (browse-url url))))
-      ((derived-mode-p 'octocat-checks-mode)
-       (when (and octocat--checks-repo octocat--checks-sha)
-         (let ((url (format "https://github.com/%s/commit/%s/checks"
-                            octocat--checks-repo octocat--checks-sha)))
-           (message "Octocat: Opening checks in browser…")
            (browse-url url))))
       ((derived-mode-p 'octocat-tree-mode)
        (let ((url (format "https://github.com/%s/tree/%s"

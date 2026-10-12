@@ -270,7 +270,6 @@ or `""` give `""`.
 | Context | Helper | Output |
 |---|---|---|
 | Any displayed timestamp | `octocat--format-ts-relative` | `3 days ago`, exact time on hover |
-| Column of times to compare (PR checks list) | `octocat--format-ts` | `2026-06-08 14:23` |
 | Not shown in a buffer | `octocat--relative-ts` | `3 days ago`, no properties |
 
 - `propertize` and `format` padding keep the `help-echo`.
@@ -407,7 +406,6 @@ within a detail view.
 | `octocat-commit` | `https://github.com/REPO/commit/SHA` (uses `"oid"` key, falls back to `"sha"` for REST-API commits) |
 | `workflow` | `https://github.com/REPO/actions/workflows/FILENAME` (derived from `"path"`) |
 | `workflow-run` | `https://github.com/REPO/actions/runs/ID` |
-| `check-run` | `html_url` from the GitHub Checks REST API response |
 | `comment` | `url` from the GitHub comment object |
 | `octocat-root` | `https://github.com/REPO` |
 
@@ -417,11 +415,9 @@ within a detail view.
 |---|---|
 | `octocat-pr-mode` | `gh pr view --web NUMBER --repo REPO` |
 | `octocat-issue-mode` | `gh issue view --web NUMBER --repo REPO` |
-| `octocat-commit-mode` | `https://github.com/REPO/commit/SHA` |
 | `octocat-workflow-mode` | `https://github.com/REPO/actions/workflows/ID` |
 | `octocat-run-mode` | `https://github.com/REPO/actions/runs/ID` |
 | `octocat-job-mode` | `https://github.com/REPO/actions/runs/RUN_ID/job/JOB_ID` |
-| `octocat-checks-mode` | `https://github.com/REPO/commit/SHA/checks` |
 
 Each fallback reads the buffer-local variables set when the detail buffer
 was opened (e.g. `octocat--pr-repo`, `octocat--pr-number`).  If those
@@ -471,7 +467,7 @@ so it reads as a breadcrumb rather than a metadata field.
 | Run | First in `run-info` section (before Workflow) |
 | Job | First in `job-info` section (before Status) |
 | PR diff | First line of root section body (before Files) |
-| Checks | First line of root section body (before Check Runs) |
+| Checks | The top line, `owner/repo@sha` |
 
 The same line appears in both the loading skeleton and the fully-rendered
 view so the breadcrumb is always visible from the moment the buffer opens.

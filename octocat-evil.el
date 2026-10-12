@@ -43,6 +43,7 @@
 (defvar octocat-workflow-list-mode-map)
 (defvar octocat-pr-mode-map)
 (defvar octocat-commit-mode-map)
+(defvar octocat-checks-mode-map)
 (defvar octocat-pr-diff-mode-map)
 (defvar octocat-issue-mode-map)
 (defvar octocat-workflow-mode-map)
@@ -75,6 +76,8 @@
 (declare-function octocat-commit-refresh     "octocat-commit"    (&optional _ignore-auto _noconfirm))
 (declare-function octocat-pr-diff-browse    "octocat-pr-diff"   ())
 (declare-function octocat-commit-browse     "octocat-commit"    ())
+(declare-function octocat-checks-browse     "octocat-checks"    ())
+(declare-function octocat-checks-refresh    "octocat-checks"    (&optional _ignore-auto _noconfirm))
 (declare-function octocat-issue-refresh      "octocat-issue"     (&optional _ignore-auto _noconfirm))
 (declare-function octocat-issue-add-comment  "octocat-issue"     ())
 (declare-function octocat-issue-edit-body    "octocat-issue"     ())
@@ -181,6 +184,15 @@
     (kbd "C-c C-s") #'octocat-search-repo
     (kbd "gs")      #'octocat-search-repo
     (kbd "gr")      #'octocat-commit-refresh
+    (kbd "q")       #'quit-window)
+
+  ;; ── octocat-checks-mode ───────────────────────────────────────────────
+  (evil-define-key* 'normal octocat-checks-mode-map
+    (kbd "C-c C-o") #'octocat-checks-browse
+    (kbd "C-c C-r") #'octocat-switch-repo
+    (kbd "C-c C-s") #'octocat-search-repo
+    (kbd "gs")      #'octocat-search-repo
+    (kbd "gr")      #'octocat-checks-refresh
     (kbd "q")       #'quit-window)
 
   ;; ── octocat-pr-diff-mode ──────────────────────────────────────────────

@@ -102,22 +102,13 @@ COMMIT is the commit hash-table, or nil while it loads.  The top row is
 the repo and short SHA, as `owner/repo#N' on an issue, then the tab strip
 and SUFFIX, the loading indicator.  The subject is on the row below, and
 the author, date and full SHA under it."
-  (let* ((short  (substring sha 0 (min 7 (length sha))))
-         (c      (and commit (gethash "commit" commit)))
+  (let* ((c      (and commit (gethash "commit" commit)))
          (msg    (or (and c (gethash "message" c)) ""))
          (author (and c (gethash "author" c)))
          (login  (and commit (octocat--commit-author-login commit))))
     (delq nil
           (list
-           (apply #'vui-hstack :spacing 2
-                  (octocat-vui-row
-                   (concat (propertize repo 'face 'octocat-repo)
-                           (propertize (concat "@" short) 'face 'octocat-commit-sha))
-                   (lambda () (octocat-visit-repo repo))
-                   "RET: open repo view")
-                  (append (octocat-vui-repo-tabs repo nil nil nil 'code)
-                          (and suffix (not (string-empty-p suffix))
-                               (list (vui-text (string-trim-left suffix))))))
+           (octocat-vui-commit-top-row repo sha suffix)
            (if commit
                (vui-text (car (split-string msg "\n")))
              (vui-text "(loading…)" :face 'octocat-dimmed))

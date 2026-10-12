@@ -371,6 +371,15 @@ no gh call is made."
     (should (equal (gethash "startedAt" entry) "2026-01-01T00:00:00Z"))
     (should-not (gethash "completedAt" entry))))
 
+(ert-deftest octocat-test-check-run-id ()
+  "The workflow run ID comes from the details URL, not the check suite."
+  (should (equal (octocat--check-run-id
+                  (json-parse-string
+                   "{\"details_url\":\"https://github.com/o/r/actions/runs/38218268003/job/1\",\"check_suite\":{\"id\":103543467452}}"))
+                 38218268003))
+  (should-not (octocat--check-run-id
+               (json-parse-string "{\"details_url\":\"https://ci.example.com/build/7\"}"))))
+
 (ert-deftest octocat-test-counts-query-and-parse ()
   "Pull requests also count merged; the response parses to a plist."
   (should (string-match-p "merged:pullRequests(states:MERGED)"
