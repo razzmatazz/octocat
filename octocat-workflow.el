@@ -230,9 +230,7 @@ by ON-MORE; LOADING disables its button while a page is fetched."
     (apply #'vui-vstack
            (octocat-vui-actions-top-row repo)
            (pcase (plist-get result :status)
-             ('pending (list (vui-text name)
-                             (vui-newline)
-                             (vui-text (concat "  (" (octocat-vui-loading-text) ")") :face 'octocat-dimmed)))
+             ('pending (list (vui-text name)))
              ('error   (list (vui-text (format "  Error: %s" (plist-get result :error))
                                        :face 'error)))
              (_ (let* ((data (plist-get result :data))

@@ -336,19 +336,18 @@ With BROWSE-TOKEN, append the dimmed \"[Code]\" token."
    'octocat-tree--type 'header))
 
 (vui-defcomponent octocat-tree--message (repo branch text face)
-  "Header plus a single TEXT line in FACE (used for loading and errors)."
+  "Header plus a single TEXT line in FACE, or nothing below it if TEXT is nil."
   :render
   (vui-vstack
    (vui-text (octocat-tree--header-line repo branch))
-   (vui-text (propertize (concat "  " text) 'face face))))
+   (and text (vui-text (propertize (concat "  " text) 'face face)))))
 
 (defun octocat-tree--render-loading ()
   "Render a loading skeleton in the current tree buffer."
   (vui-mount (vui-component 'octocat-tree--message
                             :repo octocat-tree--repo
                             :branch octocat-tree--branch
-                            :text (octocat-vui-loading-text "Loading")
-                            :face 'octocat-dimmed)
+                            :text nil :face nil)
              (buffer-name)))
 
 (defun octocat-tree--sorted-entries (entries)
@@ -395,7 +394,9 @@ PATH is this directory's full repository path (\"\" for the root)."
                               (when (buffer-live-p buf)
                                 (with-current-buffer buf
                                   (push (cons sha r) octocat-tree--subtree-cache)))
-                              (funcall resolve r))))))))))
+                              (funcall resolve r)))))))))
+         (loading (eq (plist-get result :status) 'pending)))
+    (octocat-vui-use-mode-line-loading loading)
     (pcase (plist-get result :status)
       ('error
        (vui-text (propertize (format "%s  Error: %s" indent (plist-get result :error))
@@ -410,11 +411,7 @@ PATH is this directory's full repository path (\"\" for the root)."
                                       :repo repo :branch branch
                                       :entry entry :depth depth :parent path))
                      (lambda (entry) (gethash "sha" entry))))))
-      (_
-       ;; Same indent as the entries that will replace it.
-       (vui-text (propertize (concat indent "  "
-                                     (propertize (octocat-vui-loading-text "Loading") 'face 'octocat-dimmed))
-                             'octocat-tree--type 'loading))))))
+      (_ nil))))
 
 (vui-defcomponent octocat-tree--node (repo branch entry depth parent)
   "One tree ENTRY (hash-table) at nesting DEPTH, inside directory PARENT.
@@ -473,8 +470,7 @@ PARENT is the containing directory's full path (\"\" at the root)."
             (or path "")
             "\n"
             (propertize (make-string 60 ?━) 'face 'octocat-dimmed)
-            "\n"
-            (propertize (concat "  " (octocat-vui-loading-text "Loading") "\n") 'face 'octocat-dimmed))))
+            "\n")))
 
 (defun octocat-tree--render-file (path content)
   "Render file PATH with fontified CONTENT in the current file buffer."
@@ -869,8 +865,8 @@ they keep working under Evil."
 (vui-defcomponent octocat-file-log--page (repo path commits text face)
   "The file log page: a REPO and PATH header, then COMMITS or TEXT.
 COMMITS is a list of commit hash-tables.  When TEXT is non-nil it is
-shown in FACE in place of the list (loading and errors), and the header
-leaves out the commit count."
+shown in FACE in place of the list (errors; \"\" while loading), and the
+header leaves out the commit count."
   :render
   (vui-vstack
    (vui-text (concat
@@ -883,7 +879,8 @@ leaves out the commit count."
                                     'face 'octocat-dimmed)))))
    (cond
     (text
-     (vui-text (propertize (concat "  " text) 'face face)))
+     (and (not (string-empty-p text))
+          (vui-text (propertize (concat "  " text) 'face face))))
     ((null commits)
      (vui-text (propertize "  (no commits found)" 'face 'octocat-dimmed)))
     (t
@@ -903,7 +900,7 @@ properties (:commits, or :text and :face)."
 
 (defun octocat-file-log--render-loading ()
   "Render a loading skeleton in the current file-log buffer."
-  (octocat-file-log--mount :text (octocat-vui-loading-text "Loading") :face 'octocat-dimmed))
+  (octocat-file-log--mount :text "" :face nil))
 
 (defun octocat-file-log--sha-at-point ()
   "Return the full SHA of the commit on the current line, or nil."

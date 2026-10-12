@@ -403,8 +403,7 @@ function turning the loaded data into the vnode of its rows."
                    (vui-text (concat "  " empty) :face 'octocat-dimmed)
                  (funcall rows data))))
      ('error (vui-text (format "  %s" (plist-get result :error))
-                       :face 'octocat-dimmed))
-     (_      (vui-text (concat "  " (octocat-vui-loading-text "Loading")) :face 'octocat-dimmed)))))
+                       :face 'octocat-dimmed)))))
 
 (vui-defcomponent octocat-dashboard--root (feed-limit)
   "Root component of the dashboard: recent repositories, then the feed.

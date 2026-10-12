@@ -414,17 +414,10 @@ The line shows from the moment the buffer opens, before any data arrives.
 
 ## Indicating that a page is loading or refreshing
 
-While anything is being fetched (open, `gr`, `Load N more…`), the mode
-line shows `(Octocat-PR:loading ▘)`: `mode-line-process`, as in
-`(Compilation:run)`, with a spinner.  It never reflows the page.
-
-- Any component whose fetch is pending or `:refreshing` calls
-  `octocat-vui-use-mode-line-loading`; no need to lift the state up.
-- A first-load `(loading ▘)` placeholder in place of content is fine;
-  build it with `octocat-vui-loading-text`.  Every busy indicator spins:
-  `octocat-vui-spinner` in the buffer, `octocat-vui-mode-line-busy` in
-  the mode line.  One shared timer animates the visible ones and stops
-  when none are left.
+While fetching, only the mode line shows it: `(Octocat-PR:loading ▘)`,
+as in `(Compilation:run)`.  No loading text in the buffer.  Components
+call `octocat-vui-use-mode-line-loading`; other code sets
+`octocat-vui-mode-line-busy`.
 
 ---
 

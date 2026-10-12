@@ -360,7 +360,7 @@ this, so they do not shift as the new rows appear."
     (and (consp mlp) (memq 'octocat-vui--spinner mlp))))
 
 (defun octocat-vui--spinner-tick ()
-  "Advance the spinner in every visible mode line and window.
+  "Advance the spinner in every visible mode line.
 Stop the timer once no buffer shows it."
   (setq octocat-vui--spinner-index
         (% (1+ octocat-vui--spinner-index) (length octocat-vui--spinner-frames))
@@ -372,32 +372,9 @@ Stop the timer once no buffer shows it."
         (setq busy t)
         (when (get-buffer-window buf 'visible)
           (with-current-buffer buf (force-mode-line-update)))))
-    (walk-windows
-     (lambda (win)
-       (with-current-buffer (window-buffer win)
-         ;; Only the visible part; a hidden spinner shows a stale frame.
-         (let ((pos (window-start win))
-               (end (window-end win)))
-           (while (and pos (< pos end))
-             (setq pos (text-property-any pos end 'octocat-vui-spinner t))
-             (when pos
-               (setq busy t)
-               (with-silent-modifications
-                 (put-text-property pos (1+ pos) 'display octocat-vui--spinner))
-               (setq pos (1+ pos)))))))
-     'no-minibuf 'visible)
     (unless busy
       (cancel-timer octocat-vui--spinner-timer)
       (setq octocat-vui--spinner-timer nil))))
-
-(defun octocat-vui-spinner ()
-  "Return a one-character spinner to show in the buffer while loading."
-  (octocat-vui--spinner-start)
-  (propertize (aref octocat-vui--spinner-frames 0) 'octocat-vui-spinner t))
-
-(defun octocat-vui-loading-text (&optional label)
-  "Return LABEL (default \"loading\") followed by a spinner."
-  (concat (or label "loading") " " (octocat-vui-spinner)))
 
 (defun octocat-vui-mode-line-busy (label)
   "Return a `mode-line-process' showing LABEL, such as \":loading\", and a spinner."

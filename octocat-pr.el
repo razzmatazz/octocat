@@ -465,7 +465,7 @@ Each is \"@login (state)\": the state of their latest review, or
                            raw (octocat--markdown-width))))))
     (octocat-vui-use-mode-line-loading loading)
     (pcase (plist-get result :status)
-      ('pending (vui-text (concat "  " repo " #" (number-to-string number) "  (" (octocat-vui-loading-text) ")")
+      ('pending (vui-text (concat "  " repo " #" (number-to-string number))
                           :face 'octocat-dimmed))
       ('error   (vui-text (format "  Error: %s" (plist-get result :error)) :face 'error))
       ('ready
@@ -588,7 +588,7 @@ background."
      (vui-component 'octocat-vui-list-header :repo repo :tab 'pulls :kind 'pulls)
      (octocat-vui-list-filter-bar query)
      (pcase (plist-get result :status)
-       ('pending (vui-text (concat "(" (octocat-vui-loading-text) ")\n") :face 'octocat-dimmed))
+       ('pending nil)
        ('error   (vui-text (format "%s\n" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
         (let ((prs (plist-get result :data)))

@@ -722,7 +722,7 @@ plist from `octocat--head-info', used to highlight the local HEAD commit."
                                           'octocat-branch)))
                   (propertize "Commits" 'face 'octocat-section-heading))))
      (pcase (plist-get result :status)
-       ('pending (vui-text (concat "(" (octocat-vui-loading-text) ")") :face 'octocat-dimmed))
+       ('pending nil)
        ('error   (vui-text (format "%s" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
         (let ((commits (plist-get result :data)))

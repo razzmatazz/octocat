@@ -236,7 +236,7 @@ AVATAR is a list of equally wide strings; the shorter list is padded."
     (vui-vstack
      (vui-text "Repositories" :face 'octocat-section-heading)
      (pcase (plist-get sticky :status)
-       ('pending (vui-text (concat "(" (octocat-vui-loading-text) ")") :face 'octocat-dimmed))
+       ('pending nil)
        ('error   (vui-text (format "%s" (plist-get sticky :error)) :face 'octocat-dimmed))
        ('ready
         (let ((repos (plist-get sticky :data)))

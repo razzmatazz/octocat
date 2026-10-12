@@ -31,7 +31,7 @@
     (should (> (length g) 0))))
 
 (ert-deftest octocat-tree-test-render-loading ()
-  "octocat-tree--render-loading fills the buffer with a loading skeleton."
+  "octocat-tree--render-loading shows the header and no loading text."
   (with-temp-buffer
     (octocat-tree-mode)
     (setq octocat-tree--repo "owner/repo"
@@ -39,7 +39,7 @@
     (octocat-tree--render-loading)
     (should (> (buffer-size) 0))
     (should (string-match-p "owner/repo" (buffer-string)))
-    (should (string-match-p "Loading" (buffer-string)))))
+    (should-not (string-match-p "Loading" (buffer-string)))))
 
 (defun octocat-tree-tests--mount-tree (entries)
   "Mount `octocat-tree--root' in the current buffer with root ENTRIES.

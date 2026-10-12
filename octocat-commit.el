@@ -109,9 +109,7 @@ the author, date and full SHA under it."
     (delq nil
           (list
            (octocat-vui-commit-top-row repo sha)
-           (if commit
-               (vui-text (car (split-string msg "\n")))
-             (vui-text (concat "(" (octocat-vui-loading-text) ")") :face 'octocat-dimmed))
+           (and commit (vui-text (car (split-string msg "\n"))))
            (and commit
                 (vui-text
                  (mapconcat
@@ -143,10 +141,11 @@ Nil when the message is the subject alone.  RAW and WIDTH are as for
                   "\n" (octocat--markdown-string body nil raw width)))))))
 
 (defun octocat-commit--async-status (result empty)
-  "Return a dimmed vnode for RESULT while it is pending or failed, else nil.
-EMPTY is the text shown when it is ready but has no data."
+  "Return a dimmed vnode for RESULT if it failed or is empty, else nil.
+EMPTY is the text shown when it is ready but has no data.  Nothing while
+it is pending: the mode line shows that."
   (pcase (plist-get result :status)
-    ('pending (vui-text (concat "  (" (octocat-vui-loading-text) ")") :face 'octocat-dimmed))
+    ('pending nil)
     ('error   (vui-text (format "  %s" (plist-get result :error)) :face 'octocat-dimmed))
     (_ (and (zerop (length (plist-get result :data)))
             (vui-text (concat "  " empty) :face 'octocat-dimmed)))))
@@ -161,7 +160,9 @@ EMPTY is the text shown when it is ready but has no data."
 (defun octocat-commit--checks (repo sha checks)
   "Return the CI section of commit SHA of REPO.
 Its check-runs are in CHECKS, a `vui-use-async' result."
-  (or (when-let* ((status (octocat-commit--async-status checks "(no checks)")))
+  (or (and (eq (plist-get checks :status) 'pending)
+           (octocat-commit--heading "Checks" checks))
+      (when-let* ((status (octocat-commit--async-status checks "(no checks)")))
         (vui-vstack (octocat-commit--heading "Checks" checks) status))
       (apply #'vui-vstack
              (octocat-checks-block
