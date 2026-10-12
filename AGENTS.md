@@ -2,7 +2,6 @@
 
 See [README.md](README.md) for full project documentation.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for code conventions.
-See [docs/magit-section.md](docs/magit-section.md) for magit-section usage, gotchas, and patterns.
 See [docs/user-interface-conventions.md](docs/user-interface-conventions.md) for UI conventions: how to signal interactivity, `mouse-face`/`help-echo` patterns, and the decision table for RET-able sections vs inline buttons.
 See "Functional core" in [CONTRIBUTING.md](CONTRIBUTING.md): keep functions as functional as possible, with context (e.g. width) passed in as arguments and side effects confined to commands and effects.
 
@@ -182,108 +181,6 @@ or `ignore-errors` — `makunbound` on a void symbol signals an error):
 **Do not use `unload-feature`.** It cascade-unloads dependent features,
 leaving dangling advice and repeated `jit-lock` errors. The `with-temp-buffer` +
 `eval-buffer` sequence re-evaluates every `defun`/`defvar` without it.
-
-## evil-define-key* aux-keymap slot divergence
-
-`magit-section-mode`'s own evil integration calls `evil-define-key*` (and
-registers `evil-collection` bindings) for its mode map **before**
-`octocat-evil-setup` runs.  This means each octocat mode map that derives
-from `magit-section-mode` already contains several `normal-state` entries
-— distinct keymap objects — in its keymap vector by the time
-`octocat-evil-setup` is called.
-
-`evil-get-auxiliary-keymap MAP STATE t` returns the *first* such entry
-(creating a new one if none exists).  `evil-define-key*`, however, creates
-its bindings in a *different* aux keymap slot — one added at the tail of the
-mode-map chain.  When there are already pre-existing `normal-state` slots,
-these two objects diverge: the slot found by `evil-get-auxiliary-keymap`
-wins in lookup order and **silently shadows** anything written by
-`evil-define-key*` into its own slot.
-
-The symptom is a binding (typically `RET`) that appears correctly set when
-inspected via `evil-get-auxiliary-keymap` + `lookup-key`, but resolves to
-the wrong command (e.g. `evil-ret`) at runtime via `key-binding`.
-
-**The fix — use `define-key` directly on the keymap returned by
-`evil-get-auxiliary-keymap`.**  Retrieve the aux keymaps once per mode, then
-call `define-key` on them for every binding, including the `g`-prefix
-cleanup.  Do **not** follow the `let`-block-for-g + separate
-`evil-define-key*`-for-everything-else split; that pattern recreates the
-divergence:
-
-```elisp
-;; CORRECT — all bindings in the same let block via define-key
-(let ((aux   (evil-get-auxiliary-keymap octocat-run-mode-map 'normal t))
-      (aux-m (evil-get-auxiliary-keymap octocat-run-mode-map 'motion t)))
-  (define-key aux   (kbd "g")       nil)           ; clear stale g prefix
-  (define-key aux   (kbd "RET")     #'octocat-visit)
-  (define-key aux   (kbd "o")       #'octocat-browse)
-  (define-key aux   (kbd "C-c C-o") #'octocat-browse)
-  (define-key aux   (kbd "q")       #'quit-window)
-  (define-key aux   (kbd "gr")      #'octocat-run-refresh)
-  (define-key aux-m (kbd "RET")     #'octocat-visit))
-
-;; BROKEN — evil-define-key* writes RET into a different slot
-(let ((aux (evil-get-auxiliary-keymap octocat-run-mode-map 'normal t)))
-  (define-key aux (kbd "g") nil))
-(evil-define-key* 'normal octocat-run-mode-map
-  (kbd "RET")  #'octocat-visit   ; ← silently shadowed at runtime
-  (kbd "o")    #'octocat-browse)
-```
-
-**Modes affected:** any mode that derives from `magit-section-mode` and uses
-`gr` (or another `g`-prefixed two-key binding) — which requires the
-`define-key aux (kbd "g") nil` cleanup.  Currently:
-`octocat-run-mode`, `octocat-job-mode`.
-
-The vui.el-rendered modes (`octocat-mode`, `octocat-repo-mode`,
-`octocat-user-mode`, `octocat-pr-mode`, `octocat-issue-mode`,
-`octocat-pr-diff-mode`, `octocat-commit-mode`, `octocat-checks-mode`,
-`octocat-workflow-mode`, `octocat-tree-mode`,
-`octocat-file-log-mode` and
-the list pages) do **not**
-derive from `magit-section-mode`, so they have no pre-existing
-`normal-state` slot conflict and `evil-define-key*` is safe for them.
-
-### Gotcha — `evil-get-auxiliary-keymap` returns the *parent*'s aux keymap without `IGNORE-PARENT`
-
-`evil-get-auxiliary-keymap MAP STATE &optional CREATE IGNORE-PARENT` scans
-MAP's keymap alist for a slot whose prompt matches the state name.  Because
-child mode maps inherit their parent's alist entries (via `set-keymap-parent`),
-the *parent*'s `normal-state` slot appears **before** any child-owned slot.
-Calling `(evil-get-auxiliary-keymap child-map 'normal t)` therefore returns
-the `magit-section-mode-map` aux keymap, not a fresh child-specific one.
-
-Every subsequent `define-key` call then mutates this shared parent keymap.
-The bindings accumulate across all child modes — the last mode's `c`, `+`,
-`RET`, and `gr` all end up in `magit-section-mode-map`'s normal-state aux —
-and bleed into **every** buffer whose keymap chain passes through
-`magit-section-mode`, including plain `magit-status` buffers.
-
-The symptom is user-facing errors like `Octocat: Buffer is not associated
-with an issue` when pressing `c` in a regular Magit buffer.
-
-**The fix — always pass `t t` (CREATE + IGNORE-PARENT) for child modes.**
-The fourth argument forces `evil-get-auxiliary-keymap` to create a new keymap
-owned by the child map, bypassing the inherited parent slot:
-
-```elisp
-;; CORRECT — IGNORE-PARENT t ensures a child-owned aux keymap
-(let ((aux   (evil-get-auxiliary-keymap octocat-run-mode-map 'normal t t))
-      (aux-m (evil-get-auxiliary-keymap octocat-run-mode-map 'motion t t)))
-  (define-key aux   (kbd "RET") #'octocat-visit)
-  ...)
-
-;; BROKEN — returns magit-section-mode-map's shared aux keymap
-(let ((aux (evil-get-auxiliary-keymap octocat-run-mode-map 'normal t)))
-  (define-key aux (kbd "RET") #'octocat-visit))  ; ← mutates parent!
-```
-
-This applies to **all** octocat modes that derive from `magit-section-mode`
-(run, job) for both `'normal` and `'motion`
-states.  The vui.el-rendered modes listed above do not derive from
-`magit-section-mode`, so they are unaffected and continue to use
-`evil-define-key*` directly.
 
 ## Byte-compiler warnings about functions "not known to be defined"
 

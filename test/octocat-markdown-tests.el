@@ -56,7 +56,7 @@ the window's point; mid-render that scrambled the page."
 (ert-deftest octocat-markdown-test-insert-allows-folding ()
   "Inserting markdown lets folded <details> bodies be invisible."
   (with-temp-buffer
-    (setq buffer-invisibility-spec '((magit-section . t)))
+    (setq buffer-invisibility-spec '((other . t)))
     (octocat--insert-markdown "text")
     (should (member 'octocat-markdown-details buffer-invisibility-spec))))
 
@@ -304,7 +304,7 @@ Text replaced by a `display' string shows as that string."
   (with-temp-buffer
     (insert (octocat-markdown-render
              "<details>\n<summary>Why <b>so</b></summary>\n\nfirst\n\nsecond\n</details>\nafter" ""))
-    (setq buffer-invisibility-spec '((magit-section . t)))
+    (setq buffer-invisibility-spec '((other . t)))
     (octocat-markdown--ensure-invisibility)
     (should (equal (octocat-markdown-tests--visible) "▸ Why so|after|"))
     (goto-char (point-min))
@@ -321,7 +321,7 @@ Text replaced by a `display' string shows as that string."
     (insert (octocat-markdown-render
              "<details open><summary>A</summary>\nx\n<details><summary>B</summary>\ny\n</details>\n</details>"
              ""))
-    (setq buffer-invisibility-spec '((magit-section . t)))
+    (setq buffer-invisibility-spec '((other . t)))
     (octocat-markdown--ensure-invisibility)
     (should (equal (octocat-markdown-tests--visible) "▾ A|x|B|y|"))
     (goto-char (point-min))

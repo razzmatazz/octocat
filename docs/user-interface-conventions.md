@@ -7,75 +7,29 @@ octocat.el buffers, and the research behind them.
 
 ## Indicating that a line or section is interactive (RET-able)
 
-### Background: what magit-section does
-
-`magit-insert-heading` applies exactly one affordance to a heading: the
-`magit-section-heading` face (bold + golden colour).  It adds **no**
-`mouse-face`, `help-echo`, or `cursor-type` text property.  RET dispatches
-through the major-mode keymap — `magit-section-mode-map` → the mode's own
-map — with no per-line visual signal that any particular heading is
-actionable.  This is the norm for *all* headings in a magit buffer; the bold
-colour is the sole convention.
-
-Where magit *does* add richer cues — its xref Back/Forward buttons and the
-mode-line process indicator — it consistently uses:
-
-```
-mouse-face  'magit-section-highlight   ; highlight on hover
-help-echo   "mouse-2, RET: <action>"   ; tooltip
-```
-
-Standard Emacs `buttonize` (available since Emacs 29) does the same via the
-`button` face (`link`-inherited → underline + colour), `mouse-face
-'highlight`, and an inline `button-map` that routes `RET` and `mouse-2` to a
-callback.
-
-### The pattern octocat.el uses
-
-For a **`magit-insert-section` heading** that is RET-able, add `mouse-face`
-and `help-echo` directly on the propertized string passed to
-`magit-insert-heading`.  Do **not** use `buttonize` inside a section heading
-— the button keymap would conflict with the section keymap and `mouse-face
-'highlight` would clash with the existing section-highlight face.
+A RET-able row is built with `octocat-vui-row`: a `vui-text` line in a
+`vui-region` whose keymap binds RET, with `mouse-face 'highlight` and a
+`help-echo` on the whole line.  The row keeps the faces of its segments
+(a `vui-button` would apply one face to the whole label).  A segment that
+has its own `help-echo`, such as a relative date, keeps it.
 
 ```elisp
-(magit-insert-section (pr-changes)
-  (magit-insert-heading
-    (concat "  Changes  "
-            (propertize (format "+%d" additions)
-                        'face      'diff-added
-                        'mouse-face 'magit-section-highlight
-                        'help-echo  "RET: open diff view")
-            " "
-            (propertize (format "-%d" deletions)
-                        'face      'diff-removed
-                        'mouse-face 'magit-section-highlight
-                        'help-echo  "RET: open diff view")
-            (propertize (format "  across %d file(s)" files)
-                        'mouse-face 'magit-section-highlight
-                        'help-echo  "RET: open diff view"))))
+(octocat-vui-row (concat icon "  " (propertize name 'face 'octocat-run-job-name))
+                 (lambda () (octocat-job-open repo run-id job-id name))
+                 "RET: open job")
 ```
 
-Apply `mouse-face` + `help-echo` to **every span** of the heading text,
-because text properties only apply to the characters that carry them.  A gap
-with no `mouse-face` would drop the highlight mid-hover.
-
-For an **inline value on an info line** that should be independently
-clickable (not the whole section), `buttonize` is the right tool:
-
-```elisp
-(insert "  URL  ")
-(insert (buttonize url #'browse-url url "mouse-2, RET: open in browser"))
-(insert "\n")
-```
+A separate action inside a line, such as a tab or "Load N more…", is a
+`vui-button`, drawn without brackets where the line already reads as a
+control (see "Brackets mean \"button\"" below).
 
 ### Decision table
 
 | Situation | Approach |
 |---|---|
-| Whole `magit-insert-section` heading is RET-able | `mouse-face 'magit-section-highlight` + `help-echo` on every text span |
-| Inline value on a plain `insert` line is independently clickable | `buttonize` with `help-echo` |
-| All headings in a view are navigable (standard magit) | No extra markers — bold face is sufficient |
+| The whole line opens something | `octocat-vui-row` with a `help-echo` |
+| One control among others on a line | `vui-button` |
+| A foldable block | `vui-collapsible`, or a component holding its own open state when the body is costly to build (see the job page's steps) |
 
 ---
 
@@ -297,8 +251,8 @@ face (which inherits `magit-branch-local` and adds `:underline t`).  It also
 prepends a `*` glyph in some views.  The core signal is: **bold + underline
 on the branch name itself**, no extra column or prefix character required.
 
-`magit-branch-current` lives in the full `magit` package, not in
-`magit-section`.  octocat.el must not depend on it directly.
+`magit-branch-current` lives in the `magit` package, which octocat.el does
+not depend on.
 
 ### The `octocat-branch-current` face
 
@@ -377,49 +331,24 @@ re-call the helper per line.
 
 ---
 
-## Opening items in the browser (`o` / `C-c C-o`)
+## Opening items in the browser (`C-c C-o`)
 
-`octocat-browse` is the single entry point for opening any item in the
-browser.  It is bound to `o` and `C-c C-o` in every octocat mode.
+Every mode binds `C-c C-o` to its own browse command, which opens the item
+the buffer shows: `octocat-pr-browse`, `octocat-issue-browse`,
+`octocat-commit-browse`, `octocat-checks-browse`, `octocat-workflow-browse`,
+`octocat-run-browse`, `octocat-job-browse`, `octocat-repo-browse`,
+`octocat-vui-list-browse` and so on.  Each reads the buffer-local variables
+set when the buffer was opened.
 
-### Dispatch order
-
-The function dispatches in two phases:
-
-1. **Section type** — inspects the magit section at point.  If the section
-   type has a known GitHub URL, open it immediately.
-2. **Major-mode fallback** — if the section type has no URL of its own
-   (e.g. point is on a title/header line, a metadata label, or the root
-   heading of a detail buffer), fall back to the current major mode and
-   open the URL for the *item the buffer represents as a whole*.
-
-This means `o` always does something useful regardless of where point is
-within a detail view.
-
-### Section-type dispatch table
-
-| Section type | URL / command |
+| Page | URL opened |
 |---|---|
-| `repo` | `https://github.com/OWNER/REPO` |
-| `pr` | `gh pr view --web NUMBER --repo REPO` |
-| `issue` | `gh issue view --web NUMBER --repo REPO` |
-| `octocat-commit` | `https://github.com/REPO/commit/SHA` (uses `"oid"` key, falls back to `"sha"` for REST-API commits) |
-| `workflow-run` | `https://github.com/REPO/actions/runs/ID` |
-| `comment` | `url` from the GitHub comment object |
-| `octocat-root` | `https://github.com/REPO` |
-
-### Major-mode fallback table
-
-| Major mode | URL opened |
-|---|---|
-| `octocat-pr-mode` | `gh pr view --web NUMBER --repo REPO` |
-| `octocat-issue-mode` | `gh issue view --web NUMBER --repo REPO` |
-| `octocat-run-mode` | `https://github.com/REPO/actions/runs/ID` |
-| `octocat-job-mode` | `https://github.com/REPO/actions/runs/RUN_ID/job/JOB_ID` |
-
-Each fallback reads the buffer-local variables set when the detail buffer
-was opened (e.g. `octocat--pr-repo`, `octocat--pr-number`).  If those
-variables are somehow unset the fallback silently does nothing.
+| PR | `gh pr view --web NUMBER --repo REPO` |
+| Issue | `gh issue view --web NUMBER --repo REPO` |
+| Commit | `https://github.com/REPO/commit/SHA` |
+| Checks | `https://github.com/REPO/commit/SHA/checks` |
+| Workflow | `https://github.com/REPO/actions/workflows/FILE` |
+| Run | `https://github.com/REPO/actions/runs/ID` |
+| Job | `https://github.com/REPO/actions/runs/RUN_ID/job/JOB_ID` |
 
 ### Using `gh` vs. `browse-url`
 
@@ -428,47 +357,15 @@ rather than a hard-coded URL.  This ensures the correct GitHub host is used
 when `gh` is configured for GitHub Enterprise or an alternative host.  All
 other items are opened with `browse-url` using a constructed URL.
 
-### Implementation note
-
-The `pcase` arms for section types return the result of their action (a
-process object, `t` from `browse-url`, etc.) which is truthy.  The outer
-`(or (pcase …) (cond …))` short-circuits to the `cond` fallback only when
-the `pcase` falls through with `nil` — i.e. the section type was not
-matched.  Both `(pcase … (_ nil))` and an explicit fall-through produce
-`nil`; the fallback `cond` then checks `derived-mode-p` in order.
-
 ---
 
 ## Navigating back to the parent repo view
 
-Every detail view (PR, issue, commit, workflow, run, job, PR diff, checks)
-belongs to a GitHub repository.  A **`Repo` line** at the top of the Info
-section is the breadcrumb back to the repo view for that repository.
-
-The line is RET-able (and mouse-hoverable) — pressing RET on it opens the
-`*octocat-repo: owner/repo*` buffer for that repository, exactly as if the
-user had navigated there from the dashboard.
-
-The repo name is rendered with the `octocat-repo` face and follows the same
-`mouse-face` + `help-echo` convention as all other RET-able Info rows.  It
-sits first in the Info section — above Title, Author, and all other fields —
-so it reads as a breadcrumb rather than a metadata field.
-
-### Placement
-
-| View | Where the Repo line sits |
-|---|---|
-| PR | First in `pr-meta` section (before Title) |
-| Issue | First in `issue-meta` section (before Title) |
-| Commit | The top line, `owner/repo@sha` |
-| Workflow | The top line, `owner/repo` |
-| Run | First in `run-info` section (before Workflow) |
-| Job | First in `job-info` section (before Status) |
-| PR diff | First line of root section body (before Files) |
-| Checks | The top line, `owner/repo@sha` |
-
-The same line appears in both the loading skeleton and the fully-rendered
-view so the breadcrumb is always visible from the moment the buffer opens.
+Every detail view belongs to a GitHub repository.  Its top line starts with
+the item's identity, RET-able to the repo view: `owner/repo#N` for a PR,
+its diff and an issue, `owner/repo@sha` for a commit and its checks, and
+`owner/repo` for a workflow, run or job (`octocat-vui-actions-top-row`).
+The line shows from the moment the buffer opens, before any data arrives.
 
 ---
 
@@ -524,8 +421,7 @@ a heading.
 The **repo name is not an action**; it is the page's identity.  Render it
 as plain text in the `octocat-repo` face, never as a `vui-button` -- so the
 top line reads `owner/repo` (or `owner/repo#N`) on every page, with no
-brackets.  When it must be RET-able (list and tree pages, where there is no
-Info section with a `Repo` line) use `octocat-vui-row`, which makes the
+brackets.  It is RET-able to the repo page through `octocat-vui-row`, which makes the
 whole text RET-able without brackets, with `help-echo` "RET: open
 repository page".
 
@@ -551,8 +447,7 @@ owner/repo  [Code]  [Issues (N)]  [Pull requests (N)]  [Actions]
 ### Detail pages
 
 Detail pages (PR, issue, PR diff, commit, checks, workflow, run, job) carry
-the same strip on their top line, right after `owner/repo#N` (or the
-heading's repo name, on the magit-section pages), so every page of a
+the same strip on their top line, right after `owner/repo#N`, so every page of a
 repository has one header and a way back to the lists and the tree.
 
 The top line holds only the identity, the strip and the loading indicator.
@@ -573,10 +468,8 @@ short SHA in `octocat-commit-sha`, as an issue or PR is by `owner/repo#N`.
   for an issue, Actions for workflow / run / job, Code for a commit and
   its checks) is drawn in `octocat-section-heading`, but stays a button:
   it opens the list, not the page itself.
-- vui pages use `octocat-vui-repo-tabs` with its HIGHLIGHT argument; the
-  magit-section pages append `octocat--repo-tabs-string` to the heading.
-  Both read `octocat--repo-tabs`, so labels and help text stay in one
-  place.
+- Pages use `octocat-vui-repo-tabs` with its HIGHLIGHT argument.  It reads
+  `octocat--repo-tabs`, so labels and help text stay in one place.
 - Counts are shown only where they are known (the repo page).
 - The commands behind the tabs, `octocat-issues`, `octocat-prs` and
   `octocat-actions`, take the repo as an optional argument: a detail

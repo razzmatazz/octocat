@@ -21,34 +21,12 @@
 ;;; Commentary:
 
 ;; Per-repository overview buffer: a one-call summary (open issue/PR
-;; counts, with buttons into the list pages in octocat-pr.el, octocat-issue.el, octocat-workflow.el) and the
+;; counts, with buttons into the list pages in octocat-pr.el, octocat-issue.el, octocat-actions.el) and the
 ;; recent Commits.  The PR, issue and workflow/run lists live on their own
 ;; pages; this file still holds their shared row builders and fetchers.
 ;; The `M-x octocat-repo' entry point is defined in octocat.el (see
 ;; CONTRIBUTING.md, "Entry points"); this file defines `octocat-repo-mode'
 ;; and all of its supporting logic.
-;;
-;; Rendered with vui.el (https://github.com/d12frosted/vui.el) instead of
-;; magit-section.  This replaces:
-;;   - octocat-repo--save-section-state / octocat-repo--hide-if-saved
-;;     (collapse state had to be snapshotted before every erase and
-;;     re-applied during construction) with vui-collapsible's own
-;;     component state, which vui's reconciliation preserves automatically
-;;     across re-renders.
-;;   - octocat--save-point / octocat--restore-point + the
-;;     magit-section-ident-value override on hash-tables (cursor identity
-;;     across a full erase-and-rebuild) with vui's own path-based cursor
-;;     tracking.
-;;   - the buffer-local `octocat-repo--counts' alist + a global
-;;     `octocat-repo-load-more' command that had to locate the pageable
-;;     section at point, with a per-section `:limit' state var and a
-;;     "Load more" button local to that section.
-;;   - the hand-rolled `pending' sentinel + `cl-labels' `maybe-render'
-;;     fan-in across 7 async gh calls with `vui-use-async', called once
-;;     per section (and twice in the root, for default-branch and
-;;     fork-parent); each section/hook manages its own pending/ready/error
-;;     state independently.
-;; See docs/magit-section.md for what the replaced machinery looked like.
 ;;
 ;; Known regressions / gaps in this first pass (see AGENTS.md's note on
 ;; this migration for context -- deliberately accepted for now):
@@ -64,18 +42,6 @@
 ;;     (collapsing a section, clicking "load more", navigating away and
 ;;     back via `switch-to-buffer') since those go through vui's
 ;;     reconciliation, not a remount.
-;;   - No Evil integration attempted.  Row navigation uses a `keymap' text
-;;     property per row (via `vui-region'), which is not necessarily
-;;     higher priority than Evil's normal/motion state keymaps (installed
-;;     via `emulation-mode-map-alists'); RET may or may not reach the row
-;;     handler under `evil-mode' and needs real investigation, unlike the
-;;     aux-keymap-divergence fix documented in AGENTS.md for the
-;;     magit-section-derived modes, which does not apply here since
-;;     `octocat-repo-mode' no longer derives from `magit-section-mode'.
-;;   - Per-row "open in browser" (what `octocat-browse' used to do for a
-;;     `pr'/`issue'/`octocat-commit'/`workflow'/`workflow-run' section at
-;;     point) is not implemented; `C-c C-o' opens the repository's GitHub
-;;     page unconditionally instead.
 
 ;;; Code:
 
@@ -97,19 +63,12 @@
 ;; functions not known to be defined" -- `make ci' compiles all files in
 ;; parallel, so a plain `require' does not guarantee the callee is already
 ;; compiled when this file is.
-(declare-function octocat-run-mode                 "octocat-run"      ())
-(declare-function octocat--render-run-loading      "octocat-run"      (run-id))
-(declare-function octocat-run-refresh              "octocat-run"      (&optional _ignore-auto _noconfirm))
+(declare-function octocat-run-open                 "octocat-run"      (repo run-id))
 (declare-function octocat-tree-open                "octocat-tree"     ())
 (declare-function octocat-tree-find-file           "octocat-tree"     ())
 (declare-function octocat-issues                   "octocat"          ())
 (declare-function octocat-prs                      "octocat"          ())
 (declare-function octocat-actions                  "octocat"          ())
-
-;; Buffer-locals this file `setq's in a *different* buffer (the target
-;; detail buffer, after `pop-to-buffer') than the one that defines them.
-(defvar octocat--run-repo)       ; defined as buffer-local in octocat-run.el
-(defvar octocat--run-id)         ; defined as buffer-local in octocat-run.el
 
 
 ;;;; User options
@@ -201,8 +160,7 @@ RESULT is whatever an octocat `octocat--run-gh'-based fetch function
 passes to its callback: either the parsed data, or a cons
 \\=(error . MSG).  A disabled-feature error (see
 `octocat-repo--disabled-feature-p') resolves to nil (an empty list)
-rather than rejecting, matching the previous magit-section
-rendering's \"(no pull requests)\" treatment of disabled features."
+rather than rejecting, so the section shows \"(no pull requests)\"."
   (cond
    ((not (eq (car-safe result) 'error)) (funcall resolve result))
    ((octocat-repo--disabled-feature-p result) (funcall resolve nil))
@@ -348,12 +306,8 @@ issue/PR-count lookups."
 
 ;;;; Navigation
 ;;
-;; Each of these opens (or switches to) the corresponding detail buffer.
-;; This is the same buffer-setup sequence `octocat-visit' uses for these
-;; section types in every other (magit-section-based) view, just called
-;; directly from a row's `:on-click'/RET handler instead of being reached
-;; through a shared "inspect the section at point" dispatcher -- there is
-;; no section at point to inspect here.
+;; Each of these opens (or switches to) the corresponding detail buffer,
+;; from a row's RET handler.
 
 (defun octocat-repo-vui--open-pr (repo pr)
   "Open the PR detail buffer for PR (a hash-table) in REPO."
@@ -375,16 +329,7 @@ issue/PR-count lookups."
 
 (defun octocat-repo-vui--open-workflow-run (repo run)
   "Open the workflow-run detail buffer for RUN (a hash-table) in REPO."
-  (let* ((run-id   (gethash "databaseId" run))
-         (buf-name (format "*octocat-run: %s#%d*" repo run-id))
-         (buf      (get-buffer-create buf-name)))
-    (pop-to-buffer buf)
-    (unless (derived-mode-p 'octocat-run-mode)
-      (octocat-run-mode))
-    (setq octocat--run-repo repo
-          octocat--run-id   run-id)
-    (octocat--render-run-loading run-id)
-    (octocat-run-refresh)))
+  (octocat-run-open repo (gethash "databaseId" run)))
 
 
 ;;;; Row builders
@@ -738,10 +683,7 @@ commit is highlighted.  AUTHOR-W is the width of the author column, see
 ;;;; Sections
 ;;
 ;; Each section owns its async fetch (`vui-use-async') and, for the
-;; pageable ones, its "load more" limit (`:state').  Compare to
-;; `octocat-repo--render-prs' et al. plus `octocat-repo-refresh's fan-in
-;; and `octocat-repo-load-more's "find the pageable section at point"
-;; walk in the previous magit-section implementation.
+;; pageable ones, its "load more" limit (`:state').
 
 (vui-defcomponent octocat-repo-vui--commits-section
     (repo default-branch current-branch head-info on-loading)
@@ -880,12 +822,7 @@ Everything but the commits comes from a single summary API call."
 ;;;; Major mode
 
 (defun octocat-repo-browse ()
-  "Open the current repository's GitHub page in a browser.
-Unlike the shared `octocat-browse' (used by every magit-section-based
-view to dispatch on the section at point), this always opens the
-whole-repository page: `octocat-repo-mode' has no section at point to
-dispatch on, so per-row \"open in browser\" is not implemented yet (see
-octocat-repo.el's Commentary)."
+  "Open the current repository's GitHub page in a browser."
   (interactive)
   (unless octocat-repo--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
@@ -922,8 +859,7 @@ octocat-repo.el's Commentary)."
   "Refresh the current octocat-repo buffer.
 Mounts the vui.el component tree for `octocat-repo--repo' via
 `vui-mount'.  Every section fetches its own data independently (see
-the Commentary at the top of this file for what that changes, and what
-it gives up, versus the previous magit-section-based implementation)."
+the Commentary at the top of this file)."
   (interactive)
   (unless octocat-repo--repo
     (user-error "Octocat: Buffer is not associated with a repository"))

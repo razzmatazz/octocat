@@ -5,7 +5,7 @@
 ;; Author: octocat.el contributors
 ;; Assisted-by: Claude:claude-sonnet-4-6
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "29.1") (magit-section "3.0") (consult "1.0") (vui "0.1"))
+;; Package-Requires: ((emacs "29.1") (consult "1.0") (vui "0.1"))
 ;; Keywords: tools, vc, github
 ;; URL: https://github.com/octocat.el/octocat.el
 
@@ -52,231 +52,18 @@
 (require 'octocat-tree)
 (require 'octocat-search)
 
-;; Forward declarations for sub-module buffer-locals referenced by
-;; octocat-visit (defined here).  These silence the byte-compiler.
-(defvar octocat--pr-repo)        ; defined as buffer-local in octocat-pr.el
-(defvar octocat--issue-repo)     ; defined as buffer-local in octocat-issue.el
-(defvar octocat--issue-number)   ; defined as buffer-local in octocat-issue.el
-(defvar octocat--run-repo)       ; defined as buffer-local in octocat-run.el
-(defvar octocat--run-id)         ; defined as buffer-local in octocat-run.el
-(defvar octocat--job-repo)       ; defined as buffer-local in octocat-job.el
-(defvar octocat--job-run-id)     ; defined as buffer-local in octocat-job.el
-(defvar octocat--job-id)         ; defined as buffer-local in octocat-job.el
-(defvar octocat--job-name)       ; defined as buffer-local in octocat-job.el
-
-;; Also forward-declare octocat-repo--repo so octocat-visit can read it
-;; when called from a repo buffer (it is defined as buffer-local in
-;; octocat-repo.el which we already require, but the compiler may still
-;; warn without this).
+;; Buffer-locals of other files, used below.
 (defvar octocat-repo--repo)           ; defined as buffer-local in octocat-repo.el
-
-;; Forward declarations for octocat-tree.el buffer-locals referenced by
-;; octocat-visit and octocat-browse when called from tree/file buffers.
 (defvar octocat-tree--repo)           ; defined as buffer-local in octocat-tree.el
-(defvar octocat-tree--branch)         ; defined as buffer-local in octocat-tree.el
-(defvar octocat-tree--file-repo)      ; defined as buffer-local in octocat-tree.el
-(defvar octocat-tree--file-path)      ; defined as buffer-local in octocat-tree.el
-(defvar octocat-tree--file-sha)       ; defined as buffer-local in octocat-tree.el
-(defvar octocat-tree--file-branch)    ; defined as buffer-local in octocat-tree.el
-
-(declare-function octocat-tree-open        "octocat-tree" ())
-(declare-function octocat-file-refresh     "octocat-tree" (&optional _ignore-auto _noconfirm))
-(declare-function octocat-file-mode        "octocat-tree" ())
-(declare-function octocat-tree--render-file-loading "octocat-tree" (path))
-(declare-function octocat-file-log-open    "octocat-tree" ())
 
 ;; Evil integration is optional; declare its entry point to silence the
 ;; byte-compiler when `octocat-evil' has not been loaded yet.
 (declare-function octocat-evil-setup "octocat-evil" ())
 
-;; Entry points of other files (already loaded via `require' above, but
-;; declared here so octocat-visit can call them without the byte-compiler
-;; warning about forward references).
-
 ;; Repo-mode entry point (defined in octocat-repo.el, already required).
 (declare-function octocat-repo-refresh      "octocat-repo" (&optional _ignore-auto _noconfirm))
 (declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
 (declare-function octocat-repo--local-dir-for "octocat-repo" (repo))
-
-
-;;;; Shared navigation commands
-
-(defun octocat-visit ()
-  "Open the detail view for the item at point."
-  (interactive)
-  ;; Check for inline action text property first (e.g. [Code] token).
-  (if (eq (get-text-property (point) 'octocat-action) 'browse-files)
-      (octocat-tree-open)
-    (let ((section (magit-current-section)))
-      (pcase (and section (oref section type))
-      ('pr
-       (octocat-pr-open (or octocat-repo--repo octocat--pr-repo)
-                        (gethash "number" (oref section value))))
-      ('octocat-commit
-       (let ((commit (oref section value)))
-         (octocat-commit-open (or octocat--pr-repo octocat-repo--repo)
-                              (or (gethash "oid" commit) (gethash "sha" commit) ""))))
-      ('issue
-       (octocat-issue-open (or octocat-repo--repo octocat--issue-repo)
-                           (gethash "number" (oref section value))))
-      ('workflow-run
-       (let* ((run    (oref section value))
-              (run-id (gethash "databaseId" run))
-              (repo   (or octocat-repo--repo octocat--run-repo))
-              (buf-name (format "*octocat-run: %s#%d*" repo run-id))
-              (buf    (get-buffer-create buf-name)))
-         (pop-to-buffer buf)
-         (unless (derived-mode-p 'octocat-run-mode)
-           (octocat-run-mode))
-         (setq octocat--run-repo repo
-               octocat--run-id   run-id)
-         (octocat--render-run-loading run-id)
-         (octocat-run-refresh)))
-      ;; NOTE: the dashboard and the repo view are rendered with vui.el, so
-      ;; their rows (and "load more" buttons) carry their own RET handlers
-      ;; instead of being dispatched through here.
-      ;;
-      ;; RET on a repo-nav line (inside any detail-view Info section) opens
-      ;; the repo view for the repository this detail view belongs to.
-      ('repo-nav
-       (octocat-visit-repo (oref section value)))
-      ;; RET on the "Forked from" line in a repo view opens the parent repo.
-      ('fork-parent
-       (octocat-visit-repo (oref section value)))
-      ;; RET on a tree file entry opens the file viewer.
-      ('tree-file
-       (let* ((entry    (oref section value))
-              (path     (gethash "path" entry))
-              (sha      (gethash "sha"  entry))
-              (repo     octocat-tree--repo)
-              (branch   octocat-tree--branch)
-              (buf-name (format "*octocat-file: %s %s*" repo path))
-              (buf      (get-buffer-create buf-name)))
-         (pop-to-buffer buf)
-         (unless (derived-mode-p 'octocat-file-mode)
-           (octocat-file-mode))
-         (setq octocat-tree--file-repo   repo
-               octocat-tree--file-path   path
-               octocat-tree--file-sha    sha
-               octocat-tree--file-branch branch)
-         (octocat-tree--render-file-loading path)
-         (octocat-file-refresh)))
-      (_ nil)))))
-
-(defun octocat-browse ()
-  "Open the item at point in the browser, or the current detail view.
-
-Dispatches first by the type of the magit section at point; falls back to
-the current major mode when point is not on a section that has a
-corresponding GitHub URL (e.g. the header line of a PR detail buffer).
-
-Section types handled:
-  `pr'            → gh pr view --web (respects gh's host config)
-  `issue'         → gh issue view --web
-  `octocat-commit'→ https://github.com/REPO/commit/SHA
-  `workflow-run'  → https://github.com/REPO/actions/runs/ID
-  `comment'       → url field from the GitHub comment object
-  `octocat-root'  → https://github.com/REPO
-
-Major-mode fallback (used when the section type does not have its own
-handler, e.g. point is on a title/header line):
-  `octocat-run-mode'      → https://github.com/REPO/actions/runs/ID
-  `octocat-job-mode'      → https://github.com/REPO/actions/runs/RUN/job/JOB"
-  (interactive)
-  (let* ((section (magit-current-section))
-         (type    (and section (oref section type)))
-         (value   (and section (oref section value)))
-         (repo    (or octocat-repo--repo octocat--pr-repo octocat--run-repo))
-         (gh      (executable-find "gh")))
-    (unless gh
-      (user-error "Octocat: `gh' executable not found"))
-    (or
-     (pcase type
-       ('pr
-        (let ((number (gethash "number" value)))
-          (message "Octocat: Opening PR #%d in browser…" number)
-          (start-process "octocat-browse" nil gh
-                         "pr" "view" "--web"
-                         (number-to-string number)
-                         "--repo" repo)))
-       ('octocat-commit
-        (let* ((oid (or (gethash "oid" value) (gethash "sha" value) ""))
-               (url (format "https://github.com/%s/commit/%s" repo oid)))
-          (message "Octocat: Opening commit %s in browser…"
-                   (substring oid 0 (min 7 (length oid))))
-          (browse-url url)))
-       ('issue
-        (let ((number (gethash "number" value)))
-          (message "Octocat: Opening issue #%d in browser…" number)
-          (start-process "octocat-browse" nil gh
-                         "issue" "view" "--web"
-                         (number-to-string number)
-                         "--repo" repo)))
-       ('workflow-run
-        (let* ((run-id (or (gethash "databaseId" value) octocat--run-id))
-               (url    (format "https://github.com/%s/actions/runs/%s"
-                               repo (number-to-string run-id))))
-          (message "Octocat: Opening run #%s in browser…" run-id)
-          (browse-url url)))
-       ('comment
-        (let ((url (gethash "url" value)))
-          (when url
-            (message "Octocat: Opening comment in browser…")
-            (browse-url url))))
-       ('octocat-root
-        (let ((url (format "https://github.com/%s" repo)))
-          (message "Octocat: Opening %s in browser…" repo)
-          (browse-url url)))
-       ('tree-file
-        (let* ((entry  (oref section value))
-               (path   (gethash "path" entry))
-               (t-repo (or octocat-tree--repo repo))
-               (branch (or octocat-tree--branch "HEAD"))
-               (url    (format "https://github.com/%s/blob/%s/%s"
-                               t-repo branch path)))
-          (message "Octocat: Opening %s in browser…" path)
-          (browse-url url)))
-       ('tree-dir
-        (let* ((entry  (oref section value))
-               (path   (gethash "path" entry))
-               (t-repo (or octocat-tree--repo repo))
-               (branch (or octocat-tree--branch "HEAD"))
-               (url    (format "https://github.com/%s/tree/%s/%s"
-                               t-repo branch path)))
-          (message "Octocat: Opening %s/ in browser…" path)
-          (browse-url url))))
-     ;; Major-mode fallback — fires when point is on a section type that has
-     ;; no URL of its own (e.g. a title/header line), or when no section is
-     ;; active at all.  Each branch uses the buffer-local vars set when the
-     ;; detail buffer was opened.
-     (cond
-      ((derived-mode-p 'octocat-run-mode)
-       (when (and octocat--run-repo octocat--run-id)
-         (let ((url (format "https://github.com/%s/actions/runs/%s"
-                            octocat--run-repo octocat--run-id)))
-           (message "Octocat: Opening run #%s in browser…" octocat--run-id)
-           (browse-url url))))
-      ((derived-mode-p 'octocat-job-mode)
-       (when (and octocat--job-repo octocat--job-run-id octocat--job-id)
-         (let ((url (format "https://github.com/%s/actions/runs/%s/job/%s"
-                            octocat--job-repo octocat--job-run-id octocat--job-id)))
-           (message "Octocat: Opening job in browser…")
-           (browse-url url))))
-      ((derived-mode-p 'octocat-tree-mode)
-       (let ((url (format "https://github.com/%s/tree/%s"
-                          octocat-tree--repo octocat-tree--branch)))
-         (message "Octocat: Opening tree in browser…")
-         (browse-url url)))
-      ((derived-mode-p 'octocat-file-mode)
-       (when (and octocat-tree--file-repo
-                  octocat-tree--file-branch
-                  octocat-tree--file-path)
-         (let ((url (format "https://github.com/%s/blob/%s/%s"
-                            octocat-tree--file-repo
-                            octocat-tree--file-branch
-                            octocat-tree--file-path)))
-           (message "Octocat: Opening file in browser…")
-           (browse-url url))))))))
 
 
 ;;;; Dashboard major mode

@@ -30,7 +30,6 @@
 
 ;;; Code:
 
-(declare-function evil-get-auxiliary-keymap "evil-core" (keymap state &optional create ignore-parent))
 (declare-function evil-define-key*          "evil-core" (state keymap &rest bindings))
 (declare-function evil-normalize-keymaps    "evil-core" (&optional hook))
 
@@ -53,8 +52,6 @@
 (defvar octocat-file-mode-map)
 (defvar octocat-file-log-mode-map)
 
-(declare-function octocat-visit              "octocat"           ())
-(declare-function octocat-browse             "octocat"           ())
 (declare-function octocat-tree-open          "octocat-tree"      ())
 (declare-function octocat-tree-find-file     "octocat-tree"      ())
 (declare-function octocat-tree-visit         "octocat-tree"      ())
@@ -92,11 +89,10 @@
 (declare-function octocat-vui-list-edit-query "octocat-vui"      ())
 (declare-function octocat-workflow-browse    "octocat-workflow"  ())
 (declare-function octocat-workflow-refresh   "octocat-workflow"  (&optional _ignore-auto _noconfirm))
-(declare-function octocat-run-refresh             "octocat-run" (&optional _ignore-auto _noconfirm))
-(declare-function octocat-run-visit               "octocat-run" ())
-(declare-function octocat-run-visit-or-download   "octocat-run" ())
-(declare-function octocat-job-refresh             "octocat-job" (&optional _ignore-auto _noconfirm))
-(declare-function octocat-job-download-artifact   "octocat-job" ())
+(declare-function octocat-run-browse         "octocat-run"       ())
+(declare-function octocat-run-refresh        "octocat-run"       (&optional _ignore-auto _noconfirm))
+(declare-function octocat-job-browse         "octocat-job"       ())
+(declare-function octocat-job-refresh        "octocat-job"       (&optional _ignore-auto _noconfirm))
 
 
 ;;;###autoload
@@ -115,13 +111,8 @@
     (kbd "q")       #'quit-window)
 
   ;; ── octocat-repo-mode ─────────────────────────────────────────────────
-  ;; octocat-repo-mode is rendered with vui.el now (see octocat-repo.el's
-  ;; Commentary), not magit-section, so it no longer has a single
-  ;; RET-dispatches-on-section-at-point command: each row's RET action is
-  ;; bound directly via a per-row `keymap' text property.  Whether that
-  ;; text-property keymap wins over these `emulation-mode-map-alists'
-  ;; bindings under Evil is NOT verified -- this is a known gap (see
-  ;; octocat-repo.el's Commentary).  Only bind what still applies globally.
+  ;; Each row binds its own RET via a `keymap' text property, so only the
+  ;; global bindings go here.
   (evil-define-key* 'normal octocat-repo-mode-map
     (kbd "C-c C-o") #'octocat-repo-browse
     (kbd "C-c C-f") #'octocat-tree-find-file
@@ -229,33 +220,24 @@
     (kbd "q")       #'quit-window)
 
   ;; ── octocat-run-mode ──────────────────────────────────────────────────
-  (let ((aux   (evil-get-auxiliary-keymap octocat-run-mode-map 'normal t t))
-        (aux-m (evil-get-auxiliary-keymap octocat-run-mode-map 'motion t t)))
-    (define-key aux   (kbd "g")     nil)
-    (define-key aux   (kbd "RET")   #'octocat-run-visit-or-download)
-    (define-key aux   (kbd "C-c C-o") #'octocat-browse)
-    (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
-    (define-key aux   (kbd "C-c C-s") #'octocat-search-repo)
-    (define-key aux   (kbd "gs")    #'octocat-search-repo)
-    (define-key aux   (kbd "q")     #'quit-window)
-    (define-key aux   (kbd "gr")    #'octocat-run-refresh)
-    (define-key aux-m (kbd "RET")   #'octocat-run-visit-or-download))
+  (evil-define-key* 'normal octocat-run-mode-map
+    (kbd "C-c C-o") #'octocat-run-browse
+    (kbd "C-c C-r") #'octocat-switch-repo
+    (kbd "C-c C-s") #'octocat-search-repo
+    (kbd "gs")      #'octocat-search-repo
+    (kbd "gr")      #'octocat-run-refresh
+    (kbd "q")       #'quit-window)
 
   ;; ── octocat-job-mode ──────────────────────────────────────────────────
-  (let ((aux   (evil-get-auxiliary-keymap octocat-job-mode-map 'normal t t))
-        (aux-m (evil-get-auxiliary-keymap octocat-job-mode-map 'motion t t)))
-    (define-key aux   (kbd "g")     nil)
-    (define-key aux   (kbd "RET")   #'octocat-job-download-artifact)
-    (define-key aux   (kbd "C-c C-o") #'octocat-browse)
-    (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
-    (define-key aux   (kbd "C-c C-s") #'octocat-search-repo)
-    (define-key aux   (kbd "gs")    #'octocat-search-repo)
-    (define-key aux   (kbd "q")     #'quit-window)
-    (define-key aux   (kbd "gr")    #'octocat-job-refresh)
-    (define-key aux-m (kbd "RET")   #'octocat-job-download-artifact))
+  (evil-define-key* 'normal octocat-job-mode-map
+    (kbd "C-c C-o") #'octocat-job-browse
+    (kbd "C-c C-r") #'octocat-switch-repo
+    (kbd "C-c C-s") #'octocat-search-repo
+    (kbd "gs")      #'octocat-search-repo
+    (kbd "gr")      #'octocat-job-refresh
+    (kbd "q")       #'quit-window)
 
   ;; ── octocat-tree-mode ─────────────────────────────────────────────────
-  ;; Derives from vui-mode (not magit-section-mode): evil-define-key* is safe.
   (evil-define-key* 'normal octocat-tree-mode-map
     (kbd "RET")     #'octocat-tree-visit
     (kbd "TAB")     #'octocat-tree-expand
@@ -272,7 +254,6 @@
     [tab]           #'octocat-tree-expand)
 
   ;; ── octocat-file-mode ─────────────────────────────────────────────────
-  ;; Derives from special-mode (not magit-section-mode): evil-define-key* is safe.
   (evil-define-key* 'normal octocat-file-mode-map
     (kbd "C-c C-o") #'octocat-file-browse
     (kbd "o")       #'octocat-file-browse
@@ -285,7 +266,6 @@
     (kbd "gr")      #'octocat-file-refresh)
 
   ;; ── octocat-file-log-mode ─────────────────────────────────────────────
-  ;; Derives from vui-mode (not magit-section-mode): evil-define-key* is safe.
   (evil-define-key* 'normal octocat-file-log-mode-map
     (kbd "RET")     #'octocat-file-log-visit
     (kbd "C-c C-o") #'octocat-file-log-browse

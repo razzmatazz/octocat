@@ -13,15 +13,8 @@
 (source "melpa")
 
 (depends-on "emacs"         "29.1")
-(depends-on "magit-section" "3.0")
 (depends-on "consult"       "1.0")
-
-;; octocat-repo.el renders its buffer with vui.el instead of magit-section
-;; (see octocat-repo.el's Commentary).  vui.el is not yet on MELPA/GNU ELPA,
-;; so it is pulled straight from its GitHub repo; :files pulls in every
-;; top-level .el (vui.el, vui-components.el, vui-layout.el) as one package.
-(depends-on "vui" :repo "d12frosted/vui.el" :fetcher 'github
-            :files '("*.el"))
+(depends-on "vui"           "0.1")
 
 ;; evil is an optional runtime integration (see octocat-evil.el) and is
 ;; therefore NOT listed in octocat.el's Package-Requires header.  It is

@@ -59,8 +59,8 @@ blank row between two plain paragraphs, and the one around a code box, are
 kept for readability.
 
 Done since: RET-able links, `#123`, `owner/repo#123`, commit SHAs and
-`owner/repo@sha` (a `keymap` text property, so it works in vui, magit-section
-and Evil buffers alike; a number is opened as a PR or an issue after asking
+`owner/repo@sha` (a `keymap` text property, so it works in vui and Evil buffers
+alike; a number is opened as a PR or an issue after asking
 the API which it is); `@mentions` link to the profile; syntax-highlighted
 fences (`octocat-markdown-language-modes`); setext headings; indented code;
 reference-style links and footnotes; `:emoji:` shortcodes; `<img>` and `<kbd>`;
@@ -178,12 +178,8 @@ Transient title reflects context: "PR Filters" vs "Issue Filters".
 Applies to `octocat-mode` (dashboard) and dedicated `octocat-pr-mode` /
 `octocat-issue-mode` buffers via the same `f` binding.
 
-Binding `f`: bind directly in the mode-map (not via `evil-define-key*`).
-All octocat modes derive from `magit-section-mode`, which carries the
-`(override-state . all)` keymap property — this tells Evil the mode-map
-beats all state maps, so `f` shadows `evil-find-char` automatically, exactly
-as Magit does for its own `f` → `magit-fetch`. Mirror it in `octocat-evil.el`
-via `evil-define-key* 'normal` for consistency with the existing pattern.
+Binding `f`: bind it in the mode-map and, so it shadows `evil-find-char`,
+with `evil-define-key* 'normal` in `octocat-evil.el`.
 
 ## ~~PR/issue body rendering~~
 

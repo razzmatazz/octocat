@@ -27,7 +27,6 @@
 ;;; Code:
 
 (require 'cl-lib)
-(require 'magit-section)
 (require 'json)
 (require 'eldoc)
 (require 'octocat-markdown)
@@ -801,57 +800,8 @@ An `eldoc-documentation-functions' member."
 Call from a major-mode body.  ElDoc shows it after `eldoc-idle-delay'
 when `global-eldoc-mode' is on (the default)."
   (add-hook 'eldoc-documentation-functions #'octocat--ts-eldoc nil t)
-  ;; Section and vui motions, so ElDoc reacts to them like to `next-line'.
-  (eldoc-add-command-completions "magit-section-" "vui-forward" "vui-backward"))
-
-;;;; Section identity
-
-;; magit-section uses `magit-section-ident-value' to derive a stable identity
-;; key from each section's `:value' slot.  The default implementation returns
-;; the value as-is, which means two hash-table objects representing the same
-;; GitHub entity are never `equal' across re-renders.  We override the generic
-;; for every value type octocat uses, returning a simple scalar key so that
-;; `magit-get-section' can locate the matching section in a freshly-built tree.
-
-(cl-defmethod magit-section-ident-value ((ht hash-table))
-  "Return a stable scalar key for a GitHub entity hash-table HT.
-Checks for the most specific numeric identifier first (databaseId,
-number), then a string identifier (oid, name), falling back to nil."
-  (or (gethash "databaseId" ht)
-      (gethash "number"     ht)
-      (gethash "oid"        ht)
-      (gethash "id"         ht)
-      (gethash "name"       ht)))
-
-
-;;;; Point preservation across refreshes
-
-(defun octocat--save-point ()
-  "Capture point position relative to the current magit section.
-Returns a plist (:section SECTION :line LINE :char CHAR) describing
-point's location within its enclosing section, or nil when there is
-no live section tree (e.g. during initial buffer setup).
-Pass the returned plist to `octocat--restore-point' after re-rendering."
-  (when (and (boundp 'magit-root-section) magit-root-section)
-    (let ((section (magit-current-section)))
-      (when section
-        (let ((pos (magit-section-get-relative-position section)))
-          (list :section section
-                :line    (car pos)
-                :char    (cadr pos)))))))
-
-(defun octocat--restore-point (saved)
-  "Restore point to the section described by SAVED, if possible.
-SAVED must be a plist as returned by `octocat--save-point', or nil.
-Uses `magit-section-goto-successor' so that if the exact section no
-longer exists the cursor lands on the nearest related sibling or parent."
-  (when saved
-    (let ((section (plist-get saved :section))
-          (line    (plist-get saved :line))
-          (char    (plist-get saved :char)))
-      (when section
-        (ignore-errors
-          (magit-section-goto-successor section line char))))))
+  ;; vui motions, so ElDoc reacts to them like to `next-line'.
+  (eldoc-add-command-completions "vui-forward" "vui-backward"))
 
 
 ;;;; Markdown rendering
@@ -1075,9 +1025,8 @@ The selected repository is opened via `octocat-visit-repo', a selected
 ;;;; Repo tab strip
 ;;
 ;; The Code / Issues / Pull requests / Actions strip every repo page shows
-;; beside the repo name, as GitHub's tabs do.  The vui pages draw it with
-;; `octocat-vui-repo-tabs'; the magit-section pages, with
-;; `octocat--repo-tabs-string'.  Both read `octocat--repo-tabs'.
+;; beside the repo name, as GitHub's tabs do, drawn by
+;; `octocat-vui-repo-tabs'.
 
 (declare-function octocat-tree-open  "octocat-tree" (&optional repo))
 (declare-function octocat-issues     "octocat"      (&optional repo))
@@ -1091,20 +1040,6 @@ The selected repository is opened via `octocat-visit-repo', a selected
     (actions "Actions"       "RET: list workflows and runs"  octocat-actions))
   "The repo tabs: (SYMBOL LABEL HELP-ECHO COMMAND).
 COMMAND takes the \"owner/name\" repo to open the tab's page for.")
-
-(defun octocat--repo-tabs-string (repo &optional highlight)
-  "Return the tab strip of REPO as a propertized string, for a heading.
-Every tab is a bracketed button opening that page of REPO.  HIGHLIGHT, a
-tab symbol of `octocat--repo-tabs', is drawn in the heading face: the page
-shown belongs to that tab, which still opens its list."
-  (mapconcat
-   (lambda (tab)
-     (pcase-let ((`(,sym ,label ,help ,fn) tab))
-       (propertize
-        (buttonize (format "[%s]" label)
-                   (lambda (_) (funcall fn repo)) nil help)
-        'face (if (eq sym highlight) 'octocat-section-heading 'octocat-dimmed))))
-   octocat--repo-tabs "  "))
 
 (defun octocat-visit-repo (repo)
   "Open (or switch to) the *octocat-repo: REPO* buffer.

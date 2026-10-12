@@ -74,41 +74,31 @@ they can be inspected directly.  Do **not** hardcode
 `(locate-user-emacs-file "octocat/cache/")` as the default, exposed via
 `defcustom octocat-cache-directory`.
 
-### UI frameworks: vui.el and magit-section
+### UI framework: vui.el
 
-octocat uses two UI frameworks, split by buffer type:
-
-- **vui.el** — the dashboard (`octocat-mode`), the repo overview
-  (`octocat-repo.el`, `octocat-repo-mode`), the user page
-  (`octocat-user-mode`), the PR, issue, PR diff, commit, checks and
-  workflow detail views (`octocat-pr-mode`, `octocat-issue-mode`,
-  `octocat-pr-diff-mode`, `octocat-commit-mode`, `octocat-checks-mode`,
-  `octocat-workflow-mode`; PR diff and commit share `octocat-diff.el`), the
-  file tree and file log (`octocat-tree-mode`, `octocat-file-log-mode`)
-  and the PR and issue list pages and the Actions page
-  (`octocat-pr-list-mode`, `octocat-issue-list-mode`, defined next to the
-  matching detail views, and `octocat-actions-mode` in `octocat-actions.el`;
-  all derive from `octocat-vui-list-mode`).  The issue and PR views are
-  GitHub-style timelines of the opening post, comments and events; what
-  point is on is carried by a text property (e.g. `octocat-issue-target`),
-  not a section.  The repo overview is a dashboard of independent async
-  sections, each with its own fetch (`vui-use-async`), pagination counter
-  (`:state`) and collapse state (`vui-collapsible`).  None of these modes
-  derive from `magit-section-mode`.
-- **magit-section** — the remaining views: run and job detail
-  (`octocat-run-mode`, `octocat-job-mode`).  See
-  [docs/magit-section.md](docs/magit-section.md) for the section tree
-  structure, hiding/collapsing gotchas, and the correct patterns for
-  preserving collapse state across refreshes.
+Every buffer is rendered with vui.el: the dashboard (`octocat-mode`), the
+repo overview (`octocat-repo.el`, `octocat-repo-mode`), the user page
+(`octocat-user-mode`), the PR, issue, PR diff, commit, checks, workflow,
+run and job detail views (`octocat-pr-mode`, `octocat-issue-mode`,
+`octocat-pr-diff-mode`, `octocat-commit-mode`, `octocat-checks-mode`,
+`octocat-workflow-mode`, `octocat-run-mode`, `octocat-job-mode`; PR diff
+and commit share `octocat-diff.el`), the file tree and file log
+(`octocat-tree-mode`, `octocat-file-log-mode`) and the PR and issue list
+pages and the Actions page (`octocat-pr-list-mode`,
+`octocat-issue-list-mode`, defined next to the matching detail views, and
+`octocat-actions-mode` in `octocat-actions.el`; all derive from
+`octocat-vui-list-mode`).  The issue and PR views are GitHub-style
+timelines of the opening post, comments and events; what point is on is
+carried by a text property (e.g. `octocat-issue-target`).  The repo
+overview is a dashboard of independent async sections, each with its own
+fetch (`vui-use-async`), pagination counter (`:state`) and collapse state
+(`vui-collapsible`).
 
 Generic, repo-agnostic vui helpers (the RET-able `octocat-vui-row`,
 `octocat-vui-use-async-sticky`, `octocat-vui-load-more-button`) live in
 `octocat-vui.el`; buffer-specific vui code stays in that buffer's file.
 Put new reusable vui hooks/components there, and keep them free of GitHub
 knowledge.
-
-New buffers should use vui.el.  The magit-section views above are what is
-left of the older implementation.  Never mix the two in one buffer.
 
 vui.el gotchas:
 
@@ -148,21 +138,9 @@ Runtime dependencies are exactly those in the `Package-Requires` header of
 `octocat.el`, and the `Eask` file must list the same set.  Only call functions
 from declared dependencies.
 
-`vui` is a deliberate dependency that is **not yet on MELPA or GNU ELPA**.
-`Eask` fetches it from GitHub (`d12frosted/vui.el`, with `:files '("*.el")`
-so `vui.el`, `vui-components.el` and `vui-layout.el` install as one package),
-and `Package-Requires` declares `(vui "0.1")`.  We accept this: the repo view
-is the main entry point and vui removes a large amount of hand-written state
-bookkeeping from it.  Consequences to keep in mind:
-
-- Users must be able to install `vui` before octocat (e.g. via `straight`,
-  `elpaca`, or `package-vc`) until it is published to an archive.  Document
-  this in the README install instructions.
-- Treat vui as a young, fast-moving library: pin or re-test when bumping it,
-  and keep vui usage confined to `octocat-repo.el` and `octocat-vui.el` so a
-  breaking change or a future removal has a small blast radius.
-- If vui is published to MELPA/GNU ELPA, drop the `:repo`/`:fetcher` options
-  from `Eask`.
+`vui` comes from MELPA; `Package-Requires` declares `(vui "0.1")`.  Treat
+it as a young, fast-moving library: re-test when bumping it, and keep
+generic vui helpers in `octocat-vui.el`.
 
 ### Indicating interactivity in the UI
 
@@ -176,20 +154,6 @@ table for each situation.
 Evil bindings for all octocat modes live in `octocat-evil.el` and are
 installed by `octocat-evil-setup`.
 
-**Always use `evil-get-auxiliary-keymap` with `t t` (CREATE + IGNORE-PARENT)
-for modes that derive from `magit-section-mode`**, then call `define-key` on
-the returned keymap for every binding:
-
-```elisp
-(let ((aux   (evil-get-auxiliary-keymap octocat-run-mode-map 'normal t t))
-      (aux-m (evil-get-auxiliary-keymap octocat-run-mode-map 'motion t t)))
-  (define-key aux (kbd "RET") #'octocat-visit)
-  ...)
-```
-
-Without the fourth `t`, `evil-get-auxiliary-keymap` walks up the keymap
-inheritance chain and returns the *parent* (`magit-section-mode-map`) aux
-keymap.  Writing into it mutates a shared object and bleeds octocat bindings
-into every Magit buffer.  See AGENTS.md — *"evil-define-key\* aux-keymap slot
-divergence"* and its sub-section *"Gotcha — evil-get-auxiliary-keymap returns
-the parent's aux keymap without IGNORE-PARENT"* — for the full explanation.
+Each mode's map gets its bindings with `evil-define-key*`.  Rows bind RET
+themselves (a `keymap` text property, see `octocat-vui-row`), so only the
+mode-wide commands go there.

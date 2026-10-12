@@ -385,6 +385,34 @@ SUFFIX, the page's loading indicator (see `octocat-vui-loading-suffix')."
                  (and suffix (not (string-empty-p suffix))
                       (list (vui-text (string-trim-left suffix)))))))
 
+(defun octocat-vui-actions-top-row (repo suffix)
+  "Return the top row of a workflow, run or job page of REPO.
+That is the repo, RET-able to the repo page, the tab strip with Actions
+highlighted, and SUFFIX, the page's loading indicator (see
+`octocat-vui-loading-suffix')."
+  (apply #'vui-hstack :spacing 2
+         (octocat-vui-row (propertize repo 'face 'octocat-repo)
+                          (lambda () (octocat-visit-repo repo))
+                          "RET: open repo view")
+         (append (octocat-vui-repo-tabs repo nil nil nil 'actions)
+                 (and suffix (not (string-empty-p suffix))
+                      (list (vui-text (string-trim-left suffix)))))))
+
+(defun octocat-vui-fields (fields)
+  "Return a vnode of FIELDS on one line, or nil when none has a value.
+FIELDS is a list of (LABEL . VALUE): a nil or empty VALUE is skipped, a
+nil LABEL shows VALUE alone.  Labels and separators are dimmed."
+  (let ((parts (delq nil
+                     (mapcar (lambda (f)
+                               (and (cdr f) (not (equal (cdr f) ""))
+                                    (if (car f)
+                                        (concat (propertize (car f) 'face 'octocat-dimmed)
+                                                " " (cdr f))
+                                      (cdr f))))
+                             fields))))
+    (and parts
+         (vui-text (mapconcat #'identity parts (propertize " · " 'face 'octocat-dimmed))))))
+
 (defun octocat-vui-repo-tabs (repo current &optional issues prs highlight)
   "Return a list of vnodes: the tab strip of REPO's pages, as on GitHub.
 The tabs are those of `octocat--repo-tabs'.  CURRENT is the symbol of

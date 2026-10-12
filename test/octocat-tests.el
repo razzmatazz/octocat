@@ -387,6 +387,14 @@ no gh call is made."
   (should (equal (octocat-workflow--url "o/r" 7 nil)
                  "https://github.com/o/r/actions/workflows/7")))
 
+(ert-deftest octocat-test-job-log-line-bom ()
+  "A byte-order mark before the timestamp does not hide a group start."
+  (let ((entry (octocat--job-parse-log-line
+                "\uFEFF2026-10-12T07:32:34.8448215Z ##[group]Run make compile")))
+    (should (eq (plist-get entry :kind) 'group-start))
+    (should (equal (plist-get entry :text) "Run make compile"))
+    (should (plist-get entry :ts))))
+
 (ert-deftest octocat-test-counts-query-and-parse ()
   "Pull requests also count merged; the response parses to a plist."
   (should (string-match-p "merged:pullRequests(states:MERGED)"
