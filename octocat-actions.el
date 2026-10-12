@@ -68,7 +68,7 @@ TICK is the page's refresh tick."
      :title "Workflow Runs"
      :key 'workflow-runs :initially-expanded t :indent 0
      (pcase (plist-get result :status)
-       ('pending (vui-text "(loading…)\n" :face 'octocat-dimmed))
+       ('pending (vui-text (concat "(" (octocat-vui-loading-text) ")\n") :face 'octocat-dimmed))
        ('error   (vui-text (format "%s\n" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
         (let* ((runs (plist-get result :data))
@@ -105,7 +105,7 @@ TICK is as for `octocat-actions--runs-section'."
     (vui-collapsible
      :title "Workflows" :key 'workflows :initially-expanded t :indent 0
      (pcase (plist-get result :status)
-       ('pending (vui-text "(loading…)\n" :face 'octocat-dimmed))
+       ('pending (vui-text (concat "(" (octocat-vui-loading-text) ")\n") :face 'octocat-dimmed))
        ('error   (vui-text (format "%s\n" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
         (let ((workflows (plist-get result :data)))

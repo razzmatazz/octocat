@@ -60,11 +60,17 @@
     (let ((buf (current-buffer)))
       (octocat-vui--add-loading buf 1)
       (octocat-vui--add-loading buf 1)
-      (should (equal mode-line-process ":loading"))
+      (should (equal mode-line-process '(":loading " octocat-vui--spinner)))
       (octocat-vui--add-loading buf -1)
-      (should (equal mode-line-process ":loading"))
+      (should (equal mode-line-process '(":loading " octocat-vui--spinner)))
       (octocat-vui--add-loading buf -1)
       (should (null mode-line-process)))))
+
+(ert-deftest octocat-vui-test-loading-text-spinner ()
+  "The loading text ends in a spinner the timer can find."
+  (let ((text (octocat-vui-loading-text "Loading")))
+    (should (string-prefix-p "Loading " text))
+    (should (get-text-property (1- (length text)) 'octocat-vui-spinner text))))
 
 (provide 'octocat-vui-tests)
 ;;; octocat-vui-tests.el ends here

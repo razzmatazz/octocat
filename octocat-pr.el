@@ -465,7 +465,7 @@ Each is \"@login (state)\": the state of their latest review, or
                            raw (octocat--markdown-width))))))
     (octocat-vui-use-mode-line-loading loading)
     (pcase (plist-get result :status)
-      ('pending (vui-text (concat "  " repo " #" (number-to-string number) "  (loading…)")
+      ('pending (vui-text (concat "  " repo " #" (number-to-string number) "  (" (octocat-vui-loading-text) ")")
                           :face 'octocat-dimmed))
       ('error   (vui-text (format "  Error: %s" (plist-get result :error)) :face 'error))
       ('ready
@@ -542,7 +542,7 @@ background."
 
 (defun octocat-pr-open (repo number)
   "Show pull request NUMBER of REPO in its own buffer."
-  (let ((buf (get-buffer-create (format "*octocat-pr: %s#%d*" repo number))))
+  (let ((buf (get-buffer-create (format "*%s#%d*" repo number))))
     (pop-to-buffer buf)
     (unless (derived-mode-p 'octocat-pr-mode)
       (octocat-pr-mode))
@@ -588,7 +588,7 @@ background."
      (vui-component 'octocat-vui-list-header :repo repo :tab 'pulls :kind 'pulls)
      (octocat-vui-list-filter-bar query)
      (pcase (plist-get result :status)
-       ('pending (vui-text "(loading…)\n" :face 'octocat-dimmed))
+       ('pending (vui-text (concat "(" (octocat-vui-loading-text) ")\n") :face 'octocat-dimmed))
        ('error   (vui-text (format "%s\n" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
         (let ((prs (plist-get result :data)))

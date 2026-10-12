@@ -232,7 +232,7 @@ by ON-MORE; LOADING disables its button while a page is fetched."
            (pcase (plist-get result :status)
              ('pending (list (vui-text name)
                              (vui-newline)
-                             (vui-text "  (loading…)" :face 'octocat-dimmed)))
+                             (vui-text (concat "  (" (octocat-vui-loading-text) ")") :face 'octocat-dimmed)))
              ('error   (list (vui-text (format "  Error: %s" (plist-get result :error))
                                        :face 'error)))
              (_ (let* ((data (plist-get result :data))
@@ -298,7 +298,7 @@ the workflow and its runs in the background."
 (defun octocat-workflow-open (repo id name path)
   "Show workflow ID of REPO in its own buffer.
 NAME is its display name and PATH its file, or nil."
-  (let ((buf (get-buffer-create (format "*octocat-workflow: %s/%s*" repo name))))
+  (let ((buf (get-buffer-create (format "*%s/%s*" repo name))))
     (pop-to-buffer buf)
     (unless (derived-mode-p 'octocat-workflow-mode)
       (octocat-workflow-mode))

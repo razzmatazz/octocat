@@ -111,7 +111,7 @@ the author, date and full SHA under it."
            (octocat-vui-commit-top-row repo sha)
            (if commit
                (vui-text (car (split-string msg "\n")))
-             (vui-text "(loading…)" :face 'octocat-dimmed))
+             (vui-text (concat "(" (octocat-vui-loading-text) ")") :face 'octocat-dimmed))
            (and commit
                 (vui-text
                  (mapconcat
@@ -146,7 +146,7 @@ Nil when the message is the subject alone.  RAW and WIDTH are as for
   "Return a dimmed vnode for RESULT while it is pending or failed, else nil.
 EMPTY is the text shown when it is ready but has no data."
   (pcase (plist-get result :status)
-    ('pending (vui-text "  (loading…)" :face 'octocat-dimmed))
+    ('pending (vui-text (concat "  (" (octocat-vui-loading-text) ")") :face 'octocat-dimmed))
     ('error   (vui-text (format "  %s" (plist-get result :error)) :face 'octocat-dimmed))
     (_ (and (zerop (length (plist-get result :data)))
             (vui-text (concat "  " empty) :face 'octocat-dimmed)))))
@@ -310,7 +310,7 @@ the commit, its checks and its comments in the background."
 (defun octocat-commit-open (repo sha)
   "Show commit SHA of REPO in its own buffer."
   (let ((buf (get-buffer-create
-              (format "*octocat-commit: %s@%s*" repo
+              (format "*%s@%s*" repo
                       (substring sha 0 (min 7 (length sha)))))))
     (pop-to-buffer buf)
     (unless (derived-mode-p 'octocat-commit-mode)

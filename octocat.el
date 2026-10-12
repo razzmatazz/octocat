@@ -404,7 +404,7 @@ function turning the loaded data into the vnode of its rows."
                  (funcall rows data))))
      ('error (vui-text (format "  %s" (plist-get result :error))
                        :face 'octocat-dimmed))
-     (_      (vui-text "  Loading…" :face 'octocat-dimmed)))))
+     (_      (vui-text (concat "  " (octocat-vui-loading-text "Loading")) :face 'octocat-dimmed)))))
 
 (vui-defcomponent octocat-dashboard--root (feed-limit)
   "Root component of the dashboard: recent repositories, then the feed.
@@ -535,7 +535,7 @@ mode with no local directory bound."
   (interactive)
   (let* ((repo     (octocat-repo--current-repo))
          (local-dir (locate-dominating-file default-directory ".git"))
-         (buf-name (format "*octocat-repo: %s*" repo))
+         (buf-name (format "*%s*" repo))
          (buf      (get-buffer-create buf-name)))
     (switch-to-buffer buf)
     (unless (derived-mode-p 'octocat-repo-mode)
@@ -568,7 +568,7 @@ the handle instead (a leading \"@\" is optional)."
 
 (defun octocat--open-list (mode name path &optional repo)
   "Open (or switch to) the list page for the current repository.
-MODE is the list major mode to enable, NAME the prefix of the buffer
+MODE is the list major mode to enable, NAME the suffix of the buffer
 name, and PATH the github.com sub-path `octocat-vui-list-browse' opens.
 REPO, an \"owner/name\" string, overrides the repository below.
 Inside an octocat repo or list buffer the page is for that buffer's
@@ -583,7 +583,7 @@ the current git working tree."
          (local-dir (if (derived-mode-p 'octocat-repo-mode)
                         octocat-repo--local-dir
                       (octocat-repo--local-dir-for repo)))
-         (buf       (get-buffer-create (format "*octocat-%s: %s*" name repo))))
+         (buf       (get-buffer-create (format "*%s %s*" repo name))))
     (pop-to-buffer buf)
     (when local-dir
       (setq default-directory (file-name-as-directory local-dir)))
@@ -598,14 +598,14 @@ the current git working tree."
   "Open the pull request list for the current GitHub repository.
 With REPO, an \"owner/name\" string, open it for that repository."
   (interactive)
-  (octocat--open-list #'octocat-pr-list-mode "pr-list" "pulls" repo))
+  (octocat--open-list #'octocat-pr-list-mode "prs" "pulls" repo))
 
 ;;;###autoload
 (defun octocat-issues (&optional repo)
   "Open the issue list for the current GitHub repository.
 With REPO, an \"owner/name\" string, open it for that repository."
   (interactive)
-  (octocat--open-list #'octocat-issue-list-mode "issue-list" "issues" repo))
+  (octocat--open-list #'octocat-issue-list-mode "issues" "issues" repo))
 
 ;;;###autoload
 (defun octocat-actions (&optional repo)

@@ -1042,10 +1042,10 @@ The selected repository is opened via `octocat-visit-repo', a selected
 COMMAND takes the \"owner/name\" repo to open the tab's page for.")
 
 (defun octocat-visit-repo (repo)
-  "Open (or switch to) the *octocat-repo: REPO* buffer.
+  "Open (or switch to) the *REPO* buffer.
 REPO is an \"owner/name\" string.  This is the shared implementation used
 by the repo-nav section in every detail view."
-  (let* ((buf-name (format "*octocat-repo: %s*" repo))
+  (let* ((buf-name (format "*%s*" repo))
          (buf      (get-buffer-create buf-name)))
     (pop-to-buffer buf)
     (unless (derived-mode-p 'octocat-repo-mode)

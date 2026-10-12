@@ -310,7 +310,7 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
       nil)
     (octocat-vui-use-mode-line-loading loading)
     (pcase (plist-get result :status)
-      ('pending (vui-text (concat "  " repo " #" (number-to-string number) "  (loading…)")
+      ('pending (vui-text (concat "  " repo " #" (number-to-string number) "  (" (octocat-vui-loading-text) ")")
                           :face 'octocat-dimmed))
       ('error   (vui-text (format "  Error: %s" (plist-get result :error)) :face 'error))
       ('ready
@@ -373,7 +373,7 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
 
 (defun octocat-issue-open (repo number)
   "Show issue NUMBER of REPO in its own buffer."
-  (let ((buf (get-buffer-create (format "*octocat-issue: %s#%d*" repo number))))
+  (let ((buf (get-buffer-create (format "*%s#%d*" repo number))))
     (pop-to-buffer buf)
     (unless (derived-mode-p 'octocat-issue-mode)
       (octocat-issue-mode))
@@ -419,7 +419,7 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
      (vui-component 'octocat-vui-list-header :repo repo :tab 'issues :kind 'issues)
      (octocat-vui-list-filter-bar query)
      (pcase (plist-get result :status)
-       ('pending (vui-text "(loading…)\n" :face 'octocat-dimmed))
+       ('pending (vui-text (concat "(" (octocat-vui-loading-text) ")\n") :face 'octocat-dimmed))
        ('error   (vui-text (format "%s\n" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
         (let ((issues (plist-get result :data)))

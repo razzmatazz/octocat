@@ -415,12 +415,16 @@ The line shows from the moment the buffer opens, before any data arrives.
 ## Indicating that a page is loading or refreshing
 
 While anything is being fetched (open, `gr`, `Load N more…`), the mode
-line shows `(Octocat-PR:loading)`: `mode-line-process`, as in
-`(Compilation:run)`.  It never reflows the page.
+line shows `(Octocat-PR:loading ▘)`: `mode-line-process`, as in
+`(Compilation:run)`, with a spinner.  It never reflows the page.
 
 - Any component whose fetch is pending or `:refreshing` calls
   `octocat-vui-use-mode-line-loading`; no need to lift the state up.
-- A first-load `(loading…)` placeholder in place of content is fine.
+- A first-load `(loading ▘)` placeholder in place of content is fine;
+  build it with `octocat-vui-loading-text`.  Every busy indicator spins:
+  `octocat-vui-spinner` in the buffer, `octocat-vui-mode-line-busy` in
+  the mode line.  One shared timer animates the visible ones and stops
+  when none are left.
 
 ---
 
@@ -443,6 +447,27 @@ page.
   on it while the rows unfold.
 - Folded text uses the same constants through `octocat-timeline-fold`;
   tune the pace in `octocat-vui.el` and both follow.
+
+---
+
+## Buffer names
+
+Name a buffer after what it shows, not its mode; the mode line already
+shows the mode.  Keep each page's name unique: add a short suffix only
+where the bare identity would collide.
+
+| Page | Name |
+|---|---|
+| Repo | `*owner/repo*` |
+| PR / issue | `*owner/repo#12*` |
+| PR diff | `*owner/repo#12 diff*` |
+| Commit / checks | `*owner/repo@abc1234*`, `*owner/repo@abc1234 checks*` |
+| Run / job | `*owner/repo run 123*`, `*owner/repo job 456*` |
+| Workflow | `*owner/repo/CI*` |
+| Lists | `*owner/repo prs*`, `issues`, `actions` |
+| Tree / file / file log | `*owner/repo tree*`, `*owner/repo:path*`, `*owner/repo:path log*` |
+| User | `*@login*` |
+| Edit | `*<title>*` |
 
 ---
 

@@ -247,7 +247,7 @@ CHECKS is a list of REST check-runs."
                              (when ref (concat "  " (propertize ref 'face 'octocat-branch)))))
            (vui-newline)
            (pcase (plist-get checks :status)
-             ('pending (list (vui-text "  (loading…)" :face 'octocat-dimmed)))
+             ('pending (list (vui-text (concat "  (" (octocat-vui-loading-text) ")") :face 'octocat-dimmed)))
              ('error   (list (vui-text (format "  Error: %s" (plist-get checks :error))
                                        :face 'error)))
              (_ (octocat-checks--list repo (plist-get checks :data)))))))
@@ -306,7 +306,7 @@ the check-runs in the background."
   "Show the CI results of commit SHA of REPO in their own buffer.
 REF is the branch the commit is the head of, or nil."
   (let ((buf (get-buffer-create
-              (format "*octocat-checks: %s@%s*" repo
+              (format "*%s@%s checks*" repo
                       (substring sha 0 (min 7 (length sha)))))))
     (pop-to-buffer buf)
     (unless (derived-mode-p 'octocat-checks-mode)

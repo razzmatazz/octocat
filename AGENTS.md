@@ -124,7 +124,8 @@ Mention in the final reply whether you killed anything and why.
 keymaps stick to live buffers):
 ```elisp
 (dolist (buf (buffer-list))
-  (when (string-match-p "\\*octocat" (buffer-name buf))
+  (when (string-prefix-p "octocat-"
+                         (symbol-name (buffer-local-value 'major-mode buf)))
     (kill-buffer buf)))
 "display-buffers-killed"
 ```

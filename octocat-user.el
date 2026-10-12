@@ -236,7 +236,7 @@ AVATAR is a list of equally wide strings; the shorter list is padded."
     (vui-vstack
      (vui-text "Repositories" :face 'octocat-section-heading)
      (pcase (plist-get sticky :status)
-       ('pending (vui-text "(loading…)" :face 'octocat-dimmed))
+       ('pending (vui-text (concat "(" (octocat-vui-loading-text) ")") :face 'octocat-dimmed))
        ('error   (vui-text (format "%s" (plist-get sticky :error)) :face 'octocat-dimmed))
        ('ready
         (let ((repos (plist-get sticky :data)))
@@ -382,7 +382,7 @@ time the window's width changes."
 A leading \"@\" is accepted."
   (let ((login (or (octocat-user--normalize login)
                    (user-error "Octocat: `%s' is not a GitHub login" login))))
-    (pop-to-buffer (get-buffer-create (format "*octocat-user: %s*" login)))
+    (pop-to-buffer (get-buffer-create (format "*@%s*" login)))
     (unless (derived-mode-p 'octocat-user-mode)
       (octocat-user-mode))
     (setq octocat-user--login login)

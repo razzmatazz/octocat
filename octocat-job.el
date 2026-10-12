@@ -619,7 +619,7 @@ content up until the fresh data arrives, for following a running job."
 
 (defun octocat-job-open (repo run-id job-id name)
   "Show job JOB-ID of run RUN-ID of REPO in its own buffer; NAME is its name."
-  (let ((buf (get-buffer-create (format "*octocat-job: %s#%d*" repo job-id))))
+  (let ((buf (get-buffer-create (format "*%s job %d*" repo job-id))))
     (pop-to-buffer buf)
     (unless (derived-mode-p 'octocat-job-mode)
       (octocat-job-mode))

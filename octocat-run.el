@@ -308,7 +308,7 @@ content up until the fresh data arrives, for following a running job."
 
 (defun octocat-run-open (repo run-id)
   "Show workflow run RUN-ID of REPO in its own buffer."
-  (let ((buf (get-buffer-create (format "*octocat-run: %s#%d*" repo run-id))))
+  (let ((buf (get-buffer-create (format "*%s run %d*" repo run-id))))
     (pop-to-buffer buf)
     (unless (derived-mode-p 'octocat-run-mode)
       (octocat-run-mode))

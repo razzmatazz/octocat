@@ -105,7 +105,7 @@ COMMENTS is the `vui-use-async' result for the review comments."
                        (when (eq (plist-get comments :status) 'ready)
                          (propertize (format " (%d)" n) 'face 'octocat-section-heading))))
      (pcase (plist-get comments :status)
-       ('pending (vui-text "  (loading…)" :face 'octocat-dimmed))
+       ('pending (vui-text (concat "  (" (octocat-vui-loading-text) ")") :face 'octocat-dimmed))
        ('error   (vui-text (format "  %s" (plist-get comments :error)) :face 'octocat-dimmed))
        (_ (vui-text (if (zerop n)
                         "  (no review comments)"
@@ -142,7 +142,7 @@ COMMENTS is the `vui-use-async' result for the review comments."
                 (vui-text (format "Error: %s" (plist-get pr :error)) :face 'error)
                 (octocat-pr--tabs 'files repo number)))
        (_      (vui-vstack
-                (vui-text (format "%s#%d  diff  (loading…)" repo number)
+                (vui-text (format "%s#%d  diff  (%s)" repo number (octocat-vui-loading-text))
                           :face 'octocat-dimmed)
                 (octocat-pr--tabs 'files repo number))))
      (pcase (plist-get files :status)
@@ -203,7 +203,7 @@ review comments independently."
 
 (defun octocat-pr-diff-open (repo number)
   "Show the diff of pull request NUMBER of REPO in its own buffer."
-  (let ((buf (get-buffer-create (format "*octocat-pr-diff: %s#%d*" repo number))))
+  (let ((buf (get-buffer-create (format "*%s#%d diff*" repo number))))
     (pop-to-buffer buf)
     (unless (derived-mode-p 'octocat-pr-diff-mode)
       (octocat-pr-diff-mode))

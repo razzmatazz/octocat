@@ -347,7 +347,7 @@ With BROWSE-TOKEN, append the dimmed \"[Code]\" token."
   (vui-mount (vui-component 'octocat-tree--message
                             :repo octocat-tree--repo
                             :branch octocat-tree--branch
-                            :text "Loading…"
+                            :text (octocat-vui-loading-text "Loading")
                             :face 'octocat-dimmed)
              (buffer-name)))
 
@@ -413,7 +413,7 @@ PATH is this directory's full repository path (\"\" for the root)."
       (_
        ;; Same indent as the entries that will replace it.
        (vui-text (propertize (concat indent "  "
-                                     (propertize "Loading…" 'face 'octocat-dimmed))
+                                     (propertize (octocat-vui-loading-text "Loading") 'face 'octocat-dimmed))
                              'octocat-tree--type 'loading))))))
 
 (vui-defcomponent octocat-tree--node (repo branch entry depth parent)
@@ -474,7 +474,7 @@ PARENT is the containing directory's full path (\"\" at the root)."
             "\n"
             (propertize (make-string 60 ?━) 'face 'octocat-dimmed)
             "\n"
-            (propertize "  Loading…\n" 'face 'octocat-dimmed))))
+            (propertize (concat "  " (octocat-vui-loading-text "Loading") "\n") 'face 'octocat-dimmed))))
 
 (defun octocat-tree--render-file (path content)
   "Render file PATH with fontified CONTENT in the current file buffer."
@@ -528,7 +528,7 @@ instead; this is how the tab strip of the other repo pages gets here."
                           (boundp 'octocat-repo--default-branch)
                           octocat-repo--default-branch)
                      "HEAD"))
-         (buf-name (format "*octocat-tree: %s*" repo))
+         (buf-name (format "*%s tree*" repo))
          (buf      (get-buffer-create buf-name)))
     (pop-to-buffer buf)
     (unless (derived-mode-p 'octocat-tree-mode)
@@ -549,7 +549,7 @@ Clears the subtree cache and re-fetches the root tree."
   (let ((buf    (current-buffer))
         (repo   octocat-tree--repo)
         (branch octocat-tree--branch))
-    (setq mode-line-process ":refreshing")
+    (setq mode-line-process (octocat-vui-mode-line-busy ":refreshing"))
     (octocat-tree--fetch-root-sha
      repo branch
      (lambda (result)
@@ -594,7 +594,7 @@ come from `octocat-tree--subtree-cache' afterwards."
 
 (defun octocat-tree--open-file-by-path (repo branch path sha)
   "Open the file viewer buffer for PATH (blob SHA) in REPO on BRANCH."
-  (let* ((buf-name (format "*octocat-file: %s %s*" repo path))
+  (let* ((buf-name (format "*%s:%s*" repo path))
          (buf      (get-buffer-create buf-name)))
     (pop-to-buffer buf)
     (unless (derived-mode-p 'octocat-file-mode)
@@ -616,7 +616,7 @@ Uses `completing-read' to let the user pick a file, then opens it."
                (sha  (cdr (assoc path octocat-tree--all-files))))
           (octocat-tree--open-file-by-path repo branch path sha))
       ;; Not yet cached — fetch, cache, then prompt.
-      (setq mode-line-process ":loading")
+      (setq mode-line-process (octocat-vui-mode-line-busy ":loading"))
       (octocat-tree--fetch-all-files
        repo root-sha
        (lambda (result)
@@ -657,7 +657,7 @@ all file paths via `completing-read', and opens the selected file in
                        (and (boundp 'octocat-repo--default-branch)
                             octocat-repo--default-branch)
                        "HEAD"))
-           (buf-name (format "*octocat-tree: %s*" repo))
+           (buf-name (format "*%s tree*" repo))
            (tree-buf (get-buffer buf-name)))
       (if (and tree-buf
                (buffer-local-value 'octocat-tree--root-sha tree-buf))
@@ -666,7 +666,7 @@ all file paths via `completing-read', and opens the selected file in
             (octocat-tree--do-find-file repo branch octocat-tree--root-sha))
         ;; No tree buffer yet (or root not loaded).  Fetch the root SHA
         ;; fresh without opening the tree browser.
-        (setq mode-line-process ":loading")
+        (setq mode-line-process (octocat-vui-mode-line-busy ":loading"))
         (let ((repo-buf (current-buffer)))
           (octocat-tree--fetch-root-sha
            repo branch
@@ -679,7 +679,7 @@ all file paths via `completing-read', and opens the selected file in
                               (cdr sha-result))
                    ;; Now fetch all files; we don't have a tree buffer to
                    ;; cache in, so just fetch+prompt directly.
-                   (setq mode-line-process ":loading")
+                   (setq mode-line-process (octocat-vui-mode-line-busy ":loading"))
                    (octocat-tree--fetch-all-files
                     repo sha-result
                     (lambda (files-result)
@@ -701,7 +701,7 @@ all file paths via `completing-read', and opens the selected file in
     ;; cache when available; otherwise fetch the root SHA fresh.
     (let* ((repo     octocat-tree--file-repo)
            (branch   octocat-tree--file-branch)
-           (buf-name (format "*octocat-tree: %s*" repo))
+           (buf-name (format "*%s tree*" repo))
            (tree-buf (get-buffer buf-name)))
       (if (and tree-buf
                (buffer-local-value 'octocat-tree--root-sha tree-buf))
@@ -710,7 +710,7 @@ all file paths via `completing-read', and opens the selected file in
             (octocat-tree--do-find-file repo branch octocat-tree--root-sha))
         ;; No tree buffer yet (or root not loaded).  Fetch the root SHA
         ;; fresh without opening the tree browser.
-        (setq mode-line-process ":loading")
+        (setq mode-line-process (octocat-vui-mode-line-busy ":loading"))
         (let ((file-buf (current-buffer)))
           (octocat-tree--fetch-root-sha
            repo branch
@@ -721,7 +721,7 @@ all file paths via `completing-read', and opens the selected file in
                  (if (eq (car-safe sha-result) 'error)
                      (message "Octocat: Error fetching tree root: %s"
                               (cdr sha-result))
-                   (setq mode-line-process ":loading")
+                   (setq mode-line-process (octocat-vui-mode-line-busy ":loading"))
                    (octocat-tree--fetch-all-files
                     repo sha-result
                     (lambda (files-result)
@@ -777,7 +777,7 @@ all file paths via `completing-read', and opens the selected file in
         (sha    octocat-tree--file-sha)
         (path   octocat-tree--file-path))
     (octocat-tree--render-file-loading path)
-    (setq mode-line-process ":loading")
+    (setq mode-line-process (octocat-vui-mode-line-busy ":loading"))
     (if sha
         (octocat-tree--fetch-file
          repo sha
@@ -903,7 +903,7 @@ properties (:commits, or :text and :face)."
 
 (defun octocat-file-log--render-loading ()
   "Render a loading skeleton in the current file-log buffer."
-  (octocat-file-log--mount :text "Loading…" :face 'octocat-dimmed))
+  (octocat-file-log--mount :text (octocat-vui-loading-text "Loading") :face 'octocat-dimmed))
 
 (defun octocat-file-log--sha-at-point ()
   "Return the full SHA of the commit on the current line, or nil."
@@ -915,7 +915,7 @@ properties (:commits, or :text and :face)."
 (defun octocat-file-log-open ()
   "Open the commit log browser for the file shown in the current buffer.
 Works from an `octocat-file-mode' buffer.  Opens (or switches to) the
-\\='*octocat-file-log: REPO PATH*\\=' buffer and refreshes it."
+\\='*REPO:PATH log*\\=' buffer and refreshes it."
   (interactive)
   (unless (derived-mode-p 'octocat-file-mode)
     (user-error "Octocat: Not in a file viewer buffer"))
@@ -924,7 +924,7 @@ Works from an `octocat-file-mode' buffer.  Opens (or switches to) the
   (let* ((repo     octocat-tree--file-repo)
          (path     octocat-tree--file-path)
          (branch   octocat-tree--file-branch)
-         (buf-name (format "*octocat-file-log: %s %s*" repo path))
+         (buf-name (format "*%s:%s log*" repo path))
          (buf      (get-buffer-create buf-name)))
     (pop-to-buffer buf)
     (unless (derived-mode-p 'octocat-file-log-mode)
@@ -943,7 +943,7 @@ Works from an `octocat-file-mode' buffer.  Opens (or switches to) the
   (let ((buf    (current-buffer))
         (repo   octocat-file-log--repo)
         (path   octocat-file-log--path))
-    (setq mode-line-process ":refreshing")
+    (setq mode-line-process (octocat-vui-mode-line-busy ":refreshing"))
     (octocat-tree--fetch-file-commits
      repo path
      (lambda (result)

@@ -46,6 +46,7 @@
 ;;; Code:
 
 (require 'octocat-core)
+(require 'octocat-vui)
 
 
 ;;;; Buffer-local state
@@ -110,7 +111,7 @@ Type your markdown text, then:
 
 (defun octocat-edit--buffer-name (title)
   "Return the name for an edit buffer with TITLE."
-  (format "*octocat-edit: %s*" title))
+  (format "*%s*" title))
 
 (defun octocat-edit--header-line (title)
   "Return a header-line string for TITLE."
@@ -135,7 +136,7 @@ Type your markdown text, then:
           (source     octocat-edit--source-buffer)
           (edit-win   octocat-edit--window)
           (edit-buf   (current-buffer)))
-      (setq mode-line-process ":submitting")
+      (setq mode-line-process (octocat-vui-mode-line-busy ":submitting"))
       (funcall submit-fn body source
                ;; on-success: close edit window then refresh source
                (lambda ()
