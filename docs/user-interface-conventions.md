@@ -23,13 +23,33 @@ A separate action inside a line, such as a tab or "Load N more…", is a
 `vui-button`, drawn without brackets where the line already reads as a
 control (see "Brackets mean \"button\"" below).
 
+### Folds
+
+A fold's toggle must be reachable with TAB, and its title must keep its
+own faces.  A `vui-button` gives the first but draws its label in one face;
+a row gives the second but is not a TAB stop.  So a fold header is both:
+the ▸/▾ marker is a `vui-button`, the TAB stop, and the title after it is
+an `octocat-vui-row`.  RET on either toggles.  `octocat-vui-fold-header`
+builds it, for `octocat-vui-fold`:
+
+```
+  ▸ [✓] Set up job      success  1s     ← TAB stops on ▸; RET anywhere toggles
+  ▾ [✗] Compile         failure  11s
+      ▸ Run make compile                ← a nested fold, same shape
+10:32:34 make compile                   ← the body: copyable, not indented
+```
+
+Unfolding and folding are animated like the timeline's long entries, and
+a body that is costly to lay out (a step's log) is built only once
+unfolded.
+
 ### Decision table
 
 | Situation | Approach |
 |---|---|
 | The whole line opens something | `octocat-vui-row` with a `help-echo` |
 | One control among others on a line | `vui-button` |
-| A foldable block | `vui-collapsible`, or a component holding its own open state when the body is costly to build (see the job page's steps) |
+| A foldable block | `vui-collapsible` for a plain title; `octocat-vui-fold` with `octocat-vui-fold-header` when the title has its own faces or the body should be built only once unfolded (see "Folds") |
 
 ---
 
@@ -236,7 +256,7 @@ or `""` give `""`.
 
 ## Copyable content is not indented
 
-Text a user may copy out verbatim (diff lines, code) starts at column 0,
+Text a user may copy out verbatim (diff lines, code, job logs) starts at column 0,
 so it pastes as-is.  Decoration (headings, comment boxes) may indent.
 
 ---

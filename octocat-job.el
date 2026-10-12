@@ -44,7 +44,6 @@
 (require 'octocat-core)
 (require 'octocat-vui)
 (require 'vui)
-(require 'vui-components) ; vui-collapsible
 
 (declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
 (declare-function octocat-run-open "octocat-run" (repo run-id))
@@ -71,15 +70,15 @@
 (defun octocat--fetch-job (repo run-id job-id callback)
   "Fetch job detail, log, annotations, and artifacts for JOB-ID in REPO.
 RUN-ID is the numeric workflow run ID (used for the artifacts request).
-Calls CALLBACK asynchronously with a list (JOB LOG-SECTIONS ANNOTATIONS
-ARTIFACTS) where:
-- JOB is a hash-table from the GitHub REST API.
-- LOG-SECTIONS is either an alist of (STEP-NAME . LINES) pairs in source
-  order, or a cons \\=(error . MSG) when log output is unavailable.
-- ANNOTATIONS is a vector of annotation hash-tables from the Checks API
-  (GET /check-runs/JOB-ID/annotations), or \\=[] when unavailable.
-- ARTIFACTS is a vector of artifact hash-tables from the Actions API
-  (GET /actions/runs/RUN-ID/artifacts), or \\=[] when unavailable.
+Calls CALLBACK asynchronously with a hash-table, which the disk cache
+can store as JSON, of:
+- \"job\", a hash-table from the GitHub REST API.
+- \"log\", the raw `gh run view --log' text (see `octocat--job-parse-log'),
+  or \"log_error\", the message when the log is unavailable.
+- \"annotations\", a vector of annotation hash-tables from the Checks API
+  (GET /check-runs/JOB-ID/annotations), \\=[] when unavailable.
+- \"artifacts\", a vector of artifact hash-tables from the Actions API
+  (GET /actions/runs/RUN-ID/artifacts), \\=[] when unavailable.
 A job-metadata failure is fatal and CALLBACK receives \\=(error . MSG)."
   (let ((job-result 'pending)
         (log-result 'pending)
@@ -95,8 +94,14 @@ A job-metadata failure is fatal and CALLBACK receives \\=(error . MSG)."
              ;; artifact failures are passed through and rendered gracefully.
              (if (eq (car-safe job-result) 'error)
                  (funcall callback job-result)
-               (funcall callback
-                        (list job-result log-result ann-result art-result))))))
+               (let ((h (make-hash-table :test #'equal)))
+                 (puthash "job" job-result h)
+                 (if (eq (car-safe log-result) 'error)
+                     (puthash "log_error" (cdr log-result) h)
+                   (puthash "log" log-result h))
+                 (puthash "annotations" ann-result h)
+                 (puthash "artifacts" art-result h)
+                 (funcall callback h))))))
       (octocat--run-gh
        "job-detail"
        (list "api" (format "repos/%s/actions/jobs/%s" repo
@@ -109,7 +114,7 @@ A job-metadata failure is fatal and CALLBACK receives \\=(error . MSG)."
              "--log"
              "--job" (number-to-string job-id)
              "--repo" repo)
-       #'octocat--job-parse-log
+       #'identity
        (lambda (result) (setq log-result result) (maybe-done)))
       (octocat--run-gh
        "job-annotations"
@@ -145,6 +150,12 @@ A job-metadata failure is fatal and CALLBACK receives \\=(error . MSG)."
 
 ;;;; Log parsing
 
+(defun octocat-job--strip-colors (text)
+  "Return TEXT without its ANSI color codes.
+The log carries some as escape characters and some spelled out in caret
+notation, \"^[[36;1m\"."
+  (replace-regexp-in-string "\\^\\[\\[[0-9;]*m" "" (ansi-color-filter-apply text)))
+
 (defun octocat--job-parse-log-line (rest)
   "Parse one raw log REST field (TIMESTAMP MESSAGE) into a tagged entry.
 Returns a plist:
@@ -163,8 +174,8 @@ For `group-end' lines CONTENT is nil."
         (let* ((ts  (match-string 1 rest))
                (msg (match-string 2 rest)))
           (setq ts-raw  ts
-                content (ansi-color-filter-apply msg)))
-      (setq content (ansi-color-filter-apply rest)))
+                content (octocat-job--strip-colors msg)))
+      (setq content (octocat-job--strip-colors rest)))
     (let* ((fmt (when ts-raw
                   (condition-case nil
                       (format-time-string "%H:%M:%S" (date-to-time ts-raw))
@@ -271,22 +282,21 @@ Uses bracket-checkbox glyphs to distinguish steps from job-level icons."
 
 ;;;; Log
 
-(defun octocat-job--log-line (entry indent)
+(defun octocat-job--log-line (entry)
   "Return log ENTRY, a plist from `octocat--job-parse-log-line', as a line.
-INDENT starts it.  Commands are dimmed."
+It is not indented, so the log copies out as it is.  Commands are dimmed."
   (let ((ts   (plist-get entry :ts))
         (text (or (plist-get entry :text) "")))
-    (concat indent
-            (if ts (propertize (concat ts " ") 'face 'octocat-dimmed) "")
+    (concat (if ts (propertize (concat ts " ") 'face 'octocat-dimmed) "")
             (if (eq (plist-get entry :kind) 'command)
                 (propertize text 'face 'octocat-dimmed)
               text))))
 
-(defun octocat-job--log-blocks (entries indent)
-  "Return log ENTRIES as a list of blocks, lines starting with INDENT.
+(defun octocat-job--log-blocks (entries)
+  "Return log ENTRIES as a list of blocks.
 A block is (text STRING), a run of lines, or (group NAME STRING), the
-lines of a ##[group], indented two more.  An unclosed group ends at the
-next group or the end."
+lines of a ##[group].  An unclosed group ends at the next group or the
+end."
   (let (blocks run group-name group)
     (cl-flet ((flush-run ()
                 (when run
@@ -303,25 +313,57 @@ next group or the end."
                         (setq group-name (or (plist-get entry :text) "")))
           ('group-end   (flush-group))
           (_ (if group-name
-                 (push (octocat-job--log-line entry (concat indent "  ")) group)
-               (push (octocat-job--log-line entry indent) run)))))
+                 (push (octocat-job--log-line entry) group)
+               (push (octocat-job--log-line entry) run)))))
       (flush-run)
       (flush-group))
     (nreverse blocks)))
 
-(defun octocat-job--block (block index)
-  "Return the vnode of log BLOCK, from `octocat-job--log-blocks'.
-INDEX, its position in the step, keys a group's fold."
-  (pcase block
-    (`(text ,text) (vui-text text))
-    (`(group ,name ,text)
-     (vui-collapsible
-      :title (propertize name 'face 'octocat-dimmed)
-      :key (intern (format "log-group-%d" index))
-      :collapsed-indicator (propertize "      ▸" 'face 'octocat-dimmed)
-      :expanded-indicator (propertize "      ▾" 'face 'octocat-dimmed)
-      :indent 0
-      (if (string-empty-p text) (vui-text "        (empty)" :face 'octocat-dimmed) (vui-text text))))))
+(defun octocat-job--text-body (text)
+  "Return TEXT as the (TOTAL . RENDER) body of an `octocat-vui-fold'."
+  (let ((ends (octocat-vui-line-ends text)))
+    (cons (1+ (length ends))
+          (lambda (n) (list (vui-text (octocat-vui-take-lines text ends n)))))))
+
+(defun octocat-job--log-group (name text index)
+  "Return a ##[group] of a step's log: NAME, folded over its TEXT.
+INDEX, its position in the step, keys it."
+  (vui-component
+   'octocat-vui-fold
+   :key index
+   :header (lambda (open toggle)
+             (octocat-vui-fold-header "      " open toggle
+                                      (propertize name 'face 'octocat-dimmed)
+                                      '("RET: unfold" . "RET: fold")))
+   :deps text
+   :prepare (lambda ()
+              (octocat-job--text-body
+               (if (string-empty-p text)
+                   (propertize "(empty)" 'face 'octocat-dimmed)
+                 text)))))
+
+(defun octocat-job--step-body (lines)
+  "Return the log LINES of a step as the (TOTAL . RENDER) body of a fold.
+A group counts as one line, its header; it unfolds on its own."
+  (let* ((blocks (mapcar (lambda (block)
+                           (pcase block
+                             (`(text ,text) (list 'text text (octocat-vui-line-ends text)))
+                             (_ block)))
+                         (octocat-job--log-blocks lines)))
+         (total  (apply #'+ (mapcar (lambda (b) (if (eq (car b) 'text) (1+ (length (nth 2 b))) 1))
+                                    blocks))))
+    (cons total
+          (lambda (n)
+            (cl-loop for block in blocks
+                     for i from 0
+                     while (> n 0)
+                     collect (pcase block
+                               (`(text ,text ,ends)
+                                (prog1 (vui-text (octocat-vui-take-lines text ends n))
+                                  (cl-decf n (1+ (length ends)))))
+                               (`(group ,name ,text)
+                                (cl-decf n)
+                                (octocat-job--log-group name text i))))))))
 
 
 ;;;; Steps
@@ -345,27 +387,23 @@ INDEX, its position in the step, keys a group's fold."
             (when duration
               (propertize (concat "  " duration) 'face 'octocat-dimmed)))))
 
-(vui-defcomponent octocat-job--step (step lines)
-  "STEP of a job, a REST hash-table, folded; unfolding shows its log LINES.
+(defun octocat-job--step (step lines)
+  "Return STEP of a job, a REST hash-table, folded over its log LINES.
 The log is laid out only once the step is unfolded: a log can be long."
-  :state ((open nil))
-  :render
-  (let ((title  (octocat-job--step-title step))
-        (blocks (vui-use-memo (open lines)
-                  (and open (octocat-job--log-blocks lines "      ")))))
+  (let ((title (octocat-job--step-title step)))
     (if (null lines)
         (vui-text (concat "    " title))
-      (apply #'vui-collapsible
-             :title title
-             :key (intern (format "step-%s" (gethash "number" step)))
-             :expanded open
-             :on-toggle (vui-async-callback (v) (vui-set-state :open v))
-             :collapsed-indicator "  ▸"
-             :expanded-indicator "  ▾"
-             :indent 0
-             (cl-loop for block in blocks
-                      for i from 0
-                      collect (octocat-job--block block i))))))
+      ;; `octocat-vui-fold', not `vui-collapsible': its toggle button would
+      ;; draw the whole title in the `link' face, losing the icon and
+      ;; status faces.
+      (vui-component
+       'octocat-vui-fold
+       :key (gethash "number" step)
+       :header (lambda (open toggle)
+                 (octocat-vui-fold-header "  " open toggle title
+                                          '("RET: show log" . "RET: hide log")))
+       :deps lines
+       :prepare (lambda () (octocat-job--step-body lines))))))
 
 (defun octocat-job--steps (job log)
   "Return the vnodes of the Steps section of JOB.
@@ -379,11 +417,8 @@ LOG is the parsed log, as from `octocat--job-parse-log', or \\=(error . MSG)."
      (if (null steps)
          (list (vui-text "  (no steps)" :face 'octocat-dimmed))
        (mapcar (lambda (step)
-                 (vui-component 'octocat-job--step
-                                :key (gethash "number" step)
-                                :step step
-                                :lines (unless failed
-                                         (cdr (assoc (or (gethash "name" step) "") log)))))
+                 (octocat-job--step step (unless failed
+                                           (cdr (assoc (or (gethash "name" step) "") log)))))
                steps))
      (when failed
        (list (vui-text (format "  (log unavailable: %s)" (cdr log)) :face 'octocat-dimmed))))))
@@ -481,16 +516,29 @@ hash-table; a nil JOB-NAME is not shown."
                   (cons "Runner"    (octocat--nonempty (gethash "runner_name" job)))
                   (cons "Labels"    (and labels (propertize labels 'face 'octocat-branch)))))))))
 
-(vui-defcomponent octocat-job--page (repo run-id job-id name)
-  "Job JOB-ID of run RUN-ID of REPO; NAME shows while it loads."
+(vui-defcomponent octocat-job--page (repo run-id job-id name tick)
+  "Job JOB-ID of run RUN-ID of REPO; NAME shows while it loads.
+A new TICK refetches the job, keeping what is shown, and which steps are
+unfolded, until the fresh data replaces it."
   :state ((spin 0))
   :render
-  (let* ((result  (vui-use-async (list 'job repo job-id)
+  (let* ((result  (octocat-vui-use-cached
+                    (list 'job repo job-id tick)
+                    (lambda () (octocat--detail-cache-load repo "job" job-id))
+                    (lambda (data) (octocat--detail-cache-save repo "job" job-id data))
                     (lambda (resolve reject)
                       (octocat--fetch-job
                        repo run-id job-id
                        (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
-         (loading (eq (plist-get result :status) 'pending)))
+         (data    (and (eq (plist-get result :status) 'ready) (plist-get result :data)))
+         (raw     (and data (gethash "log" data)))
+         (log     (vui-use-memo (raw)
+                    (if raw
+                        (octocat--job-parse-log raw)
+                      (cons 'error (or (and data (gethash "log_error" data)) "")))))
+         (loading (and (or (eq (plist-get result :status) 'pending)
+                           (plist-get result :refreshing))
+                       t)))
     (octocat-vui-use-spinner loading)
     (apply #'vui-vstack
            (octocat-vui-actions-top-row
@@ -499,14 +547,16 @@ hash-table; a nil JOB-NAME is not shown."
              ('pending (list (vui-text name :face 'octocat-run-job-name)))
              ('error   (list (vui-text (format "  Error: %s" (plist-get result :error))
                                        :face 'error)))
-             (_ (pcase-let ((`(,job ,log ,annotations ,artifacts) (plist-get result :data)))
+             (_ (let ((job (gethash "job" data)))
                   (append (octocat-job--header job)
                           (list (vui-newline))
                           (octocat-job--steps job log)
-                          (when-let* ((arts (octocat-job-artifacts repo run-id artifacts)))
+                          (when-let* ((arts (octocat-job-artifacts
+                                             repo run-id (gethash "artifacts" data))))
                             (cons (vui-newline) arts))
                           (when-let* ((anns (octocat-job-annotations
-                                             (mapcar (lambda (a) (cons nil a)) annotations))))
+                                             (mapcar (lambda (a) (cons nil a))
+                                                     (gethash "annotations" data)))))
                             (cons (vui-newline) anns)))))))))
 
 
@@ -547,17 +597,17 @@ hash-table; a nil JOB-NAME is not shown."
 
 (defun octocat-job-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current job buffer.
-Mounts the vui.el page, which fetches the job and its log."
+The page paints the disk cache at once and fetches the job and its log
+in the background.  A refresh keeps the steps unfolded and the old
+content up until the fresh data arrives, for following a running job."
   (interactive)
   (unless (and octocat--job-repo octocat--job-id)
     (user-error "Octocat: Buffer is not associated with a job"))
-  (octocat-vui-preserving-view
-    (vui-mount (vui-component 'octocat-job--page
-                              :repo octocat--job-repo
-                              :run-id octocat--job-run-id
-                              :job-id octocat--job-id
-                              :name (or octocat--job-name ""))
-               (buffer-name))))
+  (octocat-vui-refresh-page 'octocat-job--page octocat--job-id
+                            (list :repo octocat--job-repo
+                                  :run-id octocat--job-run-id
+                                  :job-id octocat--job-id
+                                  :name (or octocat--job-name ""))))
 
 (defun octocat-job-open (repo run-id job-id name)
   "Show job JOB-ID of run RUN-ID of REPO in its own buffer; NAME is its name."

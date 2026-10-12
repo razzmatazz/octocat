@@ -35,8 +35,7 @@
 (require 'octocat-vui)
 (require 'vui)
 
-(declare-function octocat-repo-vui-use-cached "octocat-repo"
-                  (type repo number fetch &optional as-list))
+(declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
 (declare-function octocat-search-repo "octocat-search" ())
 
 
@@ -187,28 +186,60 @@ LOCAL-BRANCH, the checked-out branch, is highlighted when it is the run's."
             (list (vui-text "  (no jobs)" :face 'octocat-dimmed))
           (mapcar (lambda (job) (octocat-run--job-row repo run-id job)) jobs))))
 
-(vui-defcomponent octocat-run--page (repo run-id)
-  "Workflow run RUN-ID of REPO."
+(defun octocat-run--cached (repo type id key loader)
+  "Return the result of LOADER for KEY, cached on disk as TYPE item ID of REPO.
+See `octocat-vui-use-cached'.  Must be called during render."
+  (octocat-vui-use-cached
+   key
+   (lambda () (octocat--detail-cache-load repo type id))
+   (lambda (data) (octocat--detail-cache-save repo type id data))
+   loader))
+
+(defun octocat-run--annotation-entries (results)
+  "Return the RESULTS of `octocat--fetch-run-annotations' as a vector.
+Each entry is a hash-table of \"job\", its name, and \"annotations\", a
+vector: a shape the disk cache can store as JSON."
+  (vconcat
+   (mapcar (lambda (r)
+             (let ((h (make-hash-table :test #'equal)))
+               (puthash "job" (nth 1 r) h)
+               (puthash "annotations" (nth 2 r) h)
+               h))
+           results)))
+
+(vui-defcomponent octocat-run--page (repo run-id tick)
+  "Workflow run RUN-ID of REPO.
+A new TICK refetches everything, keeping what is shown until the fresh
+data replaces it."
   :state ((spin 0))
   :render
   (let* ((local-branch (vui-use-memo () (octocat--current-branch)))
-         (run   (octocat-repo-vui-use-cached "run" repo run-id #'octocat--fetch-run))
+         (run   (octocat-run--cached
+                 repo "run" run-id (list 'run repo run-id tick)
+                 (lambda (resolve reject)
+                   (octocat--fetch-run
+                    repo run-id
+                    (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
          (data  (and (eq (plist-get run :status) 'ready) (plist-get run :data)))
          (jobs  (and data (octocat-run--jobs data)))
-         ;; Keyed by the jobs, so a repaint of the same jobs refetches nothing.
-         (anns  (vui-use-async (list 'run-annotations repo run-id
-                                     (mapcar (lambda (j) (gethash "databaseId" j)) jobs))
-                  (lambda (resolve _reject)
-                    (if jobs
-                        (octocat--fetch-run-annotations repo (vconcat jobs) resolve)
-                      (funcall resolve nil)))))
-         (arts  (vui-use-async (list 'run-artifacts repo run-id)
-                  (lambda (resolve _reject)
-                    (octocat--fetch-run-artifacts repo run-id resolve))))
-         (loading (and (or (eq (plist-get run :status) 'pending)
-                           (plist-get run :refreshing)
-                           (eq (plist-get anns :status) 'pending)
-                           (eq (plist-get arts :status) 'pending))
+         ;; Keyed by the jobs too: they are only known once the run is.
+         (anns  (octocat-run--cached
+                 repo "run-annotations" run-id
+                 (list 'run-annotations repo run-id tick
+                       (mapcar (lambda (j) (gethash "databaseId" j)) jobs))
+                 (lambda (resolve _reject)
+                   (if jobs
+                       (octocat--fetch-run-annotations
+                        repo (vconcat jobs)
+                        (lambda (r) (funcall resolve (octocat-run--annotation-entries r))))
+                     (funcall resolve nil)))))
+         (arts  (octocat-run--cached
+                 repo "run-artifacts" run-id (list 'run-artifacts repo run-id tick)
+                 (lambda (resolve _reject)
+                   (octocat--fetch-run-artifacts repo run-id resolve))))
+         (loading (and (cl-some (lambda (r) (or (eq (plist-get r :status) 'pending)
+                                                (plist-get r :refreshing)))
+                                (list run anns arts))
                        t)))
     (octocat-vui-use-spinner loading)
     (apply #'vui-vstack
@@ -225,9 +256,9 @@ LOCAL-BRANCH, the checked-out branch, is highlighted when it is the run's."
                                               repo run-id (or (plist-get arts :data) []))))
                           (cons (vui-newline) section))
                         (when-let* ((section (octocat-job-annotations
-                                              (cl-loop for (_id name list) in (plist-get anns :data)
-                                                       append (cl-loop for ann across list
-                                                                       collect (cons name ann))))))
+                                              (cl-loop for entry across (or (plist-get anns :data) [])
+                                                       append (cl-loop for ann across (gethash "annotations" entry)
+                                                                       collect (cons (gethash "job" entry) ann))))))
                           (cons (vui-newline) section))))))))
 
 
@@ -268,16 +299,14 @@ LOCAL-BRANCH, the checked-out branch, is highlighted when it is the run's."
 
 (defun octocat-run-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current run buffer.
-Mounts the vui.el page, which paints the disk cache at once and fetches
-the run, its annotations and artifacts in the background."
+The page paints the disk cache at once and fetches the run, its
+annotations and artifacts in the background.  A refresh keeps the old
+content up until the fresh data arrives, for following a running job."
   (interactive)
   (unless (and octocat--run-repo octocat--run-id)
     (user-error "Octocat: Buffer is not associated with a workflow run"))
-  (octocat-vui-preserving-view
-    (vui-mount (vui-component 'octocat-run--page
-                              :repo octocat--run-repo
-                              :run-id octocat--run-id)
-               (buffer-name))))
+  (octocat-vui-refresh-page 'octocat-run--page octocat--run-id
+                            (list :repo octocat--run-repo :run-id octocat--run-id)))
 
 (defun octocat-run-open (repo run-id)
   "Show workflow run RUN-ID of REPO in its own buffer."

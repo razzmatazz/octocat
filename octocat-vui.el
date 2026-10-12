@@ -33,11 +33,16 @@
 ;;   `octocat-vui-row'               RET-able, per-segment-styled line
 ;;   `octocat-vui-use-async-sticky'  `vui-use-async' that keeps old data
 ;;                                   visible while the next page loads
+;;   `octocat-vui-use-cached'        async fetch painted from a cache first
+;;   `octocat-vui-refresh-page'      mount a page, or refresh it in place
 ;;   `octocat-vui-load-more-button'  "[+] Load N more…" button
 ;;   `octocat-vui-reveal-list'       `vui-list' whose later-added rows
 ;;                                   unfold progressively
-;;   `octocat-vui-list-mode'         base mode of the PR/issue/workflow
-;;                                   list pages
+;;   `octocat-vui-fold'              header row with an animated fold
+;;   `octocat-vui-fold-header'       its ▸/▾ header, a TAB stop
+;;   `octocat-vui-list-mode'         base mode of the PR/issue list pages
+;;                                   and the Actions page
+;;   `octocat-vui-actions-top-row'   top row of workflow, run and job pages
 ;;   `octocat-vui-repo-tabs'         Code / Issues / Pull requests / Actions
 ;;                                   tab strip shared by the repo pages
 ;;   `octocat-vui-list-header'       list page header with open/closed counts
@@ -46,6 +51,7 @@
 ;;; Code:
 
 (require 'octocat-core) ; `octocat-dimmed' face
+(require 'cl-lib)
 (require 'seq)
 (require 'subr-x)
 (require 'vui)
@@ -109,6 +115,23 @@ Must be called during render, like any hook."
                     (list :status 'ready :data (car last) :refreshing t)
                   result))
       (_ result))))
+
+(defun octocat-vui-use-cached (key load save loader)
+  "Return the async result of LOADER for KEY, painted from a cache first.
+LOAD returns the data last saved, or nil; it is called once per page
+mount.  SAVE is called with each fresh result.  KEY should include the
+page's refresh tick (see `octocat-vui-refresh-page'): a new tick
+refetches, and what is shown stays up, with :refreshing t, until the
+fresh data replaces it.  Must be called during render, like any hook."
+  (let* ((cached (vui-use-memo () (funcall load)))
+         (sticky (octocat-vui-use-async-sticky key loader))
+         (fresh  (and (eq (plist-get sticky :status) 'ready)
+                      (not (plist-get sticky :refreshing))
+                      (plist-get sticky :data))))
+    (vui-use-effect (fresh)
+      (when fresh (funcall save fresh))
+      nil)
+    (octocat-vui-with-stale sticky cached)))
 
 (defun octocat-vui-with-stale (result stale)
   "Return RESULT, or STALE shown as `ready' while RESULT is still pending.
@@ -198,6 +221,74 @@ The timer exists only while items are being revealed."
                        (vui-set-state :tick (lambda (n) (1+ n)))))))
             (lambda () (cancel-timer timer)))))
       (funcall render (seq-take items visible)))))
+
+(vui-defcomponent octocat-vui-fold (header prepare deps)
+  "A header row and a folded body that unfolds and folds back animated.
+HEADER is a function of whether the body is open and of a command that
+toggles it, returning the header vnode; typically an `octocat-vui-row'
+with the toggle as its RET.  PREPARE builds the body, only once it is
+first unfolded and again when DEPS change: it returns (TOTAL . RENDER),
+the body's number of lines and a function of how many of them to show
+returning a list of vnodes.  Unfolding reveals lines at a growing pace,
+as `octocat-timeline-fold' does; folding hides them the same way in
+reverse.  Lines added while open, say by a refresh, unfold too."
+  :state ((open nil) (shown 0))
+  :render
+  (let* ((active (or open (> shown 0)))
+         (body   (vui-use-memo (deps active) (and active (funcall prepare))))
+         (total  (or (car body) 0))
+         (target (if open total 0))
+         (moving (/= shown target))
+         (toggle (vui-async-callback () (vui-set-state :open (not open)))))
+    (vui-use-effect (moving open total)
+      (when moving
+        (let ((timer (run-with-timer
+                      octocat-vui-unfold-interval octocat-vui-unfold-interval
+                      (vui-with-async-context
+                        (vui-set-state
+                         :shown (lambda (now)
+                                  ;; A fraction of what shows: unfolding speeds up,
+                                  ;; folding starts fast and eases out.
+                                  (let ((step (max 2 (ceiling (* octocat-vui-unfold-growth now)))))
+                                    (if open
+                                        (min total (+ now step))
+                                      (max 0 (- (min now total) step))))))))))
+          (lambda () (cancel-timer timer)))))
+    (apply #'vui-vstack
+           (funcall header open toggle)
+           (and body (> shown 0) (funcall (cdr body) (min shown total))))))
+
+(defun octocat-vui-fold-header (indent open toggle title help)
+  "Return a header row for `octocat-vui-fold': a ▸/▾ marker, then TITLE.
+INDENT starts the row.  OPEN and TOGGLE are as the fold passes them;
+HELP is a pair of hints, for when the fold is closed and open.  The
+marker is a button, so TAB stops on it; the title is a row, so its own
+faces show (a button would draw it in one face).  RET on either toggles."
+  (let ((hint (if open (cdr help) (car help))))
+    (vui-hstack
+     :spacing 0
+     (vui-text indent)
+     (vui-button (if open "▾" "▸")
+                 :no-decoration t
+                 :face 'octocat-dimmed
+                 :key 'fold-toggle
+                 :help-echo hint
+                 :on-click toggle)
+     (octocat-vui-row (concat " " title) toggle hint))))
+
+(defun octocat-vui-line-ends (string)
+  "Return the positions of the newlines in STRING, for `octocat-vui-take-lines'."
+  (let ((start 0) ends)
+    (while (string-match "\n" string start)
+      (push (match-beginning 0) ends)
+      (setq start (match-end 0)))
+    (nreverse ends)))
+
+(defun octocat-vui-take-lines (string ends n)
+  "Return the first N lines of STRING, whose newlines are at ENDS."
+  (cond ((<= n 0) "")
+        ((nth (1- n) ends) (substring string 0 (nth (1- n) ends)))
+        (t string)))
 
 (defun octocat-vui-reveal-list (items row-fn key-fn)
   "Return a `vui-list' of ITEMS drawn by ROW-FN and keyed by KEY-FN.
@@ -295,6 +386,28 @@ holds as the page is repainted from the disk cache before it refetches."
   `(let ((view (octocat-vui--save-view)))
      (prog1 (progn ,@body)
        (octocat-vui--restore-view view))))
+
+(defvar-local octocat-vui--page nil
+  "The page `octocat-vui-refresh-page' mounted here: (COMPONENT ID INSTANCE).")
+
+(defvar-local octocat-vui--tick 0
+  "Bumped by each `octocat-vui-refresh-page'.")
+
+(defun octocat-vui-refresh-page (component id props)
+  "Mount COMPONENT with PROPS in the current buffer, or refresh it in place.
+ID names what the page shows.  When this buffer already shows COMPONENT
+for ID, it is re-rendered with new props instead of remounted, so it
+keeps its state, such as what is unfolded.  PROPS get a :tick, new on
+each call, for the page's fetch keys (see `octocat-vui-use-cached')."
+  (let ((props (append props (list :tick (cl-incf octocat-vui--tick)))))
+    (if (and (eq (nth 0 octocat-vui--page) component)
+             (equal (nth 1 octocat-vui--page) id))
+        (vui-update-props (nth 2 octocat-vui--page) props)
+      (setq octocat-vui--page
+            (list component id
+                  (octocat-vui-preserving-view
+                    (vui-mount (apply #'vui-component component props)
+                               (buffer-name))))))))
 
 (defun octocat-vui-loading-suffix (result &optional spin)
   "Return a dimmed \"(loading…)\" marker for a section heading, or \"\".
