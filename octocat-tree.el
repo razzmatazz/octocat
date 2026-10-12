@@ -549,7 +549,7 @@ Clears the subtree cache and re-fetches the root tree."
   (let ((buf    (current-buffer))
         (repo   octocat-tree--repo)
         (branch octocat-tree--branch))
-    (setq mode-line-process " [refreshing…]")
+    (setq mode-line-process ":refreshing")
     (octocat-tree--fetch-root-sha
      repo branch
      (lambda (result)
@@ -616,7 +616,7 @@ Uses `completing-read' to let the user pick a file, then opens it."
                (sha  (cdr (assoc path octocat-tree--all-files))))
           (octocat-tree--open-file-by-path repo branch path sha))
       ;; Not yet cached — fetch, cache, then prompt.
-      (setq mode-line-process " [loading…]")
+      (setq mode-line-process ":loading")
       (octocat-tree--fetch-all-files
        repo root-sha
        (lambda (result)
@@ -666,7 +666,7 @@ all file paths via `completing-read', and opens the selected file in
             (octocat-tree--do-find-file repo branch octocat-tree--root-sha))
         ;; No tree buffer yet (or root not loaded).  Fetch the root SHA
         ;; fresh without opening the tree browser.
-        (setq mode-line-process " [loading…]")
+        (setq mode-line-process ":loading")
         (let ((repo-buf (current-buffer)))
           (octocat-tree--fetch-root-sha
            repo branch
@@ -679,7 +679,7 @@ all file paths via `completing-read', and opens the selected file in
                               (cdr sha-result))
                    ;; Now fetch all files; we don't have a tree buffer to
                    ;; cache in, so just fetch+prompt directly.
-                   (setq mode-line-process " [loading…]")
+                   (setq mode-line-process ":loading")
                    (octocat-tree--fetch-all-files
                     repo sha-result
                     (lambda (files-result)
@@ -710,7 +710,7 @@ all file paths via `completing-read', and opens the selected file in
             (octocat-tree--do-find-file repo branch octocat-tree--root-sha))
         ;; No tree buffer yet (or root not loaded).  Fetch the root SHA
         ;; fresh without opening the tree browser.
-        (setq mode-line-process " [loading…]")
+        (setq mode-line-process ":loading")
         (let ((file-buf (current-buffer)))
           (octocat-tree--fetch-root-sha
            repo branch
@@ -721,7 +721,7 @@ all file paths via `completing-read', and opens the selected file in
                  (if (eq (car-safe sha-result) 'error)
                      (message "Octocat: Error fetching tree root: %s"
                               (cdr sha-result))
-                   (setq mode-line-process " [loading…]")
+                   (setq mode-line-process ":loading")
                    (octocat-tree--fetch-all-files
                     repo sha-result
                     (lambda (files-result)
@@ -777,7 +777,7 @@ all file paths via `completing-read', and opens the selected file in
         (sha    octocat-tree--file-sha)
         (path   octocat-tree--file-path))
     (octocat-tree--render-file-loading path)
-    (setq mode-line-process " [loading…]")
+    (setq mode-line-process ":loading")
     (if sha
         (octocat-tree--fetch-file
          repo sha
@@ -943,7 +943,7 @@ Works from an `octocat-file-mode' buffer.  Opens (or switches to) the
   (let ((buf    (current-buffer))
         (repo   octocat-file-log--repo)
         (path   octocat-file-log--path))
-    (setq mode-line-process " [refreshing…]")
+    (setq mode-line-process ":refreshing")
     (octocat-tree--fetch-file-commits
      repo path
      (lambda (result)

@@ -45,7 +45,7 @@
 (declare-function octocat-repo-vui-use-cached "octocat-repo"
                   (type repo number fetch &optional as-list))
 (declare-function octocat-pr--use-data "octocat-pr" (repo number))
-(declare-function octocat-pr--header "octocat-pr" (repo pr &optional tab loading))
+(declare-function octocat-pr--header "octocat-pr" (repo pr &optional tab))
 (declare-function octocat-pr--tabs "octocat-pr" (current repo number &optional files))
 (declare-function octocat-switch-repo "octocat-core" ())
 (declare-function octocat-search-repo "octocat-search" ())
@@ -115,7 +115,6 @@ COMMENTS is the `vui-use-async' result for the review comments."
 
 (vui-defcomponent octocat-pr-diff--page (repo number)
   "The diff of pull request NUMBER of REPO, under the PR page's header."
-  :state ((spin 0))
   :render
   (let* ((pr       (octocat-pr--use-data repo number))
          (files    (octocat-repo-vui-use-cached
@@ -123,21 +122,22 @@ COMMENTS is the `vui-use-async' result for the review comments."
          (comments (octocat-repo-vui-use-cached
                     "pr-review-comments" repo number
                     #'octocat--fetch-pr-review-comments t))
-         (loading  (and (or (plist-get pr :refreshing)
+         (loading  (and (or (memq 'pending (list (plist-get pr :status)
+                                                 (plist-get files :status)
+                                                 (plist-get comments :status)))
+                            (plist-get pr :refreshing)
                             (plist-get files :refreshing)
                             (plist-get comments :refreshing))
                         t))
          (by-path  (vui-use-memo ((plist-get comments :data))
                      (octocat-diff-by-path (plist-get comments :data)))))
-    (octocat-vui-use-spinner loading)
+    (octocat-vui-use-mode-line-loading loading)
     (vui-vstack
      ;; The same header as the conversation, so the pages read as tabs.
      (pcase (plist-get pr :status)
        ('ready (apply #'vui-vstack
                       (delq nil (octocat-pr--header
-                                 repo (plist-get pr :data) 'files
-                                 (and loading (octocat-vui-loading-suffix
-                                               '(:refreshing t) spin))))))
+                                 repo (plist-get pr :data) 'files))))
        ('error (vui-vstack
                 (vui-text (format "Error: %s" (plist-get pr :error)) :face 'error)
                 (octocat-pr--tabs 'files repo number)))

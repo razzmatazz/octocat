@@ -391,14 +391,12 @@ Dispatches on the event type:
      (lambda () (octocat--dashboard-visit-event ev))
      "RET: open commit or repo  C-c C-o: browse repo on GitHub")))
 
-(defun octocat--dashboard-section (title result spin empty rows)
+(defun octocat--dashboard-section (title result empty rows)
   "Return a section vnode: heading TITLE, then the body for async RESULT.
-SPIN is the spinner counter for the heading's loading marker, EMPTY the
-text shown when there is nothing to list, and ROWS a function turning
-the loaded data into the vnode of its rows."
+EMPTY is the text shown when there is nothing to list, and ROWS a
+function turning the loaded data into the vnode of its rows."
   (vui-vstack
-   (vui-text (concat (propertize title 'face 'octocat-section-heading)
-                     (octocat-vui-loading-suffix result spin)))
+   (vui-text title :face 'octocat-section-heading)
    (pcase (plist-get result :status)
      ('ready (let ((data (plist-get result :data)))
                (if (null data)
@@ -412,7 +410,6 @@ the loaded data into the vnode of its rows."
   "Root component of the dashboard: recent repositories, then the feed.
 FEED-LIMIT is how many feed events to fetch.  The disk cache shows until
 the fresh data arrives (stale-while-revalidate)."
-  :state ((spin 0))
   :render
   (let* ((cached (vui-use-memo () (octocat--dashboard-cache-load)))
          (repos  (octocat-vui-use-async-sticky 'dashboard-repos
@@ -437,24 +434,28 @@ the fresh data arrives (stale-while-revalidate)."
                            (not (plist-get feed :refreshing))
                            (plist-get feed :data)))
          (repos  (octocat-vui-with-stale repos (plist-get cached :repos)))
-         (feed   (octocat-vui-with-stale feed  (plist-get cached :feed))))
+         (feed   (octocat-vui-with-stale feed  (plist-get cached :feed)))
+         (loading (and (or (memq 'pending (list (plist-get repos :status)
+                                                (plist-get feed :status)))
+                           (plist-get repos :refreshing)
+                           (plist-get feed :refreshing))
+                       t)))
     ;; Write the cache only once both calls have succeeded.
     (vui-use-effect (fresh-repos fresh-feed)
       (when (and fresh-repos fresh-feed)
         (octocat--dashboard-cache-save fresh-repos fresh-feed))
       nil)
-    (octocat-vui-use-spinner (or (plist-get repos :refreshing)
-                                 (plist-get feed :refreshing)))
+    (octocat-vui-use-mode-line-loading loading)
     (vui-vstack
      (vui-text "GitHub Dashboard" :face 'octocat-repo)
      (octocat--dashboard-section
-      "Recent Repositories" repos spin "(no repositories)"
+      "Recent Repositories" repos "(no repositories)"
       (lambda (data)
         (vui-list data #'octocat--dashboard-repo-row
                   (lambda (r) (gethash "full_name" r)))))
      (vui-newline)
      (octocat--dashboard-section
-      "Feed" feed spin "(no recent activity)"
+      "Feed" feed "(no recent activity)"
       (lambda (data)
         (vui-fragment
          (octocat-vui-reveal-list data #'octocat--dashboard-feed-row

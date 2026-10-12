@@ -220,9 +220,8 @@ AVATAR is a list of equally wide strings; the shorter list is padded."
 
 ;;;; Components
 
-(vui-defcomponent octocat-user--repos-section (login on-loading)
-  "Repositories of LOGIN, with its own \"load more\" limit.
-ON-LOADING is called with whether the list is being fetched."
+(vui-defcomponent octocat-user--repos-section (login)
+  "Repositories of LOGIN, with its own \"load more\" limit."
   :state ((limit octocat-section-limit))
   :render
   (let* ((sticky (octocat-vui-use-async-sticky (list 'user-repos login limit)
@@ -230,10 +229,10 @@ ON-LOADING is called with whether the list is being fetched."
                      (octocat-user--fetch-repos
                       login limit
                       (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
-         (loading (and (plist-get sticky :refreshing) t)))
-    (vui-use-effect (loading)
-      (funcall on-loading loading)
-      nil)
+         (loading (and (or (eq (plist-get sticky :status) 'pending)
+                           (plist-get sticky :refreshing))
+                       t)))
+    (octocat-vui-use-mode-line-loading loading)
     (vui-vstack
      (vui-text "Repositories" :face 'octocat-section-heading)
      (pcase (plist-get sticky :status)
@@ -314,15 +313,14 @@ time the window's width changes."
 
 (vui-defcomponent octocat-user--root (login)
   "Root component of the user page: profile header, then repositories."
-  :state ((spin 0) (repos-loading nil))
   :render
   (let* ((result (vui-use-async (list 'user-profile login)
                    (lambda (resolve reject)
                      (octocat-user--fetch-profile
                       login
                       (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
-         (loading (or repos-loading (eq (plist-get result :status) 'pending))))
-    (octocat-vui-use-spinner loading)
+         (loading (eq (plist-get result :status) 'pending)))
+    (octocat-vui-use-mode-line-loading loading)
     (vui-vstack
      (pcase (plist-get result :status)
        ('ready
@@ -335,15 +333,9 @@ time the window's width changes."
          (vui-text (propertize (concat "@" login) 'face 'octocat-repo))
          (vui-text (format "%s" (plist-get result :error)) :face 'octocat-dimmed)))
        (_ (vui-text (propertize (concat "@" login) 'face 'octocat-repo))))
-     (when loading
-       (vui-text (string-trim-left
-                  (octocat-vui-loading-suffix '(:refreshing t) spin))))
      (vui-newline)
      (vui-component 'octocat-user--pinned-section :login login)
-     (vui-component 'octocat-user--repos-section
-                    :login login
-                    :on-loading (vui-async-callback (v)
-                                  (vui-set-state :repos-loading v))))))
+     (vui-component 'octocat-user--repos-section :login login))))
 
 
 ;;;; Major mode

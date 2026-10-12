@@ -354,5 +354,16 @@ Text replaced by a `display' string shows as that string."
       (should (memq 'octocat-markdown-code-block (face-at "not bold")))
       (should-not (memq 'bold (face-at "not bold"))))))
 
+(ert-deftest octocat-markdown-test-quote-prefix-marks-every-line ()
+  "Bodies rendered with the quote prefix start every line, blanks included, with \"  │ \"."
+  (with-temp-buffer
+    (setq octocat--markdown-raw t)
+    (octocat--insert-markdown "first\n\nthird" octocat--quote-prefix)
+    (should (equal (buffer-substring-no-properties (point-min) (point-max))
+                   "  │ first\n  │ \n  │ third\n"))
+    ;; Wrapped continuation lines repeat the prefix.
+    (should (equal (get-text-property (point-min) 'wrap-prefix) octocat--quote-prefix))
+    (should (equal (get-text-property (1- (point-max)) 'wrap-prefix) octocat--quote-prefix))))
+
 (provide 'octocat-markdown-tests)
 ;;; octocat-markdown-tests.el ends here

@@ -44,7 +44,7 @@
 (declare-function octocat-repo-vui--cells "octocat-repo" (item current-branch repo))
 (declare-function octocat-repo-vui--layout "octocat-repo" (cells width))
 (declare-function octocat-repo-vui--state-label "octocat-repo" (state &optional draft))
-(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title &optional branch omit suffix highlight))
+(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title &optional branch omit highlight))
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
 (declare-function octocat-repo-vui--logins "octocat-repo" (users))
 (declare-function octocat-repo-vui--numbers "octocat-repo" (refs))
@@ -262,14 +262,13 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
 ;;
 ;; The timeline itself (items, entries, rail) is in octocat-timeline.el.
 
-(defun octocat-issue--header (repo issue &optional loading)
-  "Return the vnodes above the timeline: repo, title and labels of ISSUE in REPO.
-LOADING is the page's loading marker, shown on the top row."
+(defun octocat-issue--header (repo issue)
+  "Return the vnodes above the timeline: repo, title and labels of ISSUE in REPO."
   (let ((state (or (gethash "state" issue) "OPEN")))
     (append
      (octocat-repo-vui--detail-header
       repo issue (octocat-repo-vui--state-label state)
-      #'octocat-issue-edit-title nil '(:comments) loading 'issues)
+      #'octocat-issue-edit-title nil '(:comments) 'issues)
      (list
       (octocat-repo-vui--detail-fields
        (list (cons "Assignees" (octocat-repo-vui--logins (gethash "assignees" issue)))
@@ -280,7 +279,7 @@ LOADING is the page's loading marker, shown on the top row."
 
 (vui-defcomponent octocat-issue--page (repo number raw)
   "Issue NUMBER of REPO as a timeline; RAW shows markdown bodies verbatim."
-  :state ((spin 0) (win-width nil))
+  :state ((win-width nil))
   :render
   (let* ((width  (octocat-vui-use-window-width))
          (cached (vui-use-memo (repo number)
@@ -296,7 +295,9 @@ LOADING is the page's loading marker, shown on the top row."
          (result (octocat-vui-with-stale async cached))
          (timeline (octocat-timeline-use-events repo number))
          (events   (car timeline))
-         (loading  (or (plist-get result :refreshing) (cdr timeline)))
+         (loading  (or (eq (plist-get result :status) 'pending)
+                       (plist-get result :refreshing)
+                       (cdr timeline)))
          ;; WIDTH is a dependency: tables are laid out for the window.
          (entries  (vui-use-memo (result events raw width)
                      (and (eq (plist-get result :status) 'ready)
@@ -307,7 +308,7 @@ LOADING is the page's loading marker, shown on the top row."
     (vui-use-effect (fresh)
       (when fresh (octocat--detail-cache-save repo "issue" number fresh))
       nil)
-    (octocat-vui-use-spinner loading)
+    (octocat-vui-use-mode-line-loading loading)
     (pcase (plist-get result :status)
       ('pending (vui-text (concat "  " repo " #" (number-to-string number) "  (loading…)")
                           :face 'octocat-dimmed))
@@ -316,10 +317,7 @@ LOADING is the page's loading marker, shown on the top row."
        (let ((issue (plist-get result :data)))
          (apply #'vui-vstack
                 (append
-                 (delq nil (octocat-issue--header
-                            repo issue
-                            (and loading (octocat-vui-loading-suffix
-                                          '(:refreshing t) spin))))
+                 (delq nil (octocat-issue--header repo issue))
                  entries
                  (octocat-timeline-buttons
                   (list '("+ Add a comment" "RET: write a comment" octocat-issue-add-comment)
@@ -408,15 +406,17 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
          (fresh  (and (eq (plist-get sticky :status) 'ready)
                       (not (plist-get sticky :refreshing))
                       (plist-get sticky :data)))
-         (result (octocat-vui-with-stale sticky stale)))
+         (result (octocat-vui-with-stale sticky stale))
+         (loading (and (or (eq (plist-get result :status) 'pending)
+                           (plist-get result :refreshing))
+                       t)))
     (vui-use-effect (fresh)
       (when (and fresh (= limit octocat-section-limit))
         (octocat--items-cache-save repo "issues" id fresh))
       nil)
+    (octocat-vui-use-mode-line-loading loading)
     (vui-vstack
-     (vui-component 'octocat-vui-list-header
-                    :repo repo :tab 'issues :kind 'issues
-                    :loading (and (plist-get result :refreshing) t))
+     (vui-component 'octocat-vui-list-header :repo repo :tab 'issues :kind 'issues)
      (octocat-vui-list-filter-bar query)
      (pcase (plist-get result :status)
        ('pending (vui-text "(loading…)\n" :face 'octocat-dimmed))

@@ -32,9 +32,7 @@
 ;; this migration for context -- deliberately accepted for now):
 ;;   - No disk cache / stale-while-revalidate: every `octocat-repo-refresh'
 ;;     fully remounts the component tree via `vui-mount', so there is no
-;;     "render stale cache instantly, then replace with live data" step,
-;;     and no `mode-line-process' indicator (each section's own
-;;     "Loading…" placeholder signals progress instead).
+;;     "render stale cache instantly, then replace with live data" step.
 ;;   - Because every refresh remounts, collapse state and "load more"
 ;;     limits reset to their defaults on each *explicit* refresh
 ;;     (`revert-buffer', reopening via `octocat-visit-repo', etc.).  They
@@ -500,7 +498,7 @@ rows."
 ;; it lives and who opened it.
 
 (defun octocat-repo-vui--detail-header (repo item state on-edit-title
-                                            &optional branch omit suffix highlight)
+                                            &optional branch omit highlight)
   "Return the header vnodes of the issue or PR ITEM of REPO.
 STATE is its coloured state text (see `octocat-repo-vui--state-label').
 The first row is the repo and number, as in every other view; RET on it
@@ -509,10 +507,9 @@ target of the page's edit command; RET on it calls ON-EDIT-TITLE.  The
 third, dimmed row reads like the list's: author, age, branch, ...; RET
 on it edits the title too.  BRANCH, when non-nil, replaces the
 branch cell.  OMIT is a list of cell keys (see `octocat-repo-vui--cells')
-to leave out.  SUFFIX, a string, ends the first row: the page's loading
-indicator (see `octocat-vui-loading-suffix'), which lives on the top line.
-HIGHLIGHT is the tab of the repo tab strip (see `octocat-vui-repo-tabs')
-the page belongs to; the strip follows the repo and number on that row."
+to leave out.  HIGHLIGHT is the tab of the repo tab strip (see
+`octocat-vui-repo-tabs') the page belongs to; the strip follows the repo
+and number on that row."
   (let* ((cells (octocat-repo-vui--cells item nil repo))
          (chips (or (plist-get cells :chips) ""))
          (more  (seq-remove (lambda (s) (or (null s) (string-empty-p s)))
@@ -531,9 +528,7 @@ the page belongs to; the strip follows the repo and number on that row."
                                  'face 'octocat-pr-number))
              (lambda () (octocat-visit-repo repo))
              "RET: open repo view")
-            (append (octocat-vui-repo-tabs repo nil nil nil highlight)
-                    (and suffix
-                         (list (vui-text (string-trim-left suffix))))))
+            (octocat-vui-repo-tabs repo nil nil nil highlight))
      (octocat-vui-row
       (propertize (concat state "  " (plist-get cells :title)
                           (if (string-empty-p chips) "" (concat "  " chips)))
@@ -686,14 +681,12 @@ commit is highlighted.  AUTHOR-W is the width of the author column, see
 ;; pageable ones, its "load more" limit (`:state').
 
 (vui-defcomponent octocat-repo-vui--commits-section
-    (repo default-branch current-branch head-info on-loading)
+    (repo default-branch current-branch head-info)
   "Commits section for REPO.
 The commits are those of the default branch (the API call names no other),
 so DEFAULT-BRANCH appears once in the title instead of on every row; it is
 highlighted when it is also the local CURRENT-BRANCH.  HEAD-INFO is the
-plist from `octocat--head-info', used to highlight the local HEAD commit.
-ON-LOADING is called with whether the commits are refreshing, for the
-page's loading indicator."
+plist from `octocat--head-info', used to highlight the local HEAD commit."
   :state ((limit octocat-section-limit))
   :render
   (let* ((cached (vui-use-memo (repo)
@@ -709,12 +702,12 @@ page's loading indicator."
                       (not (plist-get sticky :refreshing))
                       (plist-get sticky :data)))
          (result (octocat-vui-with-stale sticky stale))
-         (loading (and (plist-get result :refreshing) t))
+         (loading (and (or (eq (plist-get result :status) 'pending)
+                           (plist-get result :refreshing))
+                       t))
          ;; The cached list is labelled with the branch it was fetched for.
          (branch (if (eq result sticky) default-branch (plist-get cached :branch))))
-    (vui-use-effect (loading)
-      (funcall on-loading loading)
-      nil)
+    (octocat-vui-use-mode-line-loading loading)
     (vui-use-effect (fresh default-branch)
       (when (and fresh default-branch (= limit octocat-section-limit))
         (octocat--items-cache-save repo "commits" "default" fresh default-branch))
@@ -768,7 +761,6 @@ from `octocat-repo--fetch-summary', or an ellipsis while it loads."
   "Root component for the repo buffer: header, local-head/fork-parent
 info, issue/PR summary line, then the commits section.
 Everything but the commits comes from a single summary API call."
-  :state ((spin 0) (commits-loading nil))
   :render
   (let* ((head-info      (octocat--head-info))
          (current-branch (plist-get head-info :branch))
@@ -785,22 +777,15 @@ Everything but the commits comes from a single summary API call."
          (summary        (or fresh cached))
          (default-branch (plist-get summary :default-branch))
          (fork-parent    (plist-get summary :fork-parent))
-         ;; The page's one loading indicator, on the repo row.
-         (loading        (or commits-loading
-                             (and cached (eq (plist-get summary-result :status)
-                                             'pending)))))
+         (loading        (eq (plist-get summary-result :status) 'pending)))
     (vui-use-effect (fresh)
       (when fresh (octocat-repo--summary-cache-save repo fresh))
       nil)
-    (octocat-vui-use-spinner loading)
+    (octocat-vui-use-mode-line-loading loading)
     (vui-vstack
      (apply #'vui-hstack :spacing 2
             (vui-text repo :face 'octocat-repo)
-            (append (octocat-repo-vui--nav-buttons repo summary)
-                    (and loading
-                         (list (vui-text (string-trim-left
-                                          (octocat-vui-loading-suffix
-                                           '(:refreshing t) spin)))))))
+            (octocat-repo-vui--nav-buttons repo summary))
      (when local-dir
        (vui-text
         (concat (propertize "Local clone:" 'face 'octocat-dimmed)
@@ -814,9 +799,7 @@ Everything but the commits comes from a single summary API call."
      (vui-newline)
      (vui-component 'octocat-repo-vui--commits-section
                     :repo repo :default-branch default-branch
-                    :current-branch current-branch :head-info head-info
-                    :on-loading (vui-async-callback (v)
-                                  (vui-set-state :commits-loading v))))))
+                    :current-branch current-branch :head-info head-info))))
 
 
 ;;;; Major mode

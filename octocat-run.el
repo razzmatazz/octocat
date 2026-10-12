@@ -211,7 +211,6 @@ vector: a shape the disk cache can store as JSON."
   "Workflow run RUN-ID of REPO.
 A new TICK refetches everything, keeping what is shown until the fresh
 data replaces it."
-  :state ((spin 0))
   :render
   (let* ((local-branch (vui-use-memo () (octocat--current-branch)))
          (run   (octocat-run--cached
@@ -241,10 +240,9 @@ data replaces it."
                                                 (plist-get r :refreshing)))
                                 (list run anns arts))
                        t)))
-    (octocat-vui-use-spinner loading)
+    (octocat-vui-use-mode-line-loading loading)
     (apply #'vui-vstack
-           (octocat-vui-actions-top-row
-            repo (and loading (octocat-vui-loading-suffix '(:refreshing t) spin)))
+           (octocat-vui-actions-top-row repo)
            (pcase (plist-get run :status)
              ('pending (list (vui-text (format "run %s" run-id) :face 'octocat-dimmed)))
              ('error   (list (vui-text (format "  Error: %s" (plist-get run :error))

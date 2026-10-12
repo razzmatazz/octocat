@@ -152,8 +152,8 @@ stays on this section's button when growing the list re-renders it
 instead of drifting to a neighbouring section's button.
 When LOADING is non-nil (a page is being fetched, see
 `octocat-vui-use-async-sticky') the button is disabled so it cannot be
-triggered twice; its label stays put, since the page's top line shows
-the activity (see `octocat-vui-loading-suffix').
+triggered twice; its label stays put, since the mode line shows the
+activity (see `octocat-vui-use-mode-line-loading').
 Rows carry no trailing newline (`vui-list' only separates them), so the
 button starts on a fresh line and carries the same indent, INDENT columns
 \(default two).  The flush-left list pages pass 0."
@@ -339,20 +339,28 @@ this, so they do not shift as the new rows appear."
                  :items items
                  :render (lambda (shown) (vui-list shown row-fn key-fn))))
 
-(defconst octocat-vui-spinner-frames
-  ["⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏"]
-  "Frames of the loading spinner, shown inside \"(loading… )\".")
+(defvar-local octocat-vui--loading 0
+  "How many components of this buffer are loading.")
 
-(defmacro octocat-vui-use-spinner (active)
-  "Advance the component's `spin' state ten times a second while ACTIVE.
-ACTIVE is a variable, true while something is loading.  The component
-must declare a `(spin 0)' entry in its `:state'; pass that value as the
-SPIN argument of `octocat-vui-loading-suffix' to draw the frame.  The
-timer only exists while ACTIVE, and is cancelled when it turns nil or the
-component unmounts."
-  `(octocat-vui-use-timer (,active) 0.1 ,active
-     (vui-set-state :spin #'1+)
-     t))
+(defun octocat-vui--add-loading (buf n)
+  "Add N to BUF's loading count; show \":loading\" while it is positive."
+  (when (buffer-live-p buf)
+    (with-current-buffer buf
+      (setq octocat-vui--loading (max 0 (+ octocat-vui--loading n)))
+      (setq mode-line-process (and (> octocat-vui--loading 0) ":loading"))
+      (force-mode-line-update))))
+
+(defmacro octocat-vui-use-mode-line-loading (loading)
+  "Show \":loading\" in the mode line while LOADING, a variable, is true.
+That is `mode-line-process', after the mode name, where Emacs shows that
+a buffer is busy, as in \"(Compilation:run)\": noticeable, and it never
+moves the page's text.  Any component may use it; the buffer shows the
+indicator while any of them is loading."
+  `(vui-use-effect (,loading)
+     (when ,loading
+       (let ((buf (current-buffer)))
+         (octocat-vui--add-loading buf 1)
+         (lambda () (octocat-vui--add-loading buf -1))))))
 
 (defun octocat-vui-window-height ()
   "Return the body height of the window showing the current buffer, or 40."
@@ -451,21 +459,6 @@ each call, for the page's fetch keys (see `octocat-vui-use-cached')."
                     (vui-mount (apply #'vui-component component props)
                                (buffer-name))))))))
 
-(defun octocat-vui-loading-suffix (result &optional spin)
-  "Return a dimmed \"(loading…)\" marker for a section heading, or \"\".
-It is shown while RESULT (see `octocat-vui-use-async-sticky') displays
-earlier or cached data that a fetch is about to replace.  SPIN, the
-component's `spin' counter (see `octocat-vui-use-spinner'), picks the
-spinner frame appended to the marker."
-  (if (plist-get result :refreshing)
-      (propertize (concat "  (loading…"
-                          (when spin
-                            (concat " " (aref octocat-vui-spinner-frames
-                                              (mod spin (length octocat-vui-spinner-frames)))))
-                          ")")
-                  'face 'octocat-dimmed)
-    ""))
-
 
 ;;;; List-page base mode
 ;;
@@ -524,11 +517,10 @@ spinner frame appended to the marker."
   (setq-local truncate-lines t)
   (octocat--ts-eldoc-setup))
 
-(defun octocat-vui-commit-top-row (repo sha suffix)
+(defun octocat-vui-commit-top-row (repo sha)
   "Return the top row of a page about commit SHA of REPO.
 That is `owner/repo@sha', RET-able to the repo page, as `owner/repo#N'
-is on an issue, then the repo tab strip with Code highlighted and
-SUFFIX, the page's loading indicator (see `octocat-vui-loading-suffix')."
+is on an issue, then the repo tab strip with Code highlighted."
   (apply #'vui-hstack :spacing 2
          (octocat-vui-row
           (concat (propertize repo 'face 'octocat-repo)
@@ -536,22 +528,17 @@ SUFFIX, the page's loading indicator (see `octocat-vui-loading-suffix')."
                               'face 'octocat-commit-sha))
           (lambda () (octocat-visit-repo repo))
           "RET: open repo view")
-         (append (octocat-vui-repo-tabs repo nil nil nil 'code)
-                 (and suffix (not (string-empty-p suffix))
-                      (list (vui-text (string-trim-left suffix)))))))
+         (octocat-vui-repo-tabs repo nil nil nil 'code)))
 
-(defun octocat-vui-actions-top-row (repo suffix)
+(defun octocat-vui-actions-top-row (repo)
   "Return the top row of a workflow, run or job page of REPO.
-That is the repo, RET-able to the repo page, the tab strip with Actions
-highlighted, and SUFFIX, the page's loading indicator (see
-`octocat-vui-loading-suffix')."
+That is the repo, RET-able to the repo page, and the tab strip with
+Actions highlighted."
   (apply #'vui-hstack :spacing 2
          (octocat-vui-row (propertize repo 'face 'octocat-repo)
                           (lambda () (octocat-visit-repo repo))
                           "RET: open repo view")
-         (append (octocat-vui-repo-tabs repo nil nil nil 'actions)
-                 (and suffix (not (string-empty-p suffix))
-                      (list (vui-text (string-trim-left suffix)))))))
+         (octocat-vui-repo-tabs repo nil nil nil 'actions)))
 
 (defun octocat-vui-fields (fields)
   "Return a vnode of FIELDS on one line, or nil when none has a value.
@@ -593,14 +580,11 @@ tabs (a string such as \"…\" while they load)."
                      :on-click (lambda () (funcall fn repo))))))
    octocat--repo-tabs))
 
-(vui-defcomponent octocat-vui-list-header (repo tab kind loading)
+(vui-defcomponent octocat-vui-list-header (repo tab kind)
   "Header for a list page: REPO, the tab strip and, for KIND, item counts.
 TAB is the symbol of the current tab (see `octocat-vui-repo-tabs').
 KIND is `issues' or `pulls' to show \"N open · M closed\" (plus merged
-for pulls) from one API call, or nil for no counts.  A non-nil LOADING
-adds an animated \"(loading…)\" marker: the list below is stale data being
-refreshed."
-  :state ((spin 0))
+for pulls) from one API call, or nil for no counts."
   :render
   (let* ((cached (vui-use-memo (repo kind)
                    (and kind (octocat--counts-cache-load repo kind))))
@@ -620,7 +604,6 @@ refreshed."
       (when (and kind fresh)
         (octocat--counts-cache-save repo kind fresh))
       nil)
-    (octocat-vui-use-spinner loading)
     (vui-fragment
      (apply #'vui-hstack :spacing 2
             ;; A row, not a button: buttons draw their [brackets], and the
@@ -628,11 +611,7 @@ refreshed."
             (octocat-vui-row (propertize repo 'face 'octocat-repo)
                              (lambda () (octocat-visit-repo repo))
                              "RET: open repository page")
-            (append (octocat-vui-repo-tabs repo tab)
-                    (and loading
-                         (list (vui-text (string-trim-left
-                                          (octocat-vui-loading-suffix
-                                           '(:refreshing t) spin)))))))
+            (octocat-vui-repo-tabs repo tab))
      (vui-newline)
      (when counts
        (vui-fragment

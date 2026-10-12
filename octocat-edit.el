@@ -135,7 +135,7 @@ Type your markdown text, then:
           (source     octocat-edit--source-buffer)
           (edit-win   octocat-edit--window)
           (edit-buf   (current-buffer)))
-      (setq mode-line-process " [submitting…]")
+      (setq mode-line-process ":submitting")
       (funcall submit-fn body source
                ;; on-success: close edit window then refresh source
                (lambda ()

@@ -96,11 +96,11 @@ general comments (\\='path\\=' is :null or nil) and inline comments
 ;; PR diff's file component: commit comments have the same shape as PR
 ;; review comments.
 
-(defun octocat-commit--header (repo sha commit suffix)
+(defun octocat-commit--header (repo sha commit)
   "Return the header vnodes of commit SHA of REPO.
 COMMIT is the commit hash-table, or nil while it loads.  The top row is
-the repo and short SHA, as `owner/repo#N' on an issue, then the tab strip
-and SUFFIX, the loading indicator.  The subject is on the row below, and
+the repo and short SHA, as `owner/repo#N' on an issue, then the tab
+strip.  The subject is on the row below, and
 the author, date and full SHA under it."
   (let* ((c      (and commit (gethash "commit" commit)))
          (msg    (or (and c (gethash "message" c)) ""))
@@ -108,7 +108,7 @@ the author, date and full SHA under it."
          (login  (and commit (octocat--commit-author-login commit))))
     (delq nil
           (list
-           (octocat-vui-commit-top-row repo sha suffix)
+           (octocat-vui-commit-top-row repo sha)
            (if commit
                (vui-text (car (split-string msg "\n")))
              (vui-text "(loading…)" :face 'octocat-dimmed))
@@ -214,7 +214,7 @@ a dimmed note.  RAW and WIDTH are as for `octocat--markdown-string'."
   "Commit SHA of REPO: header, message, checks, files and comments.
 RAW shows markdown verbatim.  The commit, its checks and its comments
 are fetched independently; each shows its cached copy until then."
-  :state ((spin 0) (win-width nil))
+  :state ((win-width nil))
   :render
   (let* ((width    (octocat-vui-use-window-width))
          (commit   (octocat-repo-vui-use-cached "commit" repo sha #'octocat--fetch-commit))
@@ -234,12 +234,10 @@ are fetched independently; each shows its cached copy until then."
                      (octocat-diff-by-path (plist-get comments :data))))
          (body     (vui-use-memo (data raw width)
                      (and data (octocat-commit--body data raw md-width)))))
-    (octocat-vui-use-spinner loading)
+    (octocat-vui-use-mode-line-loading loading)
     (apply #'vui-vstack
            (append
-            (octocat-commit--header repo sha data
-                                    (and loading (octocat-vui-loading-suffix
-                                                  '(:refreshing t) spin)))
+            (octocat-commit--header repo sha data)
             (pcase (plist-get commit :status)
               ('error (list (vui-newline)
                             (vui-text (format "Error: %s" (plist-get commit :error))

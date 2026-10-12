@@ -200,7 +200,7 @@ by ON-MORE; LOADING disables its button while a page is fetched."
 
 (vui-defcomponent octocat-workflow--page (repo id name)
   "Workflow ID of REPO and its runs; NAME shows while it loads."
-  :state ((spin 0) (limit octocat-workflow-runs-limit))
+  :state ((limit octocat-workflow-runs-limit))
   :render
   (let* ((default (= limit octocat-workflow-runs-limit))
          (cached  (vui-use-memo (repo id)
@@ -226,17 +226,9 @@ by ON-MORE; LOADING disables its button while a page is fetched."
           (puthash "runs" (vconcat (cdr fresh)) h)
           (octocat--detail-cache-save repo "workflow" id h)))
       nil)
-    (octocat-vui-use-spinner loading)
+    (octocat-vui-use-mode-line-loading loading)
     (apply #'vui-vstack
-           (apply #'vui-hstack :spacing 2
-                  (octocat-vui-row (propertize repo 'face 'octocat-repo)
-                                   (lambda () (octocat-visit-repo repo))
-                                   "RET: open repo view")
-                  (append (octocat-vui-repo-tabs repo nil nil nil 'actions)
-                          (and loading
-                               (list (vui-text (string-trim-left
-                                                (octocat-vui-loading-suffix
-                                                 '(:refreshing t) spin)))))))
+           (octocat-vui-actions-top-row repo)
            (pcase (plist-get result :status)
              ('pending (list (vui-text name)
                              (vui-newline)

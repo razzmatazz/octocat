@@ -47,7 +47,7 @@
 (declare-function octocat-repo-vui--layout "octocat-repo" (cells width))
 (defvar octocat-repo-vui--state-width)  ; defconst in octocat-repo.el
 (declare-function octocat-repo-vui--state-label"octocat-repo" (state &optional draft))
-(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title &optional branch omit suffix highlight))
+(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title &optional branch omit highlight))
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
 (declare-function octocat-repo-vui--logins "octocat-repo" (users))
 (declare-function octocat-repo-vui--numbers "octocat-repo" (refs))
@@ -349,12 +349,11 @@ of changed files shown on the \"Files changed\" tab, as GitHub does."
                    :help-echo "RET: show the files changed"
                    :on-click (lambda () (octocat-pr-diff-open repo number)))))))
 
-(defun octocat-pr--header (repo pr &optional tab loading)
+(defun octocat-pr--header (repo pr &optional tab)
   "Return the vnodes above the body: repo, title, branches, labels, tabs.
 PR is the hash-table of the pull request in REPO.  TAB is the page
 showing it, `conversation' (the default) or `files'; the files page is
-the diff, so it leaves out the changes row that opens it.  LOADING is the
-page's loading marker, shown on the top row."
+the diff, so it leaves out the changes row that opens it."
   (let* ((number   (gethash "number" pr))
          (state    (or (gethash "state" pr) "OPEN"))
          (head    (or (gethash "headRefName" pr) ""))
@@ -389,7 +388,7 @@ page's loading marker, shown on the top row."
               (propertize base 'face 'octocat-branch))
       ;; The checks and comments are further down the page.
       '(:ci :comments)
-      loading 'pulls)
+      'pulls)
      (list
       (octocat-repo-vui--detail-fields
        (list (cons "Reviewers" reviewers)
@@ -449,20 +448,22 @@ Each is \"@login (state)\": the state of their latest review, or
 
 (vui-defcomponent octocat-pr--page (repo number raw)
   "Pull request NUMBER of REPO as a timeline; RAW shows markdown verbatim."
-  :state ((spin 0) (win-width nil))
+  :state ((win-width nil))
   :render
   (let* ((width  (octocat-vui-use-window-width))
          (result (octocat-pr--use-data repo number))
          (timeline (octocat-timeline-use-events repo number))
          (events   (car timeline))
-         (loading  (or (plist-get result :refreshing) (cdr timeline)))
+         (loading  (or (eq (plist-get result :status) 'pending)
+                       (plist-get result :refreshing)
+                       (cdr timeline)))
          ;; WIDTH is a dependency: tables are laid out for the window.
          (entries  (vui-use-memo (result events raw width)
                      (and (eq (plist-get result :status) 'ready)
                           (octocat-timeline-entries
                            (octocat-pr--items repo (plist-get result :data) events)
                            raw (octocat--markdown-width))))))
-    (octocat-vui-use-spinner loading)
+    (octocat-vui-use-mode-line-loading loading)
     (pcase (plist-get result :status)
       ('pending (vui-text (concat "  " repo " #" (number-to-string number) "  (loading…)")
                           :face 'octocat-dimmed))
@@ -471,10 +472,7 @@ Each is \"@login (state)\": the state of their latest review, or
        (let ((pr (plist-get result :data)))
          (apply #'vui-vstack
                 (append
-                 (delq nil (octocat-pr--header
-                            repo pr nil
-                            (and loading (octocat-vui-loading-suffix
-                                          '(:refreshing t) spin))))
+                 (delq nil (octocat-pr--header repo pr))
                  entries
                  (list (vui-newline))
                  (octocat-checks-block
@@ -577,15 +575,17 @@ background."
          (fresh  (and (eq (plist-get sticky :status) 'ready)
                       (not (plist-get sticky :refreshing))
                       (plist-get sticky :data)))
-         (result (octocat-vui-with-stale sticky stale)))
+         (result (octocat-vui-with-stale sticky stale))
+         (loading (and (or (eq (plist-get result :status) 'pending)
+                           (plist-get result :refreshing))
+                       t)))
     (vui-use-effect (fresh)
       (when (and fresh (= limit octocat-section-limit))
         (octocat--items-cache-save repo "prs" id fresh))
       nil)
+    (octocat-vui-use-mode-line-loading loading)
     (vui-vstack
-     (vui-component 'octocat-vui-list-header
-                    :repo repo :tab 'pulls :kind 'pulls
-                    :loading (and (plist-get result :refreshing) t))
+     (vui-component 'octocat-vui-list-header :repo repo :tab 'pulls :kind 'pulls)
      (octocat-vui-list-filter-bar query)
      (pcase (plist-get result :status)
        ('pending (vui-text "(loading…)\n" :face 'octocat-dimmed))

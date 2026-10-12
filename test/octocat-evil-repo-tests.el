@@ -17,10 +17,10 @@
 ;; refactor cannot silently reintroduce it (e.g. by moving the command back
 ;; into `octocat-repo.el', or adding a new top-level command there).
 ;;
-;; This file MUST be run in its own Emacs process, separate from
-;; test/octocat-tests.el, which does `(require 'octocat)' at load time and
-;; would make the first assertion below vacuous.  See the `test' target in
-;; the Makefile, which invokes `eask test ert' twice.
+;; This file MUST be run in its own Emacs process, separate from the
+;; other test files, which `(require 'octocat)' at load time and would
+;; make the first assertion below vacuous.  The `test' target in the
+;; Makefile runs each test file in its own process.
 ;;
 ;; Run via:
 ;;   eask test ert test/octocat-evil-repo-tests.el

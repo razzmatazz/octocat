@@ -235,16 +235,14 @@ CHECKS is a list of REST check-runs."
 
 (vui-defcomponent octocat-checks--page (repo sha ref)
   "The check-runs of commit SHA of REPO; REF is its branch, or nil."
-  :state ((spin 0))
   :render
   (let* ((checks  (octocat-repo-vui-use-cached "checks" repo sha #'octocat--fetch-checks t))
          (loading (and (or (eq (plist-get checks :status) 'pending)
                            (plist-get checks :refreshing))
                        t)))
-    (octocat-vui-use-spinner loading)
+    (octocat-vui-use-mode-line-loading loading)
     (apply #'vui-vstack
-           (octocat-vui-commit-top-row
-            repo sha (and loading (octocat-vui-loading-suffix '(:refreshing t) spin)))
+           (octocat-vui-commit-top-row repo sha)
            (vui-text (concat "Checks"
                              (when ref (concat "  " (propertize ref 'face 'octocat-branch)))))
            (vui-newline)

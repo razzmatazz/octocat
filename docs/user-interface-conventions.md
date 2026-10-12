@@ -414,19 +414,13 @@ The line shows from the moment the buffer opens, before any data arrives.
 
 ## Indicating that a page is loading or refreshing
 
-While a page refreshes cached data (on open, `gr`) it shows **one**
-indicator, on the **top line** (the `repo#N` row, or the repo row of a
-list page) -- not on a section heading, below the content, or per section.
-The top line never moves, so the indicator comes and goes without
-shifting anything, and it is in the same place on every page.
+While anything is being fetched (open, `gr`, `Load N more…`), the mode
+line shows `(Octocat-PR:loading)`: `mode-line-process`, as in
+`(Compilation:run)`.  It never reflows the page.
 
-- Append `octocat-vui-loading-suffix` to the top row while *any* of the
-  page's fetches is `:refreshing`; drive the spinner with
-  `octocat-vui-use-spinner`.
-- Several fetches (header, timeline, files) are combined with `or`.
-- A section's own first-load `(loading…)` placeholder, in place of content
-  that does not exist yet, is fine.
-- The indicator is not a button and has no `help-echo`.
+- Any component whose fetch is pending or `:refreshing` calls
+  `octocat-vui-use-mode-line-loading`; no need to lift the state up.
+- A first-load `(loading…)` placeholder in place of content is fine.
 
 ---
 
@@ -483,8 +477,8 @@ owner/repo  [Code]  [Issues (N)]  [Pull requests (N)]  [Actions]
 - The repo page itself is home: no tab is current there.
 - On list pages the counts are `(…)` until known; the repo page passes the
   open counts from its summary.
-- Pages that show the strip put it on the top line, next to the repo name,
-  and the loading indicator follows it (see below).  Item counts
+- Pages that show the strip put it on the top line, next to the repo name.
+  Item counts
   ("N open · M closed") go on their own dimmed line.
 
 ### Detail pages
@@ -493,7 +487,7 @@ Detail pages (PR, issue, PR diff, commit, checks, workflow, run, job) carry
 the same strip on their top line, right after `owner/repo#N`, so every page of a
 repository has one header and a way back to the lists and the tree.
 
-The top line holds only the identity, the strip and the loading indicator.
+The top line holds only the identity and the strip.
 The item's title goes on the row below it:
 
 ```

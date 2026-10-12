@@ -528,7 +528,7 @@ hash-table; a nil JOB-NAME is not shown."
   "Job JOB-ID of run RUN-ID of REPO; NAME shows while it loads.
 A new TICK refetches the job, keeping what is shown, and which steps are
 unfolded, until the fresh data replaces it."
-  :state ((spin 0) (bulk nil))
+  :state ((bulk nil))
   :render
   (let* ((result  (octocat-vui-use-cached
                     (list 'job repo job-id tick)
@@ -547,10 +547,9 @@ unfolded, until the fresh data replaces it."
          (loading (and (or (eq (plist-get result :status) 'pending)
                            (plist-get result :refreshing))
                        t)))
-    (octocat-vui-use-spinner loading)
+    (octocat-vui-use-mode-line-loading loading)
     (apply #'vui-vstack
-           (octocat-vui-actions-top-row
-            repo (and loading (octocat-vui-loading-suffix '(:refreshing t) spin)))
+           (octocat-vui-actions-top-row repo)
            (pcase (plist-get result :status)
              ('pending (list (vui-text name :face 'octocat-run-job-name)))
              ('error   (list (vui-text (format "  Error: %s" (plist-get result :error))

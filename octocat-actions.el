@@ -52,10 +52,9 @@ SAVE-P, when given, says whether to save a fresh result.  See
            (plist-get result :refreshing))
        t))
 
-(vui-defcomponent octocat-actions--runs-section (repo current-branch tick on-loading)
+(vui-defcomponent octocat-actions--runs-section (repo current-branch tick)
   "Workflow Runs section for REPO.
-TICK is the page's refresh tick.  ON-LOADING is called with whether the
-runs are loading, for the page's loading indicator."
+TICK is the page's refresh tick."
   :state ((limit octocat-section-limit))
   :render
   (let* ((result  (octocat-actions--use-cached
@@ -64,9 +63,7 @@ runs are loading, for the page's loading indicator."
                    (lambda (callback) (octocat-repo--list-recent-runs repo limit callback))
                    (lambda () (= limit octocat-section-limit))))
          (loading (octocat-actions--loading-p result)))
-    (vui-use-effect (loading)
-      (funcall on-loading loading)
-      nil)
+    (octocat-vui-use-mode-line-loading loading)
     (vui-collapsible
      :title "Workflow Runs"
      :key 'workflow-runs :initially-expanded t :indent 0
@@ -95,18 +92,16 @@ runs are loading, for the page's loading indicator."
               (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
               (plist-get result :refreshing) 0)))))))))
 
-(vui-defcomponent octocat-actions--workflows-section (repo tick on-loading)
+(vui-defcomponent octocat-actions--workflows-section (repo tick)
   "Workflows section for REPO (no pagination: run history lives in
 `octocat-actions--runs-section' instead).
-TICK and ON-LOADING are as for `octocat-actions--runs-section'."
+TICK is as for `octocat-actions--runs-section'."
   :render
   (let* ((result  (octocat-actions--use-cached
                    repo "workflows" (list 'workflows repo tick)
                    (lambda (callback) (octocat-repo--list-workflows repo callback))))
          (loading (octocat-actions--loading-p result)))
-    (vui-use-effect (loading)
-      (funcall on-loading loading)
-      nil)
+    (octocat-vui-use-mode-line-loading loading)
     (vui-collapsible
      :title "Workflows" :key 'workflows :initially-expanded t :indent 0
      (pcase (plist-get result :status)
@@ -124,20 +119,13 @@ TICK and ON-LOADING are as for `octocat-actions--runs-section'."
   "The Actions page of REPO: its workflows and recent runs.
 A new TICK refetches both, keeping what is shown until the fresh data
 replaces it."
-  :state ((wf-loading nil) (runs-loading nil))
   :render
   (vui-vstack
-   (vui-component 'octocat-vui-list-header
-                  :repo repo :tab 'actions :loading (or wf-loading runs-loading))
-   (vui-component 'octocat-actions--workflows-section
-                  :repo repo :tick tick
-                  :on-loading (vui-async-callback (v)
-                                (vui-set-state :wf-loading v)))
+   (vui-component 'octocat-vui-list-header :repo repo :tab 'actions)
+   (vui-component 'octocat-actions--workflows-section :repo repo :tick tick)
    (vui-newline)
    (vui-component 'octocat-actions--runs-section
-                  :repo repo :current-branch current-branch :tick tick
-                  :on-loading (vui-async-callback (v)
-                                (vui-set-state :runs-loading v)))))
+                  :repo repo :current-branch current-branch :tick tick)))
 
 (defun octocat-actions-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current Actions page buffer.
