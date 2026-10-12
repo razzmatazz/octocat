@@ -29,6 +29,7 @@
 (require 'cl-lib)
 (require 'magit-section)
 (require 'json)
+(require 'eldoc)
 (require 'octocat-markdown)
 (require 'consult)
 
@@ -772,20 +773,35 @@ Does not call into any external package."
               (format "%d %s ago" y (if (= y 1) "year" "years"))))))
       (error ""))))
 
-(defun octocat--format-ts-full (ts)
-  "Format TS as \"YYYY-MM-DD HH:MM (relative)\" for detail-view info sections.
-Returns an empty string for nil, :null, or an empty string.
-Example output: \"2026-06-08 14:23 (3 days ago)\".
+(defun octocat--format-ts-relative (ts)
+  "Format TS as a relative age carrying the exact time.
+The text is `octocat--relative-ts' (\"3 days ago\"); the local date and
+time, e.g. \"Mon 2026-06-08 14:23:05 EEST\", is its `help-echo' (shown
+on mouse hover) and its `octocat-ts' property (shown by ElDoc when point
+rests on it, see `octocat--ts-eldoc-setup').  Returns an empty string
+for nil, :null, or an empty string, and the absolute
+`octocat--format-ts' when TS cannot be parsed into an age.
 
-Use this in info sections where horizontal space is ample.
-Use `octocat--format-ts' for compact list rows."
-  (let ((abs (octocat--format-ts ts))
-        (rel (octocat--relative-ts ts)))
-    (if (string-empty-p abs)
-        ""
-      (if (string-empty-p rel)
-          abs
-        (format "%s (%s)" abs rel)))))
+Use this wherever a timestamp is shown to the user."
+  (let ((rel (octocat--relative-ts ts)))
+    (if (string-empty-p rel)
+        (octocat--format-ts ts)
+      (let ((exact (format-time-string "%a %Y-%m-%d %H:%M:%S %Z"
+                                       (date-to-time ts))))
+        (propertize rel 'help-echo exact 'octocat-ts exact)))))
+
+(defun octocat--ts-eldoc (&rest _)
+  "Return the exact time of the timestamp at point, or nil.
+An `eldoc-documentation-functions' member."
+  (get-text-property (point) 'octocat-ts))
+
+(defun octocat--ts-eldoc-setup ()
+  "Show the exact time of the timestamp at point in the echo area.
+Call from a major-mode body.  ElDoc shows it after `eldoc-idle-delay'
+when `global-eldoc-mode' is on (the default)."
+  (add-hook 'eldoc-documentation-functions #'octocat--ts-eldoc nil t)
+  ;; Section and vui motions, so ElDoc reacts to them like to `next-line'.
+  (eldoc-add-command-completions "magit-section-" "vui-forward" "vui-backward"))
 
 ;;;; Section identity
 

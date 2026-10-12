@@ -11,7 +11,7 @@ See "Functional core" in [CONTRIBUTING.md](CONTRIBUTING.md): keep functions as f
 - **Never commit or modify git state.** The developer handles all commits.
 - **Always run `make ci`** (compile + lint + test) after making changes. Fix all errors and warnings before finishing.
 - **Only call functions from declared dependencies.** The declared deps are in the `Package-Requires` header of `octocat.el`. Do not call into magit internals, transient internals, or any other package not listed there — even when taking inspiration from them. Re-implement the idea in plain Elisp instead.
-- **Always use the provided file-editing tools for source edits.** Never use any other mechanism — shell commands (`sed`, `awk`, `tee`, etc.), `emacs__eval-elisp`, or anything else — to modify source files. Those bypass match-verification, make changes invisible to the diff, and risk corrupting file structure.
+- **Never modify source files through Emacs** (`emacs__eval-elisp`, buffer edits, `save-buffer`, etc.); it risks a live buffer and the file on disk drifting apart. Use the file-editing tools or any shell tool (`sed`, Python, etc.).
 
 ## Sub-agent parallelism
 

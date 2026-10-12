@@ -138,7 +138,7 @@ many inline comments were shown there."
                  (login  (or (and user (octocat--nonempty (gethash "login" user))) ""))
                  (author (if (string-empty-p login) "(unknown)" (concat "@" login)))
                  (body   (or (gethash "body" comment) ""))
-                 (date   (octocat--format-ts-full
+                 (date   (octocat--format-ts-relative
                           (or (octocat--nonempty (gethash "created_at" comment)) ""))))
             (magit-insert-section (commit-comment comment)
               (magit-insert-heading
@@ -194,7 +194,7 @@ called from within a diff-rendering context."
          (login  (or (and user (octocat--nonempty (gethash "login" user))) ""))
          (author (if (string-empty-p login) "(unknown)" (concat "@" login)))
          (body   (or (gethash "body" comment) ""))
-         (date   (octocat--format-ts-full
+         (date   (octocat--format-ts-relative
                   (or (octocat--nonempty (gethash "created_at" comment)) ""))))
     (magit-insert-section (commit-comment comment)
       (magit-insert-heading
@@ -320,7 +320,7 @@ is shown instead."
          (author        (octocat--commit-author-full commit))
          (github-handle (octocat--commit-author-login commit))
          (date-raw      (or (and author-obj (gethash "date" author-obj)) ""))
-         (date      (octocat--format-ts-full date-raw))
+         (date      (octocat--format-ts-relative date-raw))
          (files     (let ((v (gethash "files" commit)))
                       (if (or (null v) (eq v :null)) [] v)))
          (inhibit-read-only t))
@@ -535,7 +535,8 @@ is shown instead."
   (setq-local truncate-lines nil)
   (setq-local revert-buffer-function #'octocat-commit-refresh)
   (setq-local octocat--refresh-fn #'octocat-commit-refresh)
-  (font-lock-mode -1))
+  (font-lock-mode -1)
+  (octocat--ts-eldoc-setup))
 
 
 ;;;; Refresh

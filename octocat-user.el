@@ -201,7 +201,7 @@ AVATAR is a list of equally wide strings; the shorter list is padded."
          (desc  (octocat--nonempty (gethash "description" repo)))
          (lang  (octocat--nonempty (gethash "language" repo)))
          (stars (gethash "stargazers_count" repo))
-         (pushed (octocat--relative-ts (or (gethash "pushed_at" repo) "")))
+         (pushed (octocat--format-ts-relative (or (gethash "pushed_at" repo) "")))
          (flags (concat (and (eq (gethash "fork" repo) t) " fork")
                         (and (eq (gethash "archived" repo) t) " archived"))))
     (octocat-vui-row
@@ -373,7 +373,8 @@ time the window's width changes."
   :group 'octocat
   (setq-local buffer-read-only t)
   (setq-local truncate-lines t)
-  (setq-local revert-buffer-function #'octocat-user-refresh))
+  (setq-local revert-buffer-function #'octocat-user-refresh)
+  (octocat--ts-eldoc-setup))
 
 (defun octocat-user-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current octocat-user buffer."

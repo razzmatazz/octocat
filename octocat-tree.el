@@ -188,7 +188,8 @@ The buffer is rendered by vui.el; see `octocat-file-log--page'.
   :group 'octocat
   (setq-local buffer-read-only t)
   (setq-local truncate-lines t)
-  (setq-local revert-buffer-function #'octocat-file-log-refresh))
+  (setq-local revert-buffer-function #'octocat-file-log-refresh)
+  (octocat--ts-eldoc-setup))
 
 
 ;;;; Branch glyph helper
@@ -846,13 +847,13 @@ they keep working under Evil."
                            (let ((a (gethash "author" c)))
                              (and a (gethash "date" a))))
                       ""))
-         (date    (octocat--format-ts date-s))
+         (date    (octocat--format-ts-relative date-s))
          (author  (octocat--commit-author commit))
          (line    (concat
                    "  "
                    (propertize short 'face 'octocat-dimmed)
                    "  "
-                   (propertize (format "%-16s" date) 'face 'octocat-dimmed)
+                   (propertize (format "%-14s" date) 'face 'octocat-dimmed)
                    "  "
                    (propertize (format "%-16s" (truncate-string-to-width author 16 nil ?\s "…"))
                                'face 'octocat-pr-author)
@@ -860,10 +861,10 @@ they keep working under Evil."
                    (octocat--format-title subject))))
     (add-text-properties 0 (length line)
                          (list 'octocat-file-log--sha sha
-                               'mouse-face            'highlight
-                               'help-echo             "RET: open commit details  o: browse on GitHub")
+                               'mouse-face            'highlight)
                          line)
-    line))
+    (octocat-vui--default-help-echo
+     line "RET: open commit details  o: browse on GitHub")))
 
 (vui-defcomponent octocat-file-log--page (repo path commits text face)
   "The file log page: a REPO and PATH header, then COMMITS or TEXT.

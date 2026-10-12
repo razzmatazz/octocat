@@ -401,7 +401,8 @@ Falls back to the user's GitHub page when point is not on a row."
   :group 'octocat
   (setq-local buffer-read-only t)
   (setq-local truncate-lines t)
-  (setq-local revert-buffer-function #'octocat-refresh))
+  (setq-local revert-buffer-function #'octocat-refresh)
+  (octocat--ts-eldoc-setup))
 
 
 ;;;; Dashboard cache
@@ -648,7 +649,7 @@ Dispatches on the event type:
   (let* ((full-name (or (gethash "full_name" r) ""))
          (desc      (octocat--nonempty (gethash "description" r)))
          (lang      (or (octocat--nonempty (gethash "language" r)) ""))
-         (date      (octocat--relative-ts (or (gethash "pushed_at" r) ""))))
+         (date      (octocat--format-ts-relative (or (gethash "pushed_at" r) ""))))
     (octocat-vui-row
      (propertize
       (concat (propertize (format "  %-35s" full-name) 'face 'octocat-repo)
@@ -667,7 +668,7 @@ Dispatches on the event type:
          (repo   (let ((r (gethash "repo" ev)))
                    (if (hash-table-p r) (or (gethash "name" r) "") "")))
          (detail (octocat--dashboard-event-detail ev))
-         (date   (octocat--relative-ts (or (gethash "created_at" ev) ""))))
+         (date   (octocat--format-ts-relative (or (gethash "created_at" ev) ""))))
     (octocat-vui-row
      (propertize
       (concat "  "

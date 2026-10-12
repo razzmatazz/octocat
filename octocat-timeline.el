@@ -353,7 +353,7 @@ bodies verbatim.  WIDTH is the columns markdown bodies fit, as for
 `octocat-timeline-target' property."
   (let* ((line  (memq (plist-get item :kind) '(event commit)))
          (actor (propertize (plist-get item :actor) 'face 'octocat-pr-author))
-         (date  (propertize (octocat--format-ts-full (plist-get item :time))
+         (date  (propertize (octocat--format-ts-relative (plist-get item :time))
                             'face 'octocat-dimmed))
          (bullet (propertize (if line "○" "●")
                              'face (octocat-timeline--bullet-face (plist-get item :state))))

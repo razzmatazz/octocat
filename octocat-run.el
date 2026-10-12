@@ -246,7 +246,7 @@ ARTIFACTS is an optional vector of artifact hash-tables from the Actions API."
             (insert (format "  Status     %s\n"
                             (propertize display-status 'face status-face)))))
         (unless (string-empty-p created)
-          (insert (format "  Created    %s\n" (octocat--format-ts-full created))))
+          (insert (format "  Created    %s\n" (octocat--format-ts-relative created))))
         (when conclusion
           (let ((duration (octocat--run-duration
                            (and (not (string-empty-p created)) created)
@@ -382,7 +382,8 @@ calls `octocat-job-download-artifact'."
   (setq-local buffer-read-only t)
   (setq-local truncate-lines nil)
   (setq-local revert-buffer-function #'octocat-run-refresh)
-  (font-lock-mode -1))
+  (font-lock-mode -1)
+  (octocat--ts-eldoc-setup))
 
 
 ;;;; Refresh

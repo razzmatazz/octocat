@@ -68,13 +68,29 @@ The keymap binds RET to a wrapper command, not ON-VISIT directly:
 `command-execute' (what a real keypress dispatches through) requires
 `commandp', which a plain lambda without `(interactive)' does not
 satisfy -- binding ON-VISIT itself would look right but signal
-`wrong-type-argument commandp' the moment RET is actually pressed."
+`wrong-type-argument commandp' the moment RET is actually pressed.
+
+HELP-ECHO goes only on the parts of LINE without a `help-echo' of their
+own, so a segment such as a relative date keeps its own hover text
+\(the exact time, see `octocat--format-ts-relative')."
   (let ((map (let ((m (make-sparse-keymap)))
                (define-key m (kbd "RET") (lambda () (interactive) (funcall on-visit)))
                m)))
     (vui-region :keymap map
-      (vui-text line 'mouse-face 'highlight
-                'help-echo (or help-echo "RET: view details")))))
+      (vui-text (octocat-vui--default-help-echo
+                 line (or help-echo "RET: view details"))
+                'mouse-face 'highlight))))
+
+(defun octocat-vui--default-help-echo (string help-echo)
+  "Return a copy of STRING with HELP-ECHO on the parts lacking a `help-echo'."
+  (let ((s   (copy-sequence string))
+        (pos 0))
+    (while (< pos (length s))
+      (let ((next (next-single-property-change pos 'help-echo s (length s))))
+        (unless (get-text-property pos 'help-echo s)
+          (put-text-property pos next 'help-echo help-echo s))
+        (setq pos next)))
+    s))
 
 (defun octocat-vui-use-async-sticky (key loader)
   "Like `vui-use-async' for KEY and LOADER, but keep showing old data.
@@ -350,7 +366,8 @@ spinner frame appended to the marker."
 \\{octocat-vui-list-mode-map}"
   :group 'octocat
   (setq-local buffer-read-only t)
-  (setq-local truncate-lines t))
+  (setq-local truncate-lines t)
+  (octocat--ts-eldoc-setup))
 
 (defun octocat-vui-repo-tabs (repo current &optional issues prs highlight)
   "Return a list of vnodes: the tab strip of REPO's pages, as on GitHub.

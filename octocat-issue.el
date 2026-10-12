@@ -353,7 +353,8 @@ LOADING is the page's loading marker, shown on the top row."
   (setq-local buffer-read-only t)
   (setq-local truncate-lines nil)
   (setq-local revert-buffer-function #'octocat-issue-refresh)
-  (setq-local octocat--refresh-fn #'octocat-issue-refresh))
+  (setq-local octocat--refresh-fn #'octocat-issue-refresh)
+  (octocat--ts-eldoc-setup))
 
 
 ;;;; Refresh

@@ -430,7 +430,7 @@ highlighted with `octocat-branch-current'."
     (list :title  (or (gethash "title" item) "")
           :ref    (propertize (format "%s#%d" repo (gethash "number" item))
                               'face 'octocat-dimmed)
-          :date   (propertize (octocat--relative-ts
+          :date   (propertize (octocat--format-ts-relative
                                (or (gethash "createdAt" item) ""))
                               'face 'octocat-dimmed)
           :prs    (and (vectorp closers) (> (length closers) 0)
@@ -652,7 +652,7 @@ WF-W is the column width to truncate/pad the workflow name to."
          (b-face     (if activep 'octocat-branch-current 'octocat-branch))
          (wf-name    (or (gethash "workflowName" run) ""))
          (created    (or (gethash "createdAt"    run) ""))
-         (date       (octocat--relative-ts created))
+         (date       (octocat--format-ts-relative created))
          (icon       (octocat--workflow-run-icon status conclusion))
          (line
           (concat
@@ -702,7 +702,7 @@ commit is highlighted.  AUTHOR-W is the width of the author column, see
          (subject   (car (split-string message "\n")))
          (ca        (and c (gethash "author" c)))
          (author    (octocat--commit-author commit))
-         (date      (octocat--relative-ts
+         (date      (octocat--format-ts-relative
                      (or (and ca (gethash "date" ca)) "")))
          (line
           (concat
@@ -901,7 +901,8 @@ octocat-repo.el's Commentary)."
   :group 'octocat
   (setq-local buffer-read-only t)
   (setq-local truncate-lines t)
-  (setq-local revert-buffer-function #'octocat-repo-refresh))
+  (setq-local revert-buffer-function #'octocat-repo-refresh)
+  (octocat--ts-eldoc-setup))
 
 
 ;;;; Async refresh

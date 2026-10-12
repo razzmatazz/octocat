@@ -490,9 +490,9 @@ or nil/[] when unavailable."
         (when duration
           (insert (format "  Duration   %s\n" duration)))
         (when started
-          (insert (format "  Started    %s\n" (octocat--format-ts-full started))))
+          (insert (format "  Started    %s\n" (octocat--format-ts-relative started))))
         (when completed
-          (insert (format "  Completed  %s\n" (octocat--format-ts-full completed))))
+          (insert (format "  Completed  %s\n" (octocat--format-ts-relative completed))))
         (when runner
           (insert (format "  Runner     %s\n"
                           (propertize runner 'face 'octocat-dimmed))))
@@ -613,7 +613,8 @@ Prompts for a destination directory and runs `gh run download' asynchronously."
   (setq-local buffer-read-only t)
   (setq-local truncate-lines nil)
   (setq-local revert-buffer-function #'octocat-job-refresh)
-  (font-lock-mode -1))
+  (font-lock-mode -1)
+  (octocat--ts-eldoc-setup))
 
 
 ;;;; Refresh

@@ -205,9 +205,9 @@ hash-tables."
         (insert (format "  Path     %s\n"
                         (propertize path 'face 'octocat-branch)))
         (unless (string-empty-p created)
-          (insert (format "  Created  %s\n" (octocat--format-ts-full created))))
+          (insert (format "  Created  %s\n" (octocat--format-ts-relative created))))
         (unless (string-empty-p updated)
-          (insert (format "  Updated  %s\n" (octocat--format-ts-full updated)))))
+          (insert (format "  Updated  %s\n" (octocat--format-ts-relative updated)))))
       ;; ── Runs ────────────────────────────────────────────────────────────
       (insert "\n")
       (magit-insert-section (workflow-runs)
@@ -225,7 +225,7 @@ hash-tables."
                                    (and (octocat--nonempty c) (downcase c))))
                      (branch     (or (gethash "headBranch" run) ""))
                      (created    (or (gethash "createdAt"  run) ""))
-                     (date       (octocat--relative-ts created))
+                     (date       (octocat--format-ts-relative created))
                      (icon       (octocat--workflow-run-icon status conclusion)))
                 (magit-insert-section (workflow-run run)
                   (magit-insert-heading
@@ -321,7 +321,8 @@ Increment the per-session fetch limit and re-run
   (setq-local buffer-read-only t)
   (setq-local truncate-lines nil)
   (setq-local revert-buffer-function #'octocat-workflow-refresh)
-  (font-lock-mode -1))
+  (font-lock-mode -1)
+  (octocat--ts-eldoc-setup))
 
 
 ;;;; Refresh

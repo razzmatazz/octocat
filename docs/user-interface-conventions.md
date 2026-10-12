@@ -259,51 +259,25 @@ inline `propertize` + `truncate-string-to-width` at every call site.
 
 ## Formatting timestamps
 
-Three helpers in `octocat-core.el` cover every timestamp display context.
-All accept an ISO-8601 UTC string (e.g. `"2026-06-08T05:47:21Z"`) and
-return an empty string for `nil`, `:null`, or `""`.
+Show the relative age (`3 days ago`); put the exact time in `help-echo`
+(`Mon 2026-06-08 14:23:05 EEST`) for the mouse and ElDoc (echo area,
+after `eldoc-idle-delay`) for point.  Never print both.  Every octocat
+major mode calls `(octocat--ts-eldoc-setup)` in its body.
 
-### `octocat--format-ts (ts)`
+Helpers in `octocat-core.el` take an ISO-8601 UTC string; nil, `:null`
+or `""` give `""`.
 
-Returns `"YYYY-MM-DD HH:MM"` in local time.  Use this in **compact list
-rows** where horizontal space is limited and the relative age is visible at
-a glance from the date alone.
-
-```
-2026-06-08 14:23
-```
-
-### `octocat--format-ts-full (ts)`
-
-Returns `"YYYY-MM-DD HH:MM (relative)"` — the absolute timestamp followed
-by a human-readable relative age in parentheses.  Use this in **detail-view
-info sections** (PR, issue, commit, workflow, run, job) where there is ample
-horizontal space and the relative age adds meaningful context.
-
-```
-2026-06-08 14:23 (3 days ago)
-```
-
-### `octocat--relative-ts (ts)`
-
-Returns only the relative string (`"just now"`, `"5 minutes ago"`,
-`"3 days ago"`, `"2 years ago"`, etc.).  This is the building block used
-internally by `octocat--format-ts-full`.  Call it directly only when you
-need the relative portion in isolation.
-
-### Decision table
-
-| Context | Helper | Example output |
+| Context | Helper | Output |
 |---|---|---|
-| Compact list row (dashboard, inline sub-lists) | `octocat--relative-ts` | `3 days ago` |
-| Detail-view info section (PR, issue, commit, workflow, run, job) | `octocat--format-ts-full` | `2026-06-08 14:23 (3 days ago)` |
-| Absolute timestamp only (not currently used) | `octocat--format-ts` | `2026-06-08 14:23` |
+| Any displayed timestamp | `octocat--format-ts-relative` | `3 days ago`, exact time on hover |
+| Column of times to compare (PR checks list) | `octocat--format-ts` | `2026-06-08 14:23` |
+| Not shown in a buffer | `octocat--relative-ts` | `3 days ago`, no properties |
 
-### Implementation note
-
-`octocat--relative-ts` is implemented entirely in Emacs Lisp using
-`float-time` and `current-time`.  It does not call into magit, `ts.el`,
-or any other external package — see the dependency rule in `AGENTS.md`.
+- `propertize` and `format` padding keep the `help-echo`.
+- `octocat-vui-row` adds its row hint only where no `help-echo` is set,
+  so the date keeps its own.  Do the same for hand-built rows.
+- Relative ages go stale; `gr` refreshes.
+- Plain Elisp only, no `ts.el` or magit (see `AGENTS.md`).
 
 ---
 

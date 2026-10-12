@@ -111,7 +111,7 @@ Uses the GitHub REST API via `gh api'."
                      ""))
          (author (if (string-empty-p login) "(unknown)" (concat "@" login)))
          (body   (string-trim (or (gethash "body" comment) "")))
-         (date   (octocat--format-ts-full
+         (date   (octocat--format-ts-relative
                   (or (octocat--nonempty (gethash "created_at" comment)) "")))
          (bar    (propertize "  │ " 'face 'octocat-dimmed)))
     (append
@@ -340,7 +340,8 @@ Must be called during render, like any hook."
   :group 'octocat
   (setq-local buffer-read-only t)
   (setq-local truncate-lines nil)
-  (setq-local revert-buffer-function #'octocat-pr-diff-refresh))
+  (setq-local revert-buffer-function #'octocat-pr-diff-refresh)
+  (octocat--ts-eldoc-setup))
 
 
 ;;;; Refresh
