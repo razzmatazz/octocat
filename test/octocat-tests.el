@@ -120,6 +120,69 @@ no gh call is made."
         (should (< (string-match "src" text)
                    (string-match "README.md" text)))))))
 
+
+;;; File log
+
+(defconst octocat-tests--file-log-commits-json
+  (concat "[{\"sha\":\"a1b2c3d4e5f6\",\"author\":{\"login\":\"ann\"},"
+          "\"commit\":{\"message\":\"Fix parser\\n\\nLonger body\","
+          "\"author\":{\"name\":\"Ann\",\"date\":\"2026-06-01T10:00:00Z\"}}},"
+          "{\"sha\":\"f6e5d4c3b2a1\",\"author\":null,"
+          "\"commit\":{\"message\":\"Add tests\","
+          "\"author\":{\"name\":\"Bob\",\"date\":\"2026-05-28T10:00:00Z\"}}}]")
+  "Two commits as the REST commits endpoint returns them.")
+
+(defun octocat-tests--mount-file-log (&rest props)
+  "Mount the file log page in the current buffer with PROPS."
+  (octocat-file-log-mode)
+  (setq octocat-file-log--repo "owner/repo"
+        octocat-file-log--path "src/foo.el")
+  (apply #'octocat-file-log--mount props))
+
+(ert-deftest octocat-file-log-test-commit-line ()
+  "A commit line shows short SHA, author and subject, and carries the SHA."
+  (let* ((commit (aref (json-parse-string octocat-tests--file-log-commits-json
+                                          :null-object nil)
+                       0))
+         (line   (octocat-file-log--commit-line commit)))
+    (should (string-match-p "a1b2c3d " line))
+    (should (string-match-p "@ann" line))
+    (should (string-match-p "Fix parser" line))
+    (should-not (string-match-p "Longer body" line))
+    (should-not (string-search "\n" line))
+    (should (equal (get-text-property 0 'octocat-file-log--sha line)
+                   "a1b2c3d4e5f6"))
+    (should (equal (get-text-property (1- (length line)) 'octocat-file-log--sha line)
+                   "a1b2c3d4e5f6"))))
+
+(ert-deftest octocat-file-log-test-render-commits ()
+  "The file log lists one line per commit under a header with the count."
+  (with-temp-buffer
+    (octocat-tests--mount-file-log
+     :commits (append (json-parse-string octocat-tests--file-log-commits-json
+                                         :null-object nil)
+                      nil))
+    (let ((text (buffer-string)))
+      (should (string-match-p "owner/repo  src/foo.el  (2 commits)" text))
+      (should (< (string-search "Fix parser" text)
+                 (string-search "Add tests" text))))
+    (goto-char (point-min))
+    (search-forward "Add tests")
+    (should (equal (octocat-file-log--sha-at-point) "f6e5d4c3b2a1"))
+    (goto-char (point-min))
+    (should-not (octocat-file-log--sha-at-point))))
+
+(ert-deftest octocat-file-log-test-render-loading-and-empty ()
+  "The file log shows its text in place of the list, or a no-commits line."
+  (with-temp-buffer
+    (octocat-tests--mount-file-log :text "Loading…" :face 'octocat-dimmed)
+    (should (string-match-p "Loading…" (buffer-string)))
+    (should-not (string-match-p "commits)" (buffer-string))))
+  (with-temp-buffer
+    (octocat-tests--mount-file-log :commits nil)
+    (should (string-match-p "(0 commits)" (buffer-string)))
+    (should (string-match-p "(no commits found)" (buffer-string)))))
+
 (ert-deftest octocat-test-format-label-colour ()
   (let* ((label (make-hash-table :test 'equal)))
     (puthash "name" "bug" label)

@@ -64,6 +64,8 @@
 (declare-function octocat-file-browse        "octocat-tree"      ())
 (declare-function octocat-file-log-open      "octocat-tree"      ())
 (declare-function octocat-file-log-refresh   "octocat-tree"      (&optional _ignore-auto _noconfirm))
+(declare-function octocat-file-log-visit     "octocat-tree"      ())
+(declare-function octocat-file-log-browse    "octocat-tree"      ())
 (declare-function octocat-switch-repo        "octocat-core"      ())
 (declare-function octocat-toggle-markdown    "octocat-core"      ())
 (declare-function octocat-pr-refresh         "octocat-pr"        (&optional _ignore-auto _noconfirm))
@@ -281,18 +283,18 @@
     (kbd "gr")      #'octocat-file-refresh)
 
   ;; ── octocat-file-log-mode ─────────────────────────────────────────────
-  ;; Derives from magit-section-mode: use evil-get-auxiliary-keymap with t t.
-  (let ((aux   (evil-get-auxiliary-keymap octocat-file-log-mode-map 'normal t t))
-        (aux-m (evil-get-auxiliary-keymap octocat-file-log-mode-map 'motion t t)))
-    (define-key aux   (kbd "g")       nil)
-    (define-key aux   (kbd "RET")     #'octocat-visit)
-    (define-key aux   (kbd "C-c C-o") #'octocat-browse)
-    (define-key aux   (kbd "C-c C-r") #'octocat-switch-repo)
-    (define-key aux   (kbd "C-c C-s") #'octocat-search-repo)
-    (define-key aux   (kbd "gs")      #'octocat-search-repo)
-    (define-key aux   (kbd "q")       #'quit-window)
-    (define-key aux   (kbd "gr")      #'octocat-file-log-refresh)
-    (define-key aux-m (kbd "RET")     #'octocat-visit))
+  ;; Derives from vui-mode (not magit-section-mode): evil-define-key* is safe.
+  (evil-define-key* 'normal octocat-file-log-mode-map
+    (kbd "RET")     #'octocat-file-log-visit
+    (kbd "C-c C-o") #'octocat-file-log-browse
+    (kbd "o")       #'octocat-file-log-browse
+    (kbd "C-c C-r") #'octocat-switch-repo
+    (kbd "C-c C-s") #'octocat-search-repo
+    (kbd "gs")      #'octocat-search-repo
+    (kbd "q")       #'quit-window
+    (kbd "gr")      #'octocat-file-log-refresh)
+  (evil-define-key* 'motion octocat-file-log-mode-map
+    (kbd "RET")     #'octocat-file-log-visit)
 
   ;; Refresh all octocat keymaps so the new bindings take effect in any
   ;; already-open buffers.

@@ -9,8 +9,8 @@ buffer-rendering code.
 ## Section tree structure
 
 Only some octocat views still use magit-section: commit, checks, workflow,
-run, job and the file log.  The dashboard, repo, user, PR, issue, PR diff,
-tree and list pages are rendered with vui.el (see "UI frameworks" in
+run and job.  The dashboard, repo, user, PR, issue, PR diff, tree, file
+log and list pages are rendered with vui.el (see "UI frameworks" in
 CONTRIBUTING.md) and none of this document applies to them.
 
 `magit-section-mode` maintains a single buffer-local `magit-root-section`
@@ -286,7 +286,7 @@ unnecessary empty line at the bottom.
 Apply the blank-line pattern everywhere sibling sections appear:
 
 - All sections in every magit-section view: commit, checks, workflow, run,
-  job and file log.
+  job.
 - Both the **live render** function (`octocat--render-foo`) and the
   corresponding **loading-skeleton** function
   (`octocat--render-foo-loading`), so the spacing is consistent regardless
@@ -302,8 +302,8 @@ individual `insert` calls within a section).
 ### Interaction with `(insert "\n")` inside section bodies
 
 Some sections end their body with a trailing `(insert "\n")` for reasons
-unrelated to inter-section spacing (e.g. `octocat--render-comments` adds a
-blank after each individual comment).  Those are distinct; the inter-section
+unrelated to inter-section spacing (e.g. a blank after each individual
+item in a list).  Those are distinct; the inter-section
 blank described here lives *outside* and *between* sections, not inside them.
 
 ---

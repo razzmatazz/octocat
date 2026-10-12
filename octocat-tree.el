@@ -27,12 +27,15 @@
 ;;   octocat-file-log-mode — commit log for a single file (git log -- <path>)
 ;;
 ;; Entry points:
-;;   `octocat-tree-open'     — open the tree browser (bound to T in repo mode)
+;;   `octocat-tree-open'     — open the tree browser (C-c C-t in repo mode,
+;;                             or the Code tab of any repo page)
 ;;   `octocat-file-log-open' — open the file commit log (C-c C-l in file mode)
 ;;
 ;; octocat-file-mode derives from `special-mode'.
-;; octocat-file-log-mode derives from `magit-section-mode' and renders
-;; one magit-section per commit so RET can navigate to the commit detail view.
+;; octocat-file-log-mode derives from `vui-mode' and is rendered by
+;; `octocat-file-log--page': one line per commit, carrying the commit's
+;; SHA in the `octocat-file-log--sha' text property, which RET
+;; (`octocat-file-log-visit') and o (`octocat-file-log-browse') read.
 ;; octocat-tree-mode derives from `vui-mode' and is rendered with vui.el:
 ;; `octocat-tree--dir' (lazy, cached child fetch) and `octocat-tree--node'
 ;; (one line; directories own their expanded state) recurse from
@@ -56,10 +59,7 @@
 (defvar octocat-repo--current-branch)
 (defvar octocat-repo--default-branch)
 
-;; octocat-visit and octocat-browse are defined in octocat.el and bound in
-;; octocat-file-log-mode-map.  Declare them here so the byte-compiler does not warn.
-(declare-function octocat-visit  "octocat" ())
-(declare-function octocat-browse "octocat" ())
+(declare-function octocat-commit-open "octocat-commit" (repo sha))
 
 
 ;;;; Buffer-local variables — tree mode
@@ -169,25 +169,26 @@ The buffer is rendered by vui.el; see `octocat-tree--root'.
 
 (defvar octocat-file-log-mode-map
   (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map magit-section-mode-map)
+    (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-file-log-mode'.")
 (define-key octocat-file-log-mode-map (kbd "q")       #'quit-window)
-(define-key octocat-file-log-mode-map (kbd "RET")     #'octocat-visit)
-(define-key octocat-file-log-mode-map (kbd "C-c C-o") #'octocat-browse)
+(define-key octocat-file-log-mode-map (kbd "RET")     #'octocat-file-log-visit)
+(define-key octocat-file-log-mode-map (kbd "C-c C-o") #'octocat-file-log-browse)
+(define-key octocat-file-log-mode-map (kbd "o")       #'octocat-file-log-browse)
 (define-key octocat-file-log-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
 (define-key octocat-file-log-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 (define-key octocat-file-log-mode-map (kbd "gr")      #'octocat-file-log-refresh)
 
-(define-derived-mode octocat-file-log-mode magit-section-mode "Octocat-File-Log"
+(define-derived-mode octocat-file-log-mode vui-mode "Octocat-File-Log"
   "Major mode for browsing the commit history of a single file.
+The buffer is rendered by vui.el; see `octocat-file-log--page'.
 
 \\{octocat-file-log-mode-map}"
   :group 'octocat
   (setq-local buffer-read-only t)
   (setq-local truncate-lines t)
-  (setq-local revert-buffer-function #'octocat-file-log-refresh)
-  (font-lock-mode -1))
+  (setq-local revert-buffer-function #'octocat-file-log-refresh))
 
 
 ;;;; Branch glyph helper
@@ -829,66 +830,83 @@ list of commit hash-tables, or a cons (error . MSG) on failure."
 
 ;;;; Rendering — file log mode
 
+(defun octocat-file-log--commit-line (commit)
+  "Return the log line for COMMIT, a hash-table (no trailing newline).
+The line shows the short SHA, date, author and subject.  The full SHA
+is in the `octocat-file-log--sha' property across the whole line, which
+`octocat-file-log-visit' and `octocat-file-log-browse' read: like the
+tree lines, commands read a property rather than a per-line keymap, so
+they keep working under Evil."
+  (let* ((sha     (or (gethash "sha" commit) ""))
+         (short   (substring sha 0 (min 7 (length sha))))
+         (c       (gethash "commit" commit))
+         (msg     (or (and c (gethash "message" c)) ""))
+         (subject (car (split-string msg "\n")))
+         (date-s  (or (and c
+                           (let ((a (gethash "author" c)))
+                             (and a (gethash "date" a))))
+                      ""))
+         (date    (octocat--format-ts date-s))
+         (author  (octocat--commit-author commit))
+         (line    (concat
+                   "  "
+                   (propertize short 'face 'octocat-dimmed)
+                   "  "
+                   (propertize (format "%-16s" date) 'face 'octocat-dimmed)
+                   "  "
+                   (propertize (format "%-16s" (truncate-string-to-width author 16 nil ?\s "…"))
+                               'face 'octocat-pr-author)
+                   "  "
+                   (octocat--format-title subject))))
+    (add-text-properties 0 (length line)
+                         (list 'octocat-file-log--sha sha
+                               'mouse-face            'highlight
+                               'help-echo             "RET: open commit details  o: browse on GitHub")
+                         line)
+    line))
+
+(vui-defcomponent octocat-file-log--page (repo path commits text face)
+  "The file log page: a REPO and PATH header, then COMMITS or TEXT.
+COMMITS is a list of commit hash-tables.  When TEXT is non-nil it is
+shown in FACE in place of the list (loading and errors), and the header
+leaves out the commit count."
+  :render
+  (vui-vstack
+   (vui-text (concat
+              (propertize (or repo "") 'face 'octocat-repo)
+              "  "
+              (propertize (or path "") 'face 'octocat-branch)
+              (unless text
+                (concat "  "
+                        (propertize (format "(%d commits)" (length commits))
+                                    'face 'octocat-dimmed)))))
+   (cond
+    (text
+     (vui-text (propertize (concat "  " text) 'face face)))
+    ((null commits)
+     (vui-text (propertize "  (no commits found)" 'face 'octocat-dimmed)))
+    (t
+     (vui-list commits
+               (lambda (commit) (vui-text (octocat-file-log--commit-line commit)))
+               (lambda (commit) (gethash "sha" commit)))))))
+
+(defun octocat-file-log--mount (&rest props)
+  "Mount `octocat-file-log--page' in the current buffer.
+The repo and path come from the buffer; PROPS are the page's other
+properties (:commits, or :text and :face)."
+  (vui-mount (apply #'vui-component 'octocat-file-log--page
+                    :repo octocat-file-log--repo
+                    :path octocat-file-log--path
+                    props)
+             (buffer-name)))
+
 (defun octocat-file-log--render-loading ()
   "Render a loading skeleton in the current file-log buffer."
-  (let ((inhibit-read-only t))
-    (erase-buffer)
-    (magit-insert-section (octocat-file-log-root)
-      (magit-insert-heading
-        (concat
-         (propertize (or octocat-file-log--repo "") 'face 'octocat-repo)
-         "  "
-         (propertize (or octocat-file-log--path "") 'face 'octocat-branch)
-         "\n"))
-      (insert (propertize "  Loading…\n" 'face 'octocat-dimmed)))))
+  (octocat-file-log--mount :text "Loading…" :face 'octocat-dimmed))
 
-(defun octocat-file-log--render (commits)
-  "Render COMMITS (a list of commit hash-tables) in the current file-log buffer."
-  (let ((inhibit-read-only t)
-        (repo   octocat-file-log--repo)
-        (path   octocat-file-log--path))
-    (erase-buffer)
-    (magit-insert-section (octocat-file-log-root)
-      (magit-insert-heading
-        (concat
-         (propertize (or repo "") 'face 'octocat-repo)
-         "  "
-         (propertize (or path "") 'face 'octocat-branch)
-         "  "
-         (propertize (format "(%d commits)" (length commits))
-                     'face 'octocat-dimmed)
-         "\n"))
-      (if (null commits)
-          (insert (propertize "  (no commits found)\n" 'face 'octocat-dimmed))
-        (dolist (commit commits)
-          (let* ((sha     (or (gethash "sha" commit) ""))
-                 (short   (substring sha 0 (min 7 (length sha))))
-                 (c       (gethash "commit" commit))
-                 (msg     (or (and c (gethash "message" c)) ""))
-                 (subject (car (split-string msg "\n")))
-                 (date-s  (or (and c
-                                   (let ((a (gethash "author" c)))
-                                     (and a (gethash "date" a))))
-                              ""))
-                 (date    (octocat--format-ts date-s))
-                 (author  (octocat--commit-author commit))
-                 (hint    '(mouse-face magit-section-highlight
-                            help-echo  "RET: open commit details  C-c C-o: browse on GitHub")))
-            (magit-insert-section (octocat-file-log-commit commit)
-              (magit-insert-heading
-                (apply #'propertize
-                       (concat
-                        "  "
-                        (propertize short 'face 'octocat-dimmed)
-                        "  "
-                        (propertize (format "%-16s" date)  'face 'octocat-dimmed)
-                        "  "
-                        (propertize (format "%-16s" (truncate-string-to-width author 16 nil ?\s "…"))
-                                    'face 'octocat-pr-author)
-                        "  "
-                        (octocat--format-title subject)
-                        "\n")
-                       hint)))))))))
+(defun octocat-file-log--sha-at-point ()
+  "Return the full SHA of the commit on the current line, or nil."
+  (get-text-property (line-beginning-position) 'octocat-file-log--sha))
 
 
 ;;;; Interactive commands — file log mode
@@ -931,15 +949,37 @@ Works from an `octocat-file-mode' buffer.  Opens (or switches to) the
        (when (buffer-live-p buf)
          (with-current-buffer buf
            (setq mode-line-process nil)
-           (let ((saved (octocat--save-point)))
+           (octocat-vui-preserving-view
              (if (eq (car-safe result) 'error)
-                 (let ((inhibit-read-only t))
-                   (erase-buffer)
-                   (insert (propertize
-                            (format "Error loading commits: %s\n" (cdr result))
-                            'face 'error)))
-               (octocat-file-log--render result))
-             (octocat--restore-point saved))))))))
+                 (octocat-file-log--mount
+                  :text (format "Error loading commits: %s" (cdr result))
+                  :face 'error)
+               (octocat-file-log--mount :commits result)))))))))
+
+(defun octocat-file-log-visit ()
+  "Open the commit detail view for the commit at point."
+  (interactive)
+  (when-let* ((sha (octocat-file-log--sha-at-point)))
+    (octocat-commit-open octocat-file-log--repo sha)))
+
+(defun octocat-file-log-browse ()
+  "Open the commit at point on GitHub.
+Away from a commit line, open the file's history page instead."
+  (interactive)
+  (unless (and octocat-file-log--repo octocat-file-log--path)
+    (user-error "Octocat: Buffer is not associated with a file"))
+  (let ((sha (octocat-file-log--sha-at-point)))
+    (if sha
+        (progn
+          (message "Octocat: Opening commit %s in browser…"
+                   (substring sha 0 (min 7 (length sha))))
+          (browse-url (format "https://github.com/%s/commit/%s"
+                              octocat-file-log--repo sha)))
+      (message "Octocat: Opening file history in browser…")
+      (browse-url (format "https://github.com/%s/commits/%s/%s"
+                          octocat-file-log--repo
+                          (or octocat-file-log--branch "HEAD")
+                          octocat-file-log--path)))))
 
 
 (provide 'octocat-tree)

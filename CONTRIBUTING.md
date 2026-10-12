@@ -82,7 +82,8 @@ octocat uses two UI frameworks, split by buffer type:
   (`octocat-repo.el`, `octocat-repo-mode`), the user page
   (`octocat-user-mode`), the PR, issue and PR diff detail views
   (`octocat-pr-mode`, `octocat-issue-mode`, `octocat-pr-diff-mode`), the
-  file tree (`octocat-tree-mode`) and the PR, issue and workflow list pages
+  file tree and file log (`octocat-tree-mode`, `octocat-file-log-mode`)
+  and the PR, issue and workflow list pages
   (`octocat-pr-list-mode`, `octocat-issue-list-mode`,
   `octocat-workflow-list-mode`, defined next to the matching detail views and
   deriving from `octocat-vui-list-mode`).  The issue and PR views are
@@ -93,9 +94,8 @@ octocat uses two UI frameworks, split by buffer type:
   (`:state`) and collapse state (`vui-collapsible`).  None of these modes
   derive from `magit-section-mode`.
 - **magit-section** — the remaining views: commit (`octocat-commit-mode`),
-  checks (`octocat-checks-mode`), workflow, run and job detail
-  (`octocat-workflow-mode`, `octocat-run-mode`, `octocat-job-mode`) and the
-  file log (`octocat-file-log-mode`).  See
+  checks (`octocat-checks-mode`) and workflow, run and job detail
+  (`octocat-workflow-mode`, `octocat-run-mode`, `octocat-job-mode`).  See
   [docs/magit-section.md](docs/magit-section.md) for the section tree
   structure, hiding/collapsing gotchas, and the correct patterns for
   preserving collapse state across refreshes.

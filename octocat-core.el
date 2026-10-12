@@ -837,33 +837,6 @@ longer exists the cursor lands on the nearest related sibling or parent."
           (magit-section-goto-successor section line char))))))
 
 
-;;;; Comment rendering
-
-(defun octocat--render-comments (comments)
-  "Insert COMMENTS as individual magit sections with full markdown bodies.
-COMMENTS is a vector of comment hash-tables as returned by the gh CLI.
-Each comment gets a collapsible section whose heading shows the author
-and date, with the full body rendered via `octocat--insert-markdown'
-below it.  An empty vector renders a dimmed \"(no comments)\" placeholder."
-  (if (zerop (length comments))
-      (insert (propertize "  (no comments)\n" 'face 'octocat-dimmed))
-    (cl-loop for comment across comments do
-             (let* ((author  (octocat--author-login comment))
-                    (body    (or (gethash "body" comment) ""))
-                    (created (or (gethash "createdAt" comment) ""))
-                    (date    (octocat--format-ts-full created)))
-               (magit-insert-section (comment comment)
-                 (magit-insert-heading
-                   (concat "  "
-                           (propertize author 'face 'octocat-pr-author)
-                           "  "
-                           (propertize date 'face 'octocat-dimmed)
-                           "\n"))
-                 (if (string-empty-p (string-trim body))
-                     (insert (propertize "  (empty)\n" 'face 'octocat-dimmed))
-                   (octocat--insert-markdown body octocat--quote-prefix))
-                 (insert "\n"))))))
-
 ;;;; Markdown rendering
 
 (defconst octocat--quote-prefix (propertize "  │ " 'face 'octocat-dimmed)

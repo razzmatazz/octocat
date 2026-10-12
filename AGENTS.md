@@ -231,12 +231,12 @@ divergence:
 **Modes affected:** any mode that derives from `magit-section-mode` and uses
 `gr` (or another `g`-prefixed two-key binding) — which requires the
 `define-key aux (kbd "g") nil` cleanup.  Currently: `octocat-commit-mode`,
-`octocat-workflow-mode`, `octocat-run-mode`, `octocat-job-mode`,
-`octocat-file-log-mode`.
+`octocat-workflow-mode`, `octocat-run-mode`, `octocat-job-mode`.
 
 The vui.el-rendered modes (`octocat-mode`, `octocat-repo-mode`,
 `octocat-user-mode`, `octocat-pr-mode`, `octocat-issue-mode`,
-`octocat-pr-diff-mode`, `octocat-tree-mode` and the list pages) do **not**
+`octocat-pr-diff-mode`, `octocat-tree-mode`, `octocat-file-log-mode` and
+the list pages) do **not**
 derive from `magit-section-mode`, so they have no pre-existing
 `normal-state` slot conflict and `evil-define-key*` is safe for them.
 
@@ -275,7 +275,7 @@ owned by the child map, bypassing the inherited parent slot:
 ```
 
 This applies to **all** octocat modes that derive from `magit-section-mode`
-(commit, workflow, run, job, file-log) for both `'normal` and `'motion`
+(commit, workflow, run, job) for both `'normal` and `'motion`
 states.  The vui.el-rendered modes listed above do not derive from
 `magit-section-mode`, so they are unaffected and continue to use
 `evil-define-key*` directly.
