@@ -433,9 +433,8 @@ page.
 - Draw a pageable list with `octocat-vui-reveal-list` (ITEMS, ROW-FN,
   KEY-FN) instead of `vui-list`.  It shows everything on the first render
   -- cached paint, `gr` -- and only animates items that arrive afterwards.
-- Compute shared column widths (`octocat-repo-vui--layout`, author
-  width, ...) from **all** the items *before* the call, so columns do not
-  shift while rows appear.
+- Compute shared column widths (author width, ...) from **all** the
+  items *before* the call, so columns do not shift while rows appear.
 - Keep the load-more button below the list, with its `:key`, so point stays
   on it while the rows unfold.
 - Folded text uses the same constants through `octocat-timeline-fold`;

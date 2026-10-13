@@ -41,10 +41,7 @@
 ;; The PR page and the PR list page below reuse the row builder and fetch
 ;; plumbing from octocat-repo.el, which requires this file (so cannot be
 ;; required here).
-(defvar octocat-section-limit)
-(declare-function octocat-repo-vui--pr-row "octocat-repo" (repo pr current-branch layout))
-(declare-function octocat-repo-vui--cells "octocat-repo" (item current-branch repo))
-(declare-function octocat-repo-vui--layout "octocat-repo" (cells width))
+(declare-function octocat-repo-vui--pr-row "octocat-repo" (repo pr current-branch width))
 (defvar octocat-repo-vui--state-width)  ; defconst in octocat-repo.el
 (declare-function octocat-repo-vui--state-label"octocat-repo" (state &optional draft))
 (declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title &optional branch omit))
@@ -558,13 +555,13 @@ background."
 
 (vui-defcomponent octocat-pr--list-page (repo current-branch query)
   "Pull request list page for REPO, narrowed by the search QUERY."
-  :state ((limit octocat-section-limit) (win-width nil))
+  :state ((limit octocat-list-page-size) (win-width nil))
   :render
   (let* ((width  (octocat-vui-use-window-width))
          (id     (octocat--query-cache-id query))
          (cached (vui-use-memo (repo id) (octocat--items-cache-load repo "prs" id)))
          ;; Only the first page is cached; it shows until the fetch lands.
-         (stale  (and (= limit octocat-section-limit) (plist-get cached :items)))
+         (stale  (and (= limit octocat-list-page-size) (plist-get cached :items)))
          (sticky (octocat-vui-use-async-sticky (list 'prs repo limit query)
                    (lambda (resolve reject)
                      (octocat--list-prs
@@ -579,7 +576,7 @@ background."
                            (plist-get result :refreshing))
                        t)))
     (vui-use-effect (fresh)
-      (when (and fresh (= limit octocat-section-limit))
+      (when (and fresh (= limit octocat-list-page-size))
         (octocat--items-cache-save repo "prs" id fresh))
       nil)
     (octocat-vui-use-mode-line-loading loading)
@@ -597,26 +594,21 @@ background."
                              "(no pull requests match the filters)\n"
                            "(no pull requests)\n")
                          :face 'octocat-dimmed)
-             (let ((layout (octocat-repo-vui--layout
-                            (mapcar (lambda (pr)
-                                      (octocat-repo-vui--cells pr current-branch repo))
-                                    prs)
-                            width)))
-               (octocat-vui-reveal-list
-                prs
-                (lambda (pr)
-                  (octocat-repo-vui--pr-row repo pr current-branch layout))
-                (lambda (pr) (gethash "number" pr)))))
+             (octocat-vui-reveal-list
+              prs
+              (lambda (pr)
+                (octocat-repo-vui--pr-row repo pr current-branch width))
+              (lambda (pr) (gethash "number" pr))))
            (when (and prs
                       (or (>= (length prs) limit)
                           ;; Keep the button in place while a further page
                           ;; loads, but not for the first, cached paint.
                           (and (plist-get result :refreshing)
-                               (> limit octocat-section-limit))))
+                               (> limit octocat-list-page-size))))
              (octocat-vui-load-more-button
-              'load-more-prs octocat-section-limit
+              'load-more-prs octocat-list-page-size
               "RET: load more pull requests"
-              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
+              (lambda () (vui-set-state :limit (+ limit octocat-list-page-size)))
               (plist-get result :refreshing) 0)))))))))
 
 (defun octocat-pr-list-refresh (&optional _ignore-auto _noconfirm)

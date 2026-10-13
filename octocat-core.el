@@ -81,6 +81,11 @@ to disable caching."
   :type 'integer
   :group 'octocat)
 
+(defcustom octocat-list-page-size 25
+  "Number of items the PR and issue list pages show, and load, at a time."
+  :type 'integer
+  :group 'octocat)
+
 
 
 

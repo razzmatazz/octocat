@@ -73,10 +73,10 @@
 ;;;; User options
 
 (defcustom octocat-section-limit 15
-  "Default number of items to display per section in the repo buffer.
-Used as the initial page size for Pull Requests, Issues and Workflow
-Runs.  Each section starts with this many items and increments
-by this amount every time its \"Load more\" button is used."
+  "Default number of items to display per paged section.
+Used as the initial page size for workflow runs and user repos.  Each
+section starts with this many items and increments by this amount
+every time its \"Load more\" button is used."
   :type 'integer
   :group 'octocat)
 
@@ -352,16 +352,8 @@ issue/PR-count lookups."
 
 ;;;; Row builders
 
-(defconst octocat-repo-vui--number-width 6
-  "Display width of the right-aligned #NUMBER column in PR and issue rows.")
-
 (defconst octocat-repo-vui--state-width 6
   "Display width of the state column (\"closed\", \"merged\") in PR and issue rows.")
-
-(defconst octocat-repo-vui--detail-indent
-  (+ octocat-repo-vui--state-width 1 octocat-repo-vui--number-width 2)
-  "Column where titles start in the compact PR/issue rows.
-State column, space, number column, gap.")
 
 (defun octocat-repo-vui--state-label (state &optional draft)
   "Return the coloured, padded state text for a PR/issue STATE (any case).
@@ -378,17 +370,12 @@ DRAFT is the JSON isDraft value; t shows an open pull request as \"draft\"."
     (propertize (format (format "%%-%ds" octocat-repo-vui--state-width) text)
                 'face face)))
 
-;; PR and issue rows come in the two shapes GitHub's lists have.  When the
-;; window is wide enough, the compact one: a single line whose columns line
-;; up down the page.
+;; PR and issue rows are two lines, each cut to the window width: the
+;; title with who opened it and when, then the labels and a dimmed line
+;; about where the item lives.  The title gives way to the author and age.
 ;;
-;;   open  #5  Another dummy PR   duplicate  some-pr  CI: ●  @me  #12  ✉ 3
-;;
-;; Otherwise the regular one: the title with its labels right after it,
-;; then a dimmed line with where the item lives and who opened it.
-;;
-;;   open  Another dummy PR  duplicate  enhancement
-;;         owner/repo#5 · @me · 3 days ago · some-pr · CI: ●
+;;   open  Another dummy PR  @me · 3 days ago
+;;         duplicate enhancement  owner/repo#5 · some-pr · CI: ●
 
 (defun octocat-repo-vui--cells (item current-branch repo)
   "Return the display cells of the PR or issue ITEM of REPO as a plist.
@@ -426,89 +413,51 @@ highlighted with `octocat-branch-current'."
           :author (propertize (octocat--author-login item)
                               'face 'octocat-pr-author))))
 
-(defun octocat-repo-vui--layout (cells width)
-  "Return the column layout for the list of row CELLS in a window WIDTH wide.
-CELLS are plists as made by `octocat-repo-vui--cells'.  The result has
-:single, non-nil for the compact shape (one line per row), :width, and
-the width of each column, as :title :chips :branch :ci :author :prs
-:comments.  In the compact shape the title column takes what the other
-columns leave, and is truncated to it."
-  (cl-flet ((col (key)
-              (apply #'max 0 (mapcar (lambda (c)
-                                       (string-width (or (plist-get c key) "")))
-                                     cells)))
-            (extra (w) (if (> w 0) (+ 2 w) 0)))
-    (let* ((title    (col :title))
-           (chips    (col :chips))
-           (branch   (col :branch))
-           (ci       (col :ci))
-           (author   (col :author))
-           (prs      (col :prs))
-           (comments (col :comments))
-           (inline (+ (extra chips) (extra branch) (extra ci) (extra author)
-                      (extra prs) (extra comments)))
-           (room   (- width octocat-repo-vui--detail-indent inline 1))
-           (single (>= room (min title 60))))
-      (list :single single :width width
-            :title (min title (max room 10))
-            :chips chips :branch branch :ci ci :author author
-            :prs prs :comments comments))))
+(defun octocat-repo-vui--item-row (state cells width on-visit help)
+  "Return the row vnode for an item with STATE text.
+CELLS are as made by `octocat-repo-vui--cells'; each line is cut to
+WIDTH.  ON-VISIT and HELP are as for `octocat-vui-row'."
+  (let* ((cap   (max 10 (1- width)))
+         (dot   (propertize " · " 'face 'octocat-dimmed))
+         (join  (lambda (keys)
+                  (mapconcat #'identity
+                             (seq-remove (lambda (s) (or (null s) (string-empty-p s)))
+                                         (mapcar (lambda (key) (plist-get cells key)) keys))
+                             dot)))
+         (who   (funcall join '(:author :date)))
+         (room  (- cap (string-width state) 2 (+ 2 (string-width who))))
+         (chips (or (plist-get cells :chips) "")))
+    (octocat-vui-row
+     (concat (truncate-string-to-width
+              (concat state "  "
+                      (truncate-string-to-width (plist-get cells :title)
+                                                (max 10 room) nil nil "…")
+                      "  " who)
+              cap nil nil "…")
+             "\n"
+             (truncate-string-to-width
+              (concat (make-string (+ octocat-repo-vui--state-width 2) ?\s)
+                      (if (string-empty-p chips) "" (concat chips "  "))
+                      (funcall join '(:ref :branch :ci :prs :comments)))
+              cap nil nil "…"))
+     on-visit help)))
 
-(defun octocat-repo-vui--item-row (state number cells layout on-visit help)
-  "Return the row vnode for an item with STATE text and NUMBER text.
-CELLS and LAYOUT are as for `octocat-repo-vui--layout'.  ON-VISIT and
-HELP are as for `octocat-vui-row'."
-  (cl-flet ((pad (key)
-              (truncate-string-to-width (or (plist-get cells key) "")
-                                        (plist-get layout key) nil ?\s "…"))
-            (wide (key) (> (plist-get layout key) 0)))
-    (let ((dot (propertize " · " 'face 'octocat-dimmed)))
-      (octocat-vui-row
-       (if (plist-get layout :single)
-           ;; Compact: every column padded, so they line up.
-           (concat state " "
-                   (propertize number 'face 'octocat-pr-number)
-                   "  " (pad :title)
-                   (mapconcat (lambda (key) (if (wide key) (concat "  " (pad key)) ""))
-                              '(:chips :branch :ci :author :prs :comments) ""))
-         ;; Regular: title and labels, then a line about where it lives.
-         (let* ((chips (or (plist-get cells :chips) ""))
-                (room  (max 10 (- (plist-get layout :width) 2 (length state)
-                                  (if (string-empty-p chips) 0 (+ 2 (string-width chips))))))
-                (title (truncate-string-to-width (plist-get cells :title) room nil nil "…"))
-                (more  (seq-remove (lambda (s) (or (null s) (string-empty-p s)))
-                                   (mapcar (lambda (key) (plist-get cells key))
-                                           '(:ref :author :date :branch :ci :prs :comments)))))
-           (concat state "  " title
-                   (if (string-empty-p chips) "" (concat "  " chips))
-                   "\n"
-                   (make-string (+ octocat-repo-vui--state-width 2) ?\s)
-                   (mapconcat #'identity more dot))))
-       on-visit help))))
-
-(defun octocat-repo-vui--pr-row (repo pr current-branch layout)
-  "Return a row vnode for PR in REPO, laid out as LAYOUT.
-LAYOUT comes from `octocat-repo-vui--layout' over the cells of all the
-rows.  CURRENT-BRANCH is as for `octocat-repo-vui--cells'."
+(defun octocat-repo-vui--pr-row (repo pr current-branch width)
+  "Return a row vnode for PR in REPO, cut to WIDTH.
+CURRENT-BRANCH is as for `octocat-repo-vui--cells'."
   (octocat-repo-vui--item-row
    (octocat-repo-vui--state-label (gethash "state" pr) (gethash "isDraft" pr))
-   (format (format "%%%ds" octocat-repo-vui--number-width)
-           (format "#%d" (gethash "number" pr)))
    (octocat-repo-vui--cells pr current-branch repo)
-   layout
+   width
    (lambda () (octocat-repo-vui--open-pr repo pr))
    "RET: view pull request"))
 
-(defun octocat-repo-vui--issue-row (repo issue layout)
-  "Return a row vnode for ISSUE in REPO, laid out as LAYOUT.
-LAYOUT comes from `octocat-repo-vui--layout' over the cells of all the
-rows."
+(defun octocat-repo-vui--issue-row (repo issue width)
+  "Return a row vnode for ISSUE in REPO, cut to WIDTH."
   (octocat-repo-vui--item-row
    (octocat-repo-vui--state-label (gethash "state" issue))
-   (format (format "%%%ds" octocat-repo-vui--number-width)
-           (format "#%d" (gethash "number" issue)))
    (octocat-repo-vui--cells issue nil repo)
-   layout
+   width
    (lambda () (octocat-repo-vui--open-issue repo issue))
    "RET: view issue"))
 

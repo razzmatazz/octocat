@@ -39,10 +39,7 @@
 ;; The issue list page below reuses the row builder and fetch plumbing
 ;; from octocat-repo.el, which requires this file (so cannot be required
 ;; here).
-(defvar octocat-section-limit)
-(declare-function octocat-repo-vui--issue-row "octocat-repo" (repo issue layout))
-(declare-function octocat-repo-vui--cells "octocat-repo" (item current-branch repo))
-(declare-function octocat-repo-vui--layout "octocat-repo" (cells width))
+(declare-function octocat-repo-vui--issue-row "octocat-repo" (repo issue width))
 (declare-function octocat-repo-vui--state-label "octocat-repo" (state &optional draft))
 (declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title &optional branch omit))
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
@@ -390,13 +387,13 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
 
 (vui-defcomponent octocat-issue--list-page (repo query)
   "Issue list page for REPO, narrowed by the search QUERY."
-  :state ((limit octocat-section-limit) (win-width nil))
+  :state ((limit octocat-list-page-size) (win-width nil))
   :render
   (let* ((width  (octocat-vui-use-window-width))
          (id     (octocat--query-cache-id query))
          (cached (vui-use-memo (repo id) (octocat--items-cache-load repo "issues" id)))
          ;; Only the first page is cached; it shows until the fetch lands.
-         (stale  (and (= limit octocat-section-limit) (plist-get cached :items)))
+         (stale  (and (= limit octocat-list-page-size) (plist-get cached :items)))
          (sticky (octocat-vui-use-async-sticky (list 'issues repo limit query)
                    (lambda (resolve reject)
                      (octocat--list-issues
@@ -411,7 +408,7 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
                            (plist-get result :refreshing))
                        t)))
     (vui-use-effect (fresh)
-      (when (and fresh (= limit octocat-section-limit))
+      (when (and fresh (= limit octocat-list-page-size))
         (octocat--items-cache-save repo "issues" id fresh))
       nil)
     (octocat-vui-use-mode-line-loading loading)
@@ -429,26 +426,21 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
                              "(no issues match the filters)\n"
                            "(no issues)\n")
                          :face 'octocat-dimmed)
-             (let ((layout (octocat-repo-vui--layout
-                            (mapcar (lambda (issue)
-                                      (octocat-repo-vui--cells issue nil repo))
-                                    issues)
-                            width)))
-               (octocat-vui-reveal-list
-                issues
-                (lambda (issue)
-                  (octocat-repo-vui--issue-row repo issue layout))
-                (lambda (issue) (gethash "number" issue)))))
+             (octocat-vui-reveal-list
+              issues
+              (lambda (issue)
+                (octocat-repo-vui--issue-row repo issue width))
+              (lambda (issue) (gethash "number" issue))))
            (when (and issues
                       (or (>= (length issues) limit)
                           ;; Keep the button in place while a further page
                           ;; loads, but not for the first, cached paint.
                           (and (plist-get result :refreshing)
-                               (> limit octocat-section-limit))))
+                               (> limit octocat-list-page-size))))
              (octocat-vui-load-more-button
-              'load-more-issues octocat-section-limit
+              'load-more-issues octocat-list-page-size
               "RET: load more issues"
-              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
+              (lambda () (vui-set-state :limit (+ limit octocat-list-page-size)))
               (plist-get result :refreshing) 0)))))))))
 
 (defun octocat-issue-list-refresh (&optional _ignore-auto _noconfirm)
