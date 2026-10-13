@@ -534,8 +534,9 @@ new TICK refetches it again."
                   octocat-tree--all-files nil))))
       nil)
     (vui-vstack
-     (vui-text (octocat-tree--header-line repo branch))
-     (apply #'vui-hstack :spacing 2 (octocat-vui-repo-tabs repo 'code))
+     (apply #'vui-hstack :spacing 2
+            (vui-text (octocat-tree--header-line repo branch))
+            (octocat-vui-repo-tabs repo 'code))
      (pcase (plist-get result :status)
        ('error (vui-text (propertize (format "  Error: %s" (plist-get result :error))
                                      'face 'error)))
