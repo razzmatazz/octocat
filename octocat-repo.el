@@ -413,11 +413,14 @@ highlighted with `octocat-branch-current'."
           :author (propertize (octocat--author-login item)
                               'face 'octocat-pr-author))))
 
-(defun octocat-repo-vui--item-row (state cells width on-visit help)
-  "Return the row vnode for an item with STATE text.
-CELLS are as made by `octocat-repo-vui--cells'; each line is cut to
-WIDTH.  ON-VISIT and HELP are as for `octocat-vui-row'."
-  (let* ((cap   (max 10 (1- width)))
+(defun octocat-repo-vui--item-lines (state cells keys &optional width)
+  "Return the two lines of an item with STATE text, as a list of strings.
+The first is the state, title, author and date; the second the label
+chips and then the cells under KEYS.  CELLS are as made by
+`octocat-repo-vui--cells'.  WIDTH, when non-nil, cuts each line to fit,
+shortening the title first.  Shared by the list rows and the page
+headers so the two read alike."
+  (let* ((cap   (and width (max 10 (1- width))))
          (dot   (propertize " · " 'face 'octocat-dimmed))
          (join  (lambda (keys)
                   (mapconcat #'identity
@@ -425,22 +428,34 @@ WIDTH.  ON-VISIT and HELP are as for `octocat-vui-row'."
                                          (mapcar (lambda (key) (plist-get cells key)) keys))
                              dot)))
          (who   (funcall join '(:author :date)))
-         (room  (- cap (string-width state) 2 (+ 2 (string-width who))))
-         (chips (or (plist-get cells :chips) "")))
-    (octocat-vui-row
-     (concat (truncate-string-to-width
+         (title (plist-get cells :title))
+         (chips (or (plist-get cells :chips) ""))
+         (cut   (lambda (s) (if cap (truncate-string-to-width s cap nil nil "…") s))))
+    (list
+     (funcall cut
               (concat state "  "
-                      (truncate-string-to-width (plist-get cells :title)
-                                                (max 10 room) nil nil "…")
-                      "  " who)
-              cap nil nil "…")
-             "\n"
-             (truncate-string-to-width
+                      (if cap
+                          (truncate-string-to-width
+                           title
+                           (max 10 (- cap (string-width state) 2 (+ 2 (string-width who))))
+                           nil nil "…")
+                        title)
+                      "  " who))
+     (funcall cut
               (concat (make-string (+ octocat-repo-vui--state-width 2) ?\s)
                       (if (string-empty-p chips) "" (concat chips "  "))
-                      (funcall join '(:ref :branch :ci :prs :comments)))
-              cap nil nil "…"))
-     on-visit help)))
+                      (funcall join keys))))))
+
+(defun octocat-repo-vui--item-row (state cells width on-visit help)
+  "Return the row vnode for an item with STATE text.
+CELLS are as made by `octocat-repo-vui--cells'; each line is cut to
+WIDTH.  ON-VISIT and HELP are as for `octocat-vui-row'."
+  (octocat-vui-row
+   (mapconcat #'identity
+              (octocat-repo-vui--item-lines
+               state cells '(:ref :branch :ci :prs :comments) width)
+              "\n")
+   on-visit help))
 
 (defun octocat-repo-vui--pr-row (repo pr current-branch width)
   "Return a row vnode for PR in REPO, cut to WIDTH.
@@ -471,22 +486,16 @@ CURRENT-BRANCH is as for `octocat-repo-vui--cells'."
   "Return the header vnodes of the issue or PR ITEM of REPO.
 STATE is its coloured state text (see `octocat-repo-vui--state-label').
 The first row is the repo and number, as in every other view; RET on it
-opens the repo view.  The second is the title and labels, the `title'
-target of the page's edit command; RET on it calls ON-EDIT-TITLE.  The
-third, dimmed row reads like the list's: author, age, branch, ...; RET
-on it edits the title too.  BRANCH, when non-nil, replaces the
+opens the repo view.  Below it are the item's two list lines (see
+`octocat-repo-vui--item-lines'), uncut and less the repo reference
+above; the first is the `title' target of the page's edit command, and
+RET on either calls ON-EDIT-TITLE.  BRANCH, when non-nil, replaces the
 branch cell.  OMIT is a list of cell keys (see `octocat-repo-vui--cells')
 to leave out."
   (let* ((cells (octocat-repo-vui--cells item nil repo))
-         (chips (or (plist-get cells :chips) ""))
-         (more  (seq-remove (lambda (s) (or (null s) (string-empty-p s)))
-                            (mapcar (lambda (key)
-                                      (if (and branch (eq key :branch))
-                                          branch
-                                        (plist-get cells key)))
-                                    (seq-difference
-                                     '(:author :date :branch :ci :prs :comments)
-                                     omit)))))
+         (cells (if branch (plist-put cells :branch branch) cells))
+         (lines (octocat-repo-vui--item-lines
+                 state cells (seq-difference '(:branch :ci :prs :comments) omit))))
     (list
      (octocat-vui-row
       (concat (propertize repo 'face 'octocat-repo)
@@ -495,16 +504,10 @@ to leave out."
       (lambda () (octocat-visit-repo repo))
       "RET: open repo view")
      (octocat-vui-row
-      (propertize (concat state "  " (plist-get cells :title)
-                          (if (string-empty-p chips) "" (concat "  " chips)))
-                  'octocat-timeline-target 'title)
+      (propertize (car lines) 'octocat-timeline-target 'title)
       on-edit-title
       "RET: edit title")
-     (octocat-vui-row
-      (concat (make-string (+ octocat-repo-vui--state-width 2) ?\s)
-              (mapconcat #'identity more (propertize " · " 'face 'octocat-dimmed)))
-      on-edit-title
-      "RET: edit title"))))
+     (octocat-vui-row (cadr lines) on-edit-title "RET: edit title"))))
 
 (defun octocat-repo-vui--detail-fields (fields)
   "Return a vnode listing FIELDS under the title, or nil when none has a value.

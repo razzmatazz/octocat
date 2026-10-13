@@ -81,5 +81,16 @@
     (should (eq (octocat-repo--commits-merge longer fresh nil) longer))
     (should-not (octocat-repo--commits-merge nil fresh))))
 
+(ert-deftest octocat-repo-test-item-lines ()
+  "Item lines put the author on the title line and cut only given a width."
+  (let ((cells (list :title (make-string 60 ?t) :author "@a" :date "1d"
+                     :chips "bug" :branch "b" :ref "o/r#1")))
+    (pcase-let ((`(,top ,bottom) (octocat-repo-vui--item-lines "open" cells '(:branch))))
+      (should (string-suffix-p "  @a · 1d" top))
+      (should (string-match-p (make-string 60 ?t) top))
+      (should (string-suffix-p "bug  b" bottom)))
+    (dolist (line (octocat-repo-vui--item-lines "open" cells '(:ref :branch) 40))
+      (should (<= (string-width line) 39)))))
+
 (provide 'octocat-repo-tests)
 ;;; octocat-repo-tests.el ends here

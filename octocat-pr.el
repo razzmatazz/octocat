@@ -42,7 +42,6 @@
 ;; plumbing from octocat-repo.el, which requires this file (so cannot be
 ;; required here).
 (declare-function octocat-repo-vui--pr-row "octocat-repo" (repo pr current-branch width))
-(defvar octocat-repo-vui--state-width)  ; defconst in octocat-repo.el
 (declare-function octocat-repo-vui--state-label"octocat-repo" (state &optional draft))
 (declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title &optional branch omit))
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
@@ -259,7 +258,7 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
                          "--json" (concat "number,title,author,state,body,"
                                           "createdAt,mergedAt,closedAt,"
                                           "baseRefName,headRefName,"
-                                          "additions,deletions,changedFiles,"
+                                          "changedFiles,"
                                           "labels,reviewDecision,reviews,"
                                           "comments,statusCheckRollup,url,commits,"
                                           "assignees,milestone,latestReviews,"
@@ -349,24 +348,12 @@ of changed files shown on the \"Files changed\" tab, as GitHub does."
 (defun octocat-pr--header (repo pr &optional tab)
   "Return the vnodes above the body: repo, title, branches, labels, tabs.
 PR is the hash-table of the pull request in REPO.  TAB is the page
-showing it, `conversation' (the default) or `files'; the files page is
-the diff, so it leaves out the changes row that opens it."
+showing it, `conversation' (the default) or `files'."
   (let* ((number   (gethash "number" pr))
          (state    (or (gethash "state" pr) "OPEN"))
          (head    (or (gethash "headRefName" pr) ""))
          (base     (or (gethash "baseRefName" pr) ""))
          (local    (octocat--current-branch))
-         (indent   (make-string (+ octocat-repo-vui--state-width 2) ?\s))
-         (changes  (concat indent
-                           (propertize "Changes" 'face 'octocat-dimmed) " "
-                           (propertize (format "+%d" (or (gethash "additions" pr) 0))
-                                       'face 'diff-added)
-                           " "
-                           (propertize (format "-%d" (or (gethash "deletions" pr) 0))
-                                       'face 'diff-removed)
-                           (propertize (format " across %d file(s)"
-                                               (or (gethash "changedFiles" pr) 0))
-                                       'face 'octocat-dimmed)))
          (reviewers (octocat-pr--reviewers pr)))
     (append
      (octocat-repo-vui--detail-header
@@ -392,10 +379,6 @@ the diff, so it leaves out the changes row that opens it."
              (cons "Milestone" (octocat-repo-vui--milestone pr))
              (cons "Closes"    (octocat-repo-vui--numbers
                                 (gethash "closingIssuesReferences" pr)))))
-      (unless (eq tab 'files)
-        (octocat-vui-row changes
-                         (lambda () (octocat-pr-diff-open repo number))
-                         "RET: open diff view"))
       (vui-newline)
       (octocat-pr--tabs (or tab 'conversation) repo number
                         (gethash "changedFiles" pr))

@@ -162,7 +162,11 @@ with no bar wider than WIDTH."
                                    " " (funcall bar n) "\n"))))
     (concat (propertize repo 'face 'octocat-repo)
             (propertize (format "#%d" number) 'face 'octocat-pr-number) "\n"
-            (funcall bar octocat-repo-vui--state-width) "  " (funcall bar 48) "\n"
+            (truncate-string-to-width
+             (concat (funcall bar octocat-repo-vui--state-width) "  "
+                     (funcall bar 44) "  " (funcall bar 16))
+             width)
+            "\n"
             (make-string indent ?\s) (funcall bar 32) "\n\n"
             "  " (propertize "●" 'face 'octocat-dimmed) " " (funcall bar 36) "\n"
             (funcall body 64) (funcall body 58) (funcall body 40))))
