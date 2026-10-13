@@ -192,7 +192,7 @@ owner/repo  src/foo.el  (7 commits)
 |-----|--------|
 | `RET` | Context-dependent: open detail view, navigate to commit, or inline-edit title / body / comment at point |
 | `C-c C-o` | Open item at point in browser |
-| `C-c C-a` | Add a comment (PR and issue detail views) |
+| `C-c C-a` | Add a comment (PR and issue detail views); submit a review (PR files changed view; `C-c C-t` picks Comment / Approve / Request changes) |
 | `C-c C-e` | Edit body or comment at point (PR and issue detail views) |
 | `C-c C-v` | Toggle between rendered and raw markdown (PR, commit, and issue detail views) |
 | `C-c C-t` | Open file tree browser (repo buffer) |

@@ -129,7 +129,8 @@ Type your markdown text, then:
   "Submit the edit buffer: validate, call submit-fn, kill buffer, refresh source."
   (interactive)
   (let ((body (string-trim (buffer-string))))
-    (when (string-empty-p body)
+    (when (and (string-empty-p body)
+               (not (plist-get octocat-edit--user-data :allow-empty)))
       (user-error "Octocat: body is empty — nothing to submit"))
     (let ((submit-fn  octocat-edit--submit-fn)
           (refresh-fn octocat-edit--refresh-fn)
@@ -182,6 +183,7 @@ REFRESH-FN  — function (SOURCE-BUFFER) called after a successful submit.
 INITIAL-CONTENT — string pre-populated into the buffer; nil for blank.
 USER-DATA   — optional plist stored as `octocat-edit--user-data', available
               to SUBMIT-FN via `(octocat-edit--user-data)' on current buffer.
+              A non-nil :allow-empty lets an empty body be submitted.
 
 The buffer is shown in a bottom window.  The source buffer is the one
 that was current when this function was called.

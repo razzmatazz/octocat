@@ -39,6 +39,8 @@
 
 (require 'octocat-core)
 (require 'octocat-diff)
+(require 'octocat-edit)
+(require 'octocat-timeline)
 (require 'octocat-vui)
 (require 'vui)
 
@@ -92,6 +94,100 @@ Uses the GitHub REST API via `gh api'."
          (format "repos/%s/pulls/%d/comments" repo number))
    #'octocat--parse-json-list
    callback))
+
+
+;;;; Review submission
+
+(defconst octocat-pr-diff--review-events
+  '(("Comment"         . "--comment")
+    ("Approve"         . "--approve")
+    ("Request changes" . "--request-changes"))
+  "Review events offered on submit, with their `gh pr review' flag.")
+
+(defun octocat-pr-diff--review-args (repo number flag body)
+  "Return the `gh' arguments submitting a FLAG review of PR NUMBER of REPO.
+An empty BODY is left out, as `gh' rejects an empty --body."
+  (append (list "pr" "review" (number-to-string number) "--repo" repo flag)
+          (unless (string-empty-p body) (list "--body" body))))
+
+(defun octocat-pr-diff--review-data (event)
+  "Return the edit buffer's user data for an EVENT review.
+Only an approval may be submitted without text."
+  (let ((flag (cdr (assoc event octocat-pr-diff--review-events))))
+    (list :event event :flag flag :allow-empty (equal flag "--approve"))))
+
+(defun octocat-pr-diff--review-header (title event)
+  "Return the review dialog's header line for TITLE with EVENT chosen."
+  (concat "  " title "    "
+          (mapconcat (lambda (e)
+                       (if (equal (car e) event)
+                           (propertize (format "(•) %s" (car e)) 'face 'bold)
+                         (propertize (format "( ) %s" (car e)) 'face 'octocat-dimmed)))
+                     octocat-pr-diff--review-events "  ")
+          "    "
+          (propertize "C-c C-t" 'face 'help-key-binding) " decision   "
+          (propertize "C-c C-c" 'face 'help-key-binding) " submit   "
+          (propertize "C-c C-k" 'face 'help-key-binding) " discard"))
+
+(defun octocat-pr-diff--submit-review (body source on-success on-error)
+  "Submit BODY as a review of the PR in SOURCE buffer.
+The review flag is read from the edit buffer's :flag user data; there
+is none until the user picks a decision.
+Calls ON-SUCCESS on completion or ON-ERROR with a message on failure."
+  (let ((flag (plist-get octocat-edit--user-data :flag)))
+    (if (not flag)
+        (funcall on-error "Pick a decision with C-c C-t first")
+      (with-current-buffer source
+        (octocat--run-gh "review"
+          (octocat-pr-diff--review-args
+           octocat--pr-diff-repo octocat--pr-diff-number flag body)
+          #'string-trim
+          (lambda (result)
+            (if (eq (car-safe result) 'error)
+                (funcall on-error (cdr result))
+              (funcall on-success))))))))
+
+(defun octocat-pr-diff-review-cycle ()
+  "Switch the review dialog to the next decision."
+  (interactive)
+  (let* ((events (mapcar #'car octocat-pr-diff--review-events))
+         (next   (or (cadr (member (plist-get octocat-edit--user-data :event) events))
+                     (car events))))
+    (setq octocat-edit--user-data (octocat-pr-diff--review-data next))
+    (setq header-line-format
+          (octocat-pr-diff--review-header octocat-edit--title next))
+    (force-mode-line-update)))
+
+(defvar octocat-pr-diff-review-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-t") #'octocat-pr-diff-review-cycle)
+    map)
+  "Keymap for `octocat-pr-diff-review-mode'.")
+
+;; A minor mode so the decision key lives only in review dialogs, not in
+;; every `octocat-edit-mode' buffer.
+(define-minor-mode octocat-pr-diff-review-mode
+  "Pick the decision of a PR review in its edit buffer."
+  :keymap octocat-pr-diff-review-mode-map)
+
+(defun octocat-pr-diff-review ()
+  "Open the dialog to submit a review of this PR.
+Write the review text, pick Comment, Approve or Request changes with
+\\<octocat-pr-diff-review-mode-map>\\[octocat-pr-diff-review-cycle], then submit."
+  (interactive)
+  (unless (and octocat--pr-diff-repo octocat--pr-diff-number)
+    (user-error "Octocat: Buffer is not associated with a pull request diff"))
+  (let* ((title (format "Review PR #%d" octocat--pr-diff-number))
+         (win   (octocat--open-edit-buffer
+                 title
+                 #'octocat-pr-diff--submit-review
+                 #'octocat-pr-diff-refresh
+                 nil
+                 ;; No default decision: it must be a deliberate choice.
+                 (octocat-pr-diff--review-data nil))))
+    (with-current-buffer (window-buffer win)
+      (octocat-pr-diff-review-mode 1)
+      (setq header-line-format (octocat-pr-diff--review-header title nil)))))
 
 
 ;;;; Components
@@ -150,7 +246,11 @@ COMMENTS is the `vui-use-async' result for the review comments."
        ('error   (vui-text (format "  Error: %s" (plist-get files :error)) :face 'error))
        (_ (octocat-diff-files-section (plist-get files :data) by-path)))
      (vui-newline)
-     (octocat-pr-diff--comments-section comments))))
+     (octocat-pr-diff--comments-section comments)
+     (apply #'vui-vstack
+            (octocat-timeline-buttons
+             (list (list "Submit review" "RET: comment on, approve or request changes"
+                         #'octocat-pr-diff-review)))))))
 
 
 ;;;; Major mode
@@ -171,6 +271,7 @@ COMMENTS is the `vui-use-async' result for the review comments."
   "Keymap for `octocat-pr-diff-mode'.")
 (define-key octocat-pr-diff-mode-map (kbd "q") #'quit-window)
 (define-key octocat-pr-diff-mode-map (kbd "g") #'revert-buffer)
+(define-key octocat-pr-diff-mode-map (kbd "C-c C-a") #'octocat-pr-diff-review)
 (define-key octocat-pr-diff-mode-map (kbd "C-c C-o") #'octocat-pr-diff-browse)
 (define-key octocat-pr-diff-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
 (define-key octocat-pr-diff-mode-map (kbd "C-c C-s") #'octocat-search-repo)

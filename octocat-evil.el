@@ -72,6 +72,7 @@
 (declare-function octocat-pr-edit            "octocat-pr"        ())
 (declare-function octocat-commit-refresh     "octocat-commit"    (&optional _ignore-auto _noconfirm))
 (declare-function octocat-pr-diff-browse    "octocat-pr-diff"   ())
+(declare-function octocat-pr-diff-review    "octocat-pr-diff"   ())
 (declare-function octocat-commit-browse     "octocat-commit"    ())
 (declare-function octocat-checks-browse     "octocat-checks"    ())
 (declare-function octocat-checks-refresh    "octocat-checks"    (&optional _ignore-auto _noconfirm))
@@ -189,6 +190,7 @@
   ;; vui.el-rendered like octocat-repo-mode, so only the global commands
   ;; are bound here.
   (evil-define-key* 'normal octocat-pr-diff-mode-map
+    (kbd "C-c C-a") #'octocat-pr-diff-review
     (kbd "C-c C-o") #'octocat-pr-diff-browse
     (kbd "C-c C-r") #'octocat-switch-repo
     (kbd "C-c C-s") #'octocat-search-repo
