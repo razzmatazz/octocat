@@ -498,34 +498,25 @@ owner/repo  [Code]  [Issues (N)]  [Pull requests (N)]  [Actions]
 - Pages that show the strip put it on the top line, next to the repo name.
   Item counts
   ("N open · M closed") go on their own dimmed line.
+- `octocat-vui-repo-tabs` reads `octocat--repo-tabs`, so labels and help
+  text stay in one place.
+- The commands behind the tabs, `octocat-issues`, `octocat-prs` and
+  `octocat-actions`, take the repo as an optional argument: a buffer's
+  repo is not derivable from its mode or `default-directory`.
 
 ### Detail pages
 
-Detail pages (PR, issue, PR diff, commit, checks, workflow, run, job) carry
-the same strip on their top line, right after `owner/repo#N`, so every page of a
-repository has one header and a way back to the lists and the tree.
-
-The top line holds only the identity and the strip.
-The item's title goes on the row below it:
+Detail pages (PR, issue, PR diff, commit, checks, workflow, run, job) do
+not show the strip: it belongs to the top-level pages.  Their top line is
+only the identity, RET-able to the repo page:
 
 ```
-owner/repo#42  [Code]  [Issues]  [Pull requests]  [Actions]
+owner/repo#42
 OPEN  The PR title  labels
 
-owner/repo@abc1234  [Code]  [Issues]  [Pull requests]  [Actions]
+owner/repo@abc1234
 The commit subject
 ```
 
 A commit (and its checks page) is identified as `owner/repo@sha`, the
 short SHA in `octocat-commit-sha`, as an issue or PR is by `owner/repo#N`.
-
-- The tab the page belongs to (Pull requests for a PR and its diff, Issues
-  for an issue, Actions for workflow / run / job, Code for a commit and
-  its checks) is drawn in `octocat-section-heading`, but stays a button:
-  it opens the list, not the page itself.
-- Pages use `octocat-vui-repo-tabs` with its HIGHLIGHT argument.  It reads
-  `octocat--repo-tabs`, so labels and help text stay in one place.
-- Counts are shown only where they are known (the repo page).
-- The commands behind the tabs, `octocat-issues`, `octocat-prs` and
-  `octocat-actions`, take the repo as an optional argument: a detail
-  buffer's repo is not derivable from its mode or `default-directory`.

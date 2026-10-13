@@ -47,7 +47,7 @@
 (declare-function octocat-repo-vui--layout "octocat-repo" (cells width))
 (defvar octocat-repo-vui--state-width)  ; defconst in octocat-repo.el
 (declare-function octocat-repo-vui--state-label"octocat-repo" (state &optional draft))
-(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title &optional branch omit highlight))
+(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title &optional branch omit))
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
 (declare-function octocat-repo-vui--logins "octocat-repo" (users))
 (declare-function octocat-repo-vui--numbers "octocat-repo" (refs))
@@ -387,8 +387,7 @@ the diff, so it leaves out the changes row that opens it."
               (propertize " → " 'face 'octocat-dimmed)
               (propertize base 'face 'octocat-branch))
       ;; The checks and comments are further down the page.
-      '(:ci :comments)
-      'pulls)
+      '(:ci :comments))
      (list
       (octocat-repo-vui--detail-fields
        (list (cons "Reviewers" reviewers)

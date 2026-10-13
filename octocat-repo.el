@@ -498,7 +498,7 @@ rows."
 ;; it lives and who opened it.
 
 (defun octocat-repo-vui--detail-header (repo item state on-edit-title
-                                            &optional branch omit highlight)
+                                            &optional branch omit)
   "Return the header vnodes of the issue or PR ITEM of REPO.
 STATE is its coloured state text (see `octocat-repo-vui--state-label').
 The first row is the repo and number, as in every other view; RET on it
@@ -507,9 +507,7 @@ target of the page's edit command; RET on it calls ON-EDIT-TITLE.  The
 third, dimmed row reads like the list's: author, age, branch, ...; RET
 on it edits the title too.  BRANCH, when non-nil, replaces the
 branch cell.  OMIT is a list of cell keys (see `octocat-repo-vui--cells')
-to leave out.  HIGHLIGHT is the tab of the repo tab strip (see
-`octocat-vui-repo-tabs') the page belongs to; the strip follows the repo
-and number on that row."
+to leave out."
   (let* ((cells (octocat-repo-vui--cells item nil repo))
          (chips (or (plist-get cells :chips) ""))
          (more  (seq-remove (lambda (s) (or (null s) (string-empty-p s)))
@@ -521,14 +519,12 @@ and number on that row."
                                      '(:author :date :branch :ci :prs :comments)
                                      omit)))))
     (list
-     (apply #'vui-hstack :spacing 2
-            (octocat-vui-row
-             (concat (propertize repo 'face 'octocat-repo)
-                     (propertize (format "#%d" (gethash "number" item))
-                                 'face 'octocat-pr-number))
-             (lambda () (octocat-visit-repo repo))
-             "RET: open repo view")
-            (octocat-vui-repo-tabs repo nil nil nil highlight))
+     (octocat-vui-row
+      (concat (propertize repo 'face 'octocat-repo)
+              (propertize (format "#%d" (gethash "number" item))
+                          'face 'octocat-pr-number))
+      (lambda () (octocat-visit-repo repo))
+      "RET: open repo view")
      (octocat-vui-row
       (propertize (concat state "  " (plist-get cells :title)
                           (if (string-empty-p chips) "" (concat "  " chips)))

@@ -1024,9 +1024,10 @@ The selected repository is opened via `octocat-visit-repo', a selected
 
 ;;;; Repo tab strip
 ;;
-;; The Code / Issues / Pull requests / Actions strip every repo page shows
-;; beside the repo name, as GitHub's tabs do, drawn by
-;; `octocat-vui-repo-tabs'.
+;; The Code / Issues / Pull requests / Actions strip the repo page and the
+;; list pages (tree, issues, PRs, actions) show beside the repo name, as
+;; GitHub's tabs do, drawn by `octocat-vui-repo-tabs'.  Detail pages leave
+;; it out; their repo name leads back to the repo page.
 
 (declare-function octocat-tree-open  "octocat-tree" (&optional repo))
 (declare-function octocat-issues     "octocat"      (&optional repo))

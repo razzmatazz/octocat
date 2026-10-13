@@ -563,25 +563,20 @@ each call, for the page's fetch keys (see `octocat-vui-use-cached')."
 (defun octocat-vui-commit-top-row (repo sha)
   "Return the top row of a page about commit SHA of REPO.
 That is `owner/repo@sha', RET-able to the repo page, as `owner/repo#N'
-is on an issue, then the repo tab strip with Code highlighted."
-  (apply #'vui-hstack :spacing 2
-         (octocat-vui-row
-          (concat (propertize repo 'face 'octocat-repo)
-                  (propertize (concat "@" (substring sha 0 (min 7 (length sha))))
-                              'face 'octocat-commit-sha))
-          (lambda () (octocat-visit-repo repo))
-          "RET: open repo view")
-         (octocat-vui-repo-tabs repo nil nil nil 'code)))
+is on an issue."
+  (octocat-vui-row
+   (concat (propertize repo 'face 'octocat-repo)
+           (propertize (concat "@" (substring sha 0 (min 7 (length sha))))
+                       'face 'octocat-commit-sha))
+   (lambda () (octocat-visit-repo repo))
+   "RET: open repo view"))
 
 (defun octocat-vui-actions-top-row (repo)
   "Return the top row of a workflow, run or job page of REPO.
-That is the repo, RET-able to the repo page, and the tab strip with
-Actions highlighted."
-  (apply #'vui-hstack :spacing 2
-         (octocat-vui-row (propertize repo 'face 'octocat-repo)
-                          (lambda () (octocat-visit-repo repo))
-                          "RET: open repo view")
-         (octocat-vui-repo-tabs repo nil nil nil 'actions)))
+That is the repo, RET-able to the repo page."
+  (octocat-vui-row (propertize repo 'face 'octocat-repo)
+                   (lambda () (octocat-visit-repo repo))
+                   "RET: open repo view"))
 
 (defun octocat-vui-fields (fields)
   "Return a vnode of FIELDS on one line, or nil when none has a value.
@@ -598,14 +593,13 @@ nil LABEL shows VALUE alone.  Labels and separators are dimmed."
     (and parts
          (vui-text (mapconcat #'identity parts (propertize " · " 'face 'octocat-dimmed))))))
 
-(defun octocat-vui-repo-tabs (repo current &optional issues prs highlight)
+(defun octocat-vui-repo-tabs (repo current &optional issues prs)
   "Return a list of vnodes: the tab strip of REPO's pages, as on GitHub.
 The tabs are those of `octocat--repo-tabs'.  CURRENT is the symbol of
 the list page being shown; its tab is drawn as a heading and is not
-clickable.  HIGHLIGHT is the tab a detail page belongs to: drawn the same
-way, but still a button that opens the list.  The others open their page
-for REPO.  ISSUES and PRS, when non-nil, are open counts shown on their
-tabs (a string such as \"…\" while they load)."
+clickable.  The others open their page for REPO.  ISSUES and PRS, when
+non-nil, are open counts shown on their tabs (a string such as \"…\"
+while they load)."
   (mapcar
    (lambda (tab)
      (pcase-let* ((`(,sym ,label ,help ,fn) tab)
@@ -616,9 +610,7 @@ tabs (a string such as \"…\" while they load)."
        (if (eq sym current)
            (vui-text label :face 'octocat-section-heading)
          (vui-button label
-                     :face (if (eq sym highlight)
-                               'octocat-section-heading
-                             'octocat-dimmed)
+                     :face 'octocat-dimmed
                      :help-echo help
                      :on-click (lambda () (funcall fn repo))))))
    octocat--repo-tabs))
