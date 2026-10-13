@@ -806,13 +806,15 @@ draw it, the source is shown, labelled as such."
 
 (defun octocat-markdown--heading-row (text level)
   "Return the row of a heading of LEVEL with markdown source TEXT."
-  (octocat-markdown--standout
-   (cons (octocat-markdown--face
-          (octocat-markdown--inline text)
-          (pcase level (1 'octocat-markdown-heading-1)
-                 (2 'octocat-markdown-heading-2)
-                 (_ 'octocat-markdown-heading)))
-         0)))
+  (let ((row (octocat-markdown--standout
+              (cons (octocat-markdown--face
+                     (octocat-markdown--inline text)
+                     (pcase level (1 'octocat-markdown-heading-1)
+                            (2 'octocat-markdown-heading-2)
+                            (_ 'octocat-markdown-heading)))
+                    0))))
+    (put-text-property 0 (length (car row)) 'octocat-markdown-heading t (car row))
+    row))
 
 (defun octocat-markdown--count (regexp string)
   "Return how many times REGEXP matches in STRING."
@@ -1026,11 +1028,18 @@ DEPTH is the list nesting depth, which picks the bullet."
   (and row (> (length (car row)) 0)
        (get-text-property 0 'octocat-markdown-standout (car row))))
 
+(defun octocat-markdown--heading-p (row)
+  "Return non-nil if ROW is a heading."
+  (and (> (length (car row)) 0)
+       (get-text-property 0 'octocat-markdown-heading (car row))))
+
 (defun octocat-markdown--tidy (rows)
   "Return ROWS packed tightly, to save vertical space.
 Blank rows at either end, doubled blank rows, and blank rows next to a
 block that stands out by itself (rule, table, heading, quote) are
-dropped.  Blank rows beside a code box or between paragraphs are kept."
+dropped.  Blank rows beside a code box or between paragraphs are kept.
+A heading after other rows always gets one blank row above it, so
+sections are easy to tell apart."
   (let (out)
     (dolist (r rows)
       (unless (and (string-empty-p (car r))
@@ -1041,6 +1050,9 @@ dropped.  Blank rows beside a code box or between paragraphs are kept."
     (let (tight prev)
       (while out
         (let ((r (pop out)))
+          (when (and tight (octocat-markdown--heading-p r)
+                     (not (string-empty-p (caar tight))))
+            (push (cons "" 0) tight))
           (unless (and (string-empty-p (car r))
                        (or (octocat-markdown--standout-p prev)
                            (octocat-markdown--standout-p (car out))))

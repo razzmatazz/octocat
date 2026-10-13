@@ -185,6 +185,9 @@ the window's point; mid-render that scrambled the page."
   "Headings, rules, fences, quotes and lists lose their markup."
   (should (equal (octocat-markdown-tests--md "# Title\n\n\n\ntext")
                  "Title\ntext\n"))
+  ;; A heading always has one blank row above it, and none below.
+  (should (equal (octocat-markdown-tests--md "text\n## Sub\n\nmore\n\n---\n### Deep")
+                 (concat "text\n\nSub\nmore\n" (make-string 40 ?─) "\n\nDeep\n")))
   ;; Blank rows next to standalone blocks are dropped; prose keeps one.
   (should (equal (octocat-markdown-tests--md "*a* **b**\n\n---\n\n```\nx\n```\n\none\n\ntwo")
                  (concat "a b\n" (make-string 40 ?─) "\n x \n\none\n\ntwo\n")))
@@ -198,7 +201,7 @@ the window's point; mid-render that scrambled the page."
 (ert-deftest octocat-markdown-test-setext-headings ()
   "A line underlined by === or --- is a heading, not text and a rule."
   (let ((out (octocat-markdown-render "Big\n===\n\nSmall\n---\ntext" "")))
-    (should (equal (substring-no-properties out) "Big\nSmall\ntext\n"))
+    (should (equal (substring-no-properties out) "Big\n\nSmall\ntext\n"))
     (should (eq (octocat-markdown-tests--prop out "Big" 'face) 'octocat-markdown-heading-1))
     (should (eq (octocat-markdown-tests--prop out "Small" 'face) 'octocat-markdown-heading-2)))
   ;; A rule after a blank row is still a rule.
@@ -240,12 +243,12 @@ the window's point; mid-render that scrambled the page."
   (should (equal (octocat-markdown-tests--md "- one\n\n  two\n\n  ---\n\n  three")
                  (concat "• one\n  \n  two\n  " (make-string 40 ?─) "\n  three\n")))
   (should (equal (octocat-markdown-tests--md "> \n> a\n>\n> # h\n>\n> b\n> ")
-                 "│ a\n│ h\n│ b\n")))
+                 "│ a\n│ \n│ h\n│ b\n")))
 
 (ert-deftest octocat-markdown-test-lazy-continuation ()
   "Unindented text after a list item line continues the item; blocks end it."
   (should (equal (octocat-markdown-tests--md "- a\nb\n- c\n# h")
-                 "• a\n  b\n• c\nh\n"))
+                 "• a\n  b\n• c\n\nh\n"))
   ;; After a blank row it is a paragraph of its own.
   (should (equal (octocat-markdown-tests--md "- a\n\nb") "• a\nb\n")))
 
