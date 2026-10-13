@@ -63,5 +63,23 @@
   (should (equal (substring-no-properties (octocat-repo-vui--state-label "OPEN" t)) "draft "))
   (should (equal (substring-no-properties (octocat-repo-vui--state-label "OPEN" :false)) "open  ")))
 
+(defun octocat-repo-tests--commits (&rest shas)
+  "Return commit hash-tables for SHAS."
+  (mapcar (lambda (sha)
+            (let ((c (make-hash-table :test #'equal)))
+              (puthash "sha" sha c)
+              c))
+          shas))
+
+(ert-deftest octocat-repo-test-commits-merge ()
+  "The longest list from the same head wins; another head is dropped."
+  (let ((fresh  (octocat-repo-tests--commits "c" "b"))
+        (longer (octocat-repo-tests--commits "c" "b" "a"))
+        (stale  (octocat-repo-tests--commits "b" "a" "z")))
+    (should (eq (octocat-repo--commits-merge fresh longer) longer))
+    (should (eq (octocat-repo--commits-merge fresh stale) fresh))
+    (should (eq (octocat-repo--commits-merge longer fresh nil) longer))
+    (should-not (octocat-repo--commits-merge nil fresh))))
+
 (provide 'octocat-repo-tests)
 ;;; octocat-repo-tests.el ends here

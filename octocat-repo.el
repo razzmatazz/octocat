@@ -44,6 +44,7 @@
 ;;; Code:
 
 (require 'octocat-core)
+(require 'seq)
 (require 'octocat-pr)
 (require 'octocat-commit)
 (require 'octocat-pr-diff)
@@ -73,9 +74,14 @@
 
 (defcustom octocat-section-limit 15
   "Default number of items to display per section in the repo buffer.
-Used as the initial page size for Pull Requests, Issues, Workflow Runs,
-and Commits.  Each section starts with this many items and increments
+Used as the initial page size for Pull Requests, Issues and Workflow
+Runs.  Each section starts with this many items and increments
 by this amount every time its \"Load more\" button is used."
+  :type 'integer
+  :group 'octocat)
+
+(defcustom octocat-repo-commits-page-size 25
+  "Number of commits the repo buffer shows, and loads, at a time."
   :type 'integer
   :group 'octocat)
 
@@ -227,19 +233,33 @@ Call CALLBACK with a list of run hash-tables (each including a
    #'octocat--parse-json-list
    callback))
 
-(defun octocat-repo--list-commits (repo limit callback)
-  "Fetch the LIMIT most recent commits on the default branch of REPO.
-Calls CALLBACK with a list of commit hash-tables, or a cons \\=(error . MSG).
-Uses the GitHub REST API via `gh api'.  The default branch is determined
-automatically by the API when no SHA is specified.
-The commit limit is embedded in the URL query string so that `gh api'
-always issues a GET request."
+(defun octocat-repo--list-commits (repo sha page callback)
+  "Fetch PAGE (1-based) of the commits of REPO, starting at commit SHA.
+SHA nil means the head of the default branch.  A page holds
+`octocat-repo-commits-page-size' commits.  Calls CALLBACK with a list of
+commit hash-tables, or a cons \\=(error . MSG).
+The query is in the URL so that `gh api' issues a GET."
   (octocat--run-gh
    "commits"
    (list "api"
-         (format "repos/%s/commits?per_page=%d" repo limit))
+         (format "repos/%s/commits?per_page=%d&page=%d%s"
+                 repo octocat-repo-commits-page-size page
+                 (if sha (concat "&sha=" sha) "")))
    #'octocat--parse-json-list
    callback))
+
+(defun octocat-repo--commits-merge (base &rest others)
+  "Return the longest of BASE and OTHERS with the head commit of BASE.
+Each is a commit list from the top of a history.  A history is fixed by
+its head SHA, so lists with the same head are prefixes of one another
+and the longest knows the most; one with another head is out of date."
+  (let ((head (and base (gethash "sha" (car base)))))
+    (seq-reduce (lambda (best l)
+                  (if (and l (equal (gethash "sha" (car l)) head)
+                           (> (length l) (length best)))
+                      l
+                    best))
+                others base)))
 
 (defconst octocat-repo--summary-query
   "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){defaultBranchRef{name} parent{nameWithOwner} issues(states:OPEN){totalCount} pullRequests(states:OPEN){totalCount}}}"
@@ -682,31 +702,38 @@ commit is highlighted.  AUTHOR-W is the width of the author column, see
 The commits are those of the default branch (the API call names no other),
 so DEFAULT-BRANCH appears once in the title instead of on every row; it is
 highlighted when it is also the local CURRENT-BRANCH.  HEAD-INFO is the
-plist from `octocat--head-info', used to highlight the local HEAD commit."
-  :state ((limit octocat-section-limit))
+plist from `octocat--head-info', used to highlight the local HEAD commit.
+Every commit loaded is cached on disk under its branch head, so while the
+head stays put, reopening and \"load more\" reuse them; only commits
+beyond the cache are fetched, a page at a time, pinned to that head."
+  ;; MORE is (:items LIST :done BOOL): the commits after the last load
+  ;; more, DONE when that page came back short (end of history).
+  :state ((limit octocat-repo-commits-page-size) (more nil) (fetching nil))
   :render
-  (let* ((cached (vui-use-memo (repo)
+  (let* ((size   octocat-repo-commits-page-size)
+         (cached (vui-use-memo (repo)
                    (octocat--items-cache-load repo "commits" "default")))
-         ;; Only the first page is cached; it shows until the fetch lands.
-         (stale  (and (= limit octocat-section-limit) (plist-get cached :items)))
-         (sticky (octocat-vui-use-async-sticky (list 'commits repo limit)
+         (first  (vui-use-async (list 'commits repo)
                    (lambda (resolve reject)
                      (octocat-repo--list-commits
-                      repo limit
+                      repo nil 1
                       (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
-         (fresh  (and (eq (plist-get sticky :status) 'ready)
-                      (not (plist-get sticky :refreshing))
-                      (plist-get sticky :data)))
-         (result (octocat-vui-with-stale sticky stale))
-         (loading (and (or (eq (plist-get result :status) 'pending)
-                           (plist-get result :refreshing))
-                       t))
+         (fresh  (and (eq (plist-get first :status) 'ready)
+                      (plist-get first :data)))
+         (more-items (plist-get more :items))
+         (commits (if fresh
+                      (octocat-repo--commits-merge fresh (plist-get cached :items) more-items)
+                    (octocat-repo--commits-merge (plist-get cached :items) more-items)))
+         (result (octocat-vui-with-stale first commits))
+         (done   (or (and (plist-get more :done) (eq commits more-items))
+                     (/= 0 (% (length commits) size))))
+         (loading (and (or (plist-get result :refreshing) fetching) t))
          ;; The cached list is labelled with the branch it was fetched for.
-         (branch (if (eq result sticky) default-branch (plist-get cached :branch))))
+         (branch (if fresh default-branch (plist-get cached :branch))))
     (octocat-vui-use-mode-line-loading loading)
-    (vui-use-effect (fresh default-branch)
-      (when (and fresh default-branch (= limit octocat-section-limit))
-        (octocat--items-cache-save repo "commits" "default" fresh default-branch))
+    (vui-use-effect (fresh commits default-branch)
+      (when (and fresh default-branch)
+        (octocat--items-cache-save repo "commits" "default" commits default-branch))
       nil)
     (vui-vstack
      (vui-text (concat
@@ -721,27 +748,46 @@ plist from `octocat--head-info', used to highlight the local HEAD commit."
        ('pending nil)
        ('error   (vui-text (format "%s" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
-        (let ((commits (plist-get result :data)))
+        (let ((shown (seq-take commits limit)))
           (vui-fragment
-           (if (null commits)
+           (if (null shown)
                (vui-text "(no commits)" :face 'octocat-dimmed)
-             (let ((author-w (octocat-repo-vui--author-width commits)))
+             (let ((author-w (octocat-repo-vui--author-width shown)))
                (octocat-vui-reveal-list
-                commits
+                shown
                 (lambda (c)
                   (octocat-repo-vui--commit-row repo c head-info author-w))
                 (lambda (c) (gethash "sha" c)))))
-           (when (and commits
-                      (or (>= (length commits) limit)
-                          ;; Keep the button in place while a further page
-                          ;; loads, but not for the first, cached paint.
-                          (and (plist-get result :refreshing)
-                               (> limit octocat-section-limit))))
+           (when (and shown (or (> (length commits) limit) (not done)))
              (octocat-vui-load-more-button
-              'load-more-commits octocat-section-limit
+              'load-more-commits size
               "RET: load more commits"
-              (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
-              (plist-get result :refreshing) 0)))))))))
+              (lambda ()
+                (octocat-repo-vui--load-more-commits repo commits (+ limit size)))
+              fetching 0)))))))))
+
+(defun octocat-repo-vui--load-more-commits (repo commits limit)
+  "Show LIMIT of COMMITS of REPO, fetching the next page when short.
+Called from the load-more button of `octocat-repo-vui--commits-section'.
+The page is fetched at the head of COMMITS, so the history it pages
+through cannot shift under it."
+  (vui-set-state :limit limit)
+  (when (< (length commits) limit)
+    (let* ((size (length commits))
+           (page (1+ (/ size octocat-repo-commits-page-size)))
+           ;; Rows of the page that COMMITS already holds, when its
+           ;; length is no multiple of the page size (an older cache).
+           (skip (- size (* (1- page) octocat-repo-commits-page-size)))
+           (on-page
+            (vui-async-callback (r)
+              (vui-set-state :fetching nil)
+              (if (eq (car-safe r) 'error)
+                  (message "octocat: %s" (cdr r))
+                (vui-set-state
+                 :more (list :items (append commits (nthcdr skip r))
+                             :done (< (length r) octocat-repo-commits-page-size)))))))
+      (vui-set-state :fetching t)
+      (octocat-repo--list-commits repo (gethash "sha" (car commits)) page on-page))))
 
 ;;;; Root
 
