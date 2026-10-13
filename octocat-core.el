@@ -213,6 +213,13 @@ with a floor of 1."
   "Face for secondary / de-emphasised text in octocat buffers."
   :group 'octocat)
 
+(defface octocat-skeleton
+  '((((class color) (background dark)) :background "gray25")
+    (((class color) (background light)) :background "gray88")
+    (t :inverse-video t))
+  "Face for the grey bars standing in for content that is still loading."
+  :group 'octocat)
+
 (defface octocat-filter-input
   '((t :inherit secondary-selection :extend nil))
   "Face for the search query field of the list pages, drawn like an input box."

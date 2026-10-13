@@ -58,6 +58,8 @@
 (require 'vui)
 (require 'vui-components)
 
+(defvar octocat-repo-vui--state-width)  ; defconst in octocat-repo.el
+
 (defun octocat-vui-row (line on-visit &optional help-echo)
   "Build a RET-able row vnode from already-propertized LINE.
 ON-VISIT is a zero-argument function invoked when RET is pressed on the
@@ -144,6 +146,46 @@ fresh data arrives, instead of flashing a \"Loading…\" placeholder."
   (if (and stale (eq (plist-get result :status) 'pending))
       (list :status 'ready :data stale :refreshing t)
     result))
+
+(defun octocat-vui-skeleton-bar (n)
+  "Return a grey bar N columns wide (at least one) standing in for content."
+  (propertize (make-string (max 1 n) ?\s) 'face 'octocat-skeleton))
+
+(defun octocat-vui-detail-skeleton (repo number width)
+  "Return grey bars shaped like the issue or PR NUMBER of REPO.
+Shown when there is neither a cache nor a response yet: the header and
+the opening timeline entry, laid out as the real page lays them out,
+with no bar wider than WIDTH."
+  (let* ((indent (+ octocat-repo-vui--state-width 2))
+         (bar (lambda (n) (octocat-vui-skeleton-bar (min n (- width indent)))))
+         (body (lambda (n) (concat "  " (propertize "│" 'face 'octocat-dimmed)
+                                   " " (funcall bar n) "\n"))))
+    (concat (propertize repo 'face 'octocat-repo)
+            (propertize (format "#%d" number) 'face 'octocat-pr-number) "\n"
+            (funcall bar octocat-repo-vui--state-width) "  " (funcall bar 48) "\n"
+            (make-string indent ?\s) (funcall bar 32) "\n\n"
+            "  " (propertize "●" 'face 'octocat-dimmed) " " (funcall bar 36) "\n"
+            (funcall body 64) (funcall body 58) (funcall body 40))))
+
+(defun octocat-vui-list-skeleton (width)
+  "Return grey bars shaped like a page of two-line list rows, cut to WIDTH.
+Shown when there is neither a cache nor a response yet; see
+`octocat-repo-vui--item-row' for the layout it imitates."
+  (let* ((indent (+ octocat-repo-vui--state-width 2))
+         (cap (max 10 (1- width)))
+         (bar #'octocat-vui-skeleton-bar))
+    (mapconcat
+     (lambda (title)
+       (concat (truncate-string-to-width
+                (concat (funcall bar octocat-repo-vui--state-width) "  "
+                        (funcall bar title) "  " (funcall bar 16))
+                cap)
+               "\n"
+               (truncate-string-to-width
+                (concat (make-string indent ?\s) (funcall bar (- title 12)))
+                cap)))
+     '(44 30)
+     "\n")))
 
 (defun octocat-vui-load-more-button (key count help-echo on-click &optional loading indent)
   "Return a \"Load COUNT more…\" vui-button with HELP-ECHO, invoking ON-CLICK.

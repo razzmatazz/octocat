@@ -54,6 +54,22 @@
     (let ((ready '(:status ready :data (3))))
       (should (eq (octocat-vui-with-stale ready '(1 2)) ready)))))
 
+(ert-deftest octocat-vui-test-detail-skeleton ()
+  "The skeleton names the item and keeps its grey bars within WIDTH."
+  (let ((text (octocat-vui-detail-skeleton "o/r" 7 30)))
+    (should (string-prefix-p "o/r#7\n" text))
+    (should (text-property-any 0 (length text) 'face 'octocat-skeleton text))
+    (dolist (line (split-string text "\n"))
+      (should (<= (string-width line) 30)))))
+
+(ert-deftest octocat-vui-test-list-skeleton ()
+  "The list skeleton draws two-line rows of grey bars within WIDTH."
+  (let ((text (octocat-vui-list-skeleton 30)))
+    (should (text-property-any 0 (length text) 'face 'octocat-skeleton text))
+    (should (= (% (length (split-string text "\n")) 2) 0))
+    (dolist (line (split-string text "\n"))
+      (should (<= (string-width line) 29)))))
+
 (ert-deftest octocat-vui-test-mode-line-loading ()
   "The mode line shows :loading while any component of the buffer loads."
   (with-temp-buffer

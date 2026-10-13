@@ -307,8 +307,7 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
       nil)
     (octocat-vui-use-mode-line-loading loading)
     (pcase (plist-get result :status)
-      ('pending (vui-text (concat "  " repo " #" (number-to-string number))
-                          :face 'octocat-dimmed))
+      ('pending (vui-text (octocat-vui-detail-skeleton repo number width)))
       ('error   (vui-text (format "  Error: %s" (plist-get result :error)) :face 'error))
       ('ready
        (let ((issue (plist-get result :data)))
@@ -416,7 +415,7 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
      (vui-component 'octocat-vui-list-header :repo repo :tab 'issues :kind 'issues)
      (octocat-vui-list-filter-bar query)
      (pcase (plist-get result :status)
-       ('pending nil)
+       ('pending (vui-text (octocat-vui-list-skeleton width)))
        ('error   (vui-text (format "%s\n" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
         (let ((issues (plist-get result :data)))

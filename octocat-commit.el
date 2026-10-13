@@ -127,6 +127,15 @@ the author, date and full SHA under it."
                                   (propertize (or (gethash "sha" commit) sha)
                                               'face 'octocat-commit-sha))))))))
 
+(defun octocat-commit--skeleton (width)
+  "Return grey bars shaped like a commit page below its top row, cut to WIDTH.
+Shown when there is neither a cache nor a response yet: the subject,
+author and SHA rows, then a few changed files."
+  (let ((bar (lambda (n) (octocat-vui-skeleton-bar (min n (1- width))))))
+    (concat (funcall bar 48) "\n" (funcall bar 30) "\n" (funcall bar 44) "\n\n"
+            (mapconcat (lambda (n) (concat "  " (funcall bar (min n (- width 3)))))
+                       '(40 28) "\n"))))
+
 (defun octocat-commit--body (commit raw width)
   "Return the Message section of COMMIT: the message below its subject.
 Nil when the message is the subject alone.  RAW and WIDTH are as for
@@ -243,7 +252,7 @@ are fetched independently; each shows its cached copy until then."
               ('error (list (vui-newline)
                             (vui-text (format "Error: %s" (plist-get commit :error))
                                       :face 'error)))
-              ('pending nil)
+              ('pending (list (vui-text (octocat-commit--skeleton width))))
               (_ (delq nil
                        (list (and body (vui-newline))
                              body
