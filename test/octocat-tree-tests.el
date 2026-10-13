@@ -30,29 +30,74 @@
     (should (stringp g))
     (should (> (length g) 0))))
 
-(ert-deftest octocat-tree-test-render-loading ()
-  "octocat-tree--render-loading shows the header and no loading text."
-  (with-temp-buffer
-    (octocat-tree-mode)
-    (setq octocat-tree--repo "owner/repo"
-          octocat-tree--branch "main")
-    (octocat-tree--render-loading)
-    (should (> (buffer-size) 0))
-    (should (string-match-p "owner/repo" (buffer-string)))
-    (should-not (string-match-p "Loading" (buffer-string)))))
+(defmacro octocat-tree-tests--with-cache (&rest body)
+  "Evaluate BODY with `octocat-cache-directory' pointing at a temp directory."
+  (declare (indent 0))
+  `(let ((octocat-cache-directory (make-temp-file "octocat-cache" t)))
+     (unwind-protect (progn ,@body)
+       (delete-directory octocat-cache-directory t))))
+
+(defun octocat-tree-tests--mount-root (fetch-root-sha)
+  "Mount `octocat-tree--root' with FETCH-ROOT-SHA as the root SHA fetcher."
+  (unless (derived-mode-p 'octocat-tree-mode)
+    (octocat-tree-mode))
+  (setq octocat-tree--repo "owner/repo"
+        octocat-tree--branch "main")
+  (cl-letf (((symbol-function 'octocat-tree--fetch-root-sha) fetch-root-sha)
+            ((symbol-function 'octocat-tree--fetch-dir)
+             (lambda (&rest _) (error "Unexpected directory fetch"))))
+    (octocat-tree-refresh)))
 
 (defun octocat-tree-tests--mount-tree (entries)
   "Mount `octocat-tree--root' in the current buffer with root ENTRIES.
-The root directory's children are pre-seeded in the subtree cache, so
-no gh call is made."
-  (octocat-tree-mode)
-  (setq octocat-tree--repo "owner/repo"
-        octocat-tree--branch "main"
-        octocat-tree--subtree-cache (list (cons "rootsha" entries)))
-  (vui-mount (vui-component 'octocat-tree--root
-                            :repo "owner/repo" :branch "main"
-                            :root-sha "rootsha")
-             (buffer-name)))
+The root SHA resolves at once and the root directory's children are
+pre-seeded in the subtree cache, so no gh call is made."
+  (octocat-tree-tests--with-cache
+    (octocat-tree-mode)
+    (setq octocat-tree--subtree-cache (list (cons "rootsha" entries)))
+    (octocat-tree-tests--mount-root
+     (lambda (_repo _branch callback) (funcall callback "rootsha")))))
+
+(defun octocat-tree-tests--entry (path type sha)
+  "Return a tree API entry for PATH of TYPE (\"tree\" or \"blob\") and SHA."
+  (let ((h (make-hash-table :test #'equal)))
+    (puthash "path" path h)
+    (puthash "type" type h)
+    (puthash "sha"  sha  h)
+    h))
+
+(ert-deftest octocat-tree-test-paints-from-disk-cache ()
+  "The cached root SHA and listing paint before the root SHA is fetched."
+  (octocat-tree-tests--with-cache
+    (octocat-tree--ref-cache-save "owner/repo" "main" "rootsha")
+    (octocat-tree--dir-cache-save
+     "owner/repo" "rootsha" (vector (octocat-tree-tests--entry "cached.el" "blob" "b1")))
+    (with-temp-buffer
+      (octocat-tree-tests--mount-root #'ignore)
+      (should (string-match-p "cached\\.el" (buffer-string)))
+      (should (equal octocat-tree--root-sha "rootsha")))))
+
+(ert-deftest octocat-tree-test-blob-cache ()
+  "A fetched blob is cached as raw bytes and then served without a fetch."
+  (octocat-tree-tests--with-cache
+    (let ((bytes (string-to-unibyte "a\377b\n"))
+          got)
+      (cl-letf (((symbol-function 'octocat-tree--fetch-file)
+                 (lambda (_repo _sha callback) (funcall callback bytes))))
+        (octocat-tree--load-blob "owner/repo" "b1" (lambda (r) (setq got r))))
+      (should (equal got bytes))
+      (setq got nil)
+      (cl-letf (((symbol-function 'octocat-tree--fetch-file)
+                 (lambda (&rest _) (error "Unexpected blob fetch"))))
+        (octocat-tree--load-blob "owner/repo" "b1" (lambda (r) (setq got r))))
+      (should (equal got bytes)))))
+
+(ert-deftest octocat-tree-test-ref-cache-slashed-branch ()
+  "A branch name with a slash is cached as one file."
+  (octocat-tree-tests--with-cache
+    (octocat-tree--ref-cache-save "owner/repo" "feat/x" "sha1")
+    (should (equal (octocat-tree--ref-cache-load "owner/repo" "feat/x") "sha1"))
+    (should-not (octocat-tree--ref-cache-load "owner/repo" "feat"))))
 
 (ert-deftest octocat-tree-test-render-entries-empty ()
   "Mounting the tree with an empty entries vector produces a valid buffer."

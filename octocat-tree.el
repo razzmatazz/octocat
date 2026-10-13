@@ -75,15 +75,16 @@
 
 (defvar-local octocat-tree--subtree-cache nil
   "Alist mapping directory SHA string to fetched entries vector.
-Populated when a directory's children are fetched; consulted by
-`octocat-tree--dir' so collapsing and re-expanding a directory does not
-refetch it.  Cleared on full refresh (gr).  Expanded/collapsed state is
-not kept here: it lives in each `octocat-tree--node' as vui state.")
+Consulted by `octocat-tree--dir' before the disk cache, so collapsing
+and re-expanding a directory neither refetches nor rereads it.  A tree
+SHA names fixed contents, so entries never go stale.  Expanded/collapsed
+state is not kept here: it lives in each `octocat-tree--node' as vui
+state.")
 
 (defvar-local octocat-tree--all-files nil
   "Cached result of the recursive tree fetch used by `octocat-tree-find-file'.
 An alist mapping file path strings to their blob SHA strings.
-Populated on first call and reused until `octocat-tree-refresh' clears it.")
+Populated on first call and reused until the root SHA changes.")
 
 
 ;;;; Buffer-local variables — file mode
@@ -268,6 +269,70 @@ CALLBACK is called with decoded file content string, or a cons (error . MSG)."
    callback))
 
 
+;;;; Disk cache
+;;
+;; A branch's root SHA is cached so the tree paints at once and is
+;; replaced if the fresh one differs.  Directory listings and file
+;; contents are cached by tree and blob SHA: a SHA names fixed contents,
+;; so they are never refetched.
+
+(defun octocat-tree--ref-cache-id (branch)
+  "Return the cache id of BRANCH's root SHA; branches may contain \"/\"."
+  (octocat--cache-safe-repo branch))
+
+(defun octocat-tree--ref-cache-load (repo branch)
+  "Return the cached root tree SHA of REPO on BRANCH, or nil."
+  (when-let* ((data (octocat--detail-cache-load
+                     repo "tree-ref" (octocat-tree--ref-cache-id branch)))
+              (sha  (gethash "sha" data)))
+    (and (stringp sha) sha)))
+
+(defun octocat-tree--ref-cache-save (repo branch sha)
+  "Cache SHA as the root tree SHA of REPO on BRANCH."
+  (let ((data (make-hash-table :test #'equal)))
+    (puthash "sha" sha data)
+    (octocat--detail-cache-save
+     repo "tree-ref" (octocat-tree--ref-cache-id branch) data)))
+
+(defun octocat-tree--dir-cache-load (repo sha)
+  "Return the cached entries vector of directory SHA in REPO, or nil."
+  (when-let* ((data (octocat--detail-cache-load repo "tree" sha))
+              (tree (gethash "tree" data)))
+    (and (vectorp tree) tree)))
+
+(defun octocat-tree--dir-cache-save (repo sha entries)
+  "Cache ENTRIES, the children of directory SHA in REPO."
+  (let ((data (make-hash-table :test #'equal)))
+    (puthash "tree" entries data)
+    (octocat--detail-cache-save repo "tree" sha data)))
+
+(defun octocat-tree--blob-cache-file (repo sha)
+  "Return the cache file of blob SHA in REPO.
+Blobs are stored as raw bytes, not JSON: they need not be text."
+  (expand-file-name (format "blob-%s" sha)
+                    (file-name-directory
+                     (octocat--detail-cache-file repo "blob" sha))))
+
+(defun octocat-tree--load-blob (repo sha callback)
+  "Call CALLBACK with the content of blob SHA in REPO, or (error . MSG).
+Served from the disk cache when there, at once; else fetched and cached."
+  (let ((file (octocat-tree--blob-cache-file repo sha)))
+    (if (file-readable-p file)
+        (funcall callback (with-temp-buffer
+                            (set-buffer-multibyte nil)
+                            (insert-file-contents-literally file)
+                            (buffer-string)))
+      (octocat-tree--fetch-file
+       repo sha
+       (lambda (result)
+         (unless (eq (car-safe result) 'error)
+           (make-directory (file-name-directory file) t)
+           (ignore-errors
+             (let ((coding-system-for-write 'no-conversion))
+               (write-region result nil file nil 'silent))))
+         (funcall callback result))))))
+
+
 ;;;; Syntax highlighting
 
 (defun octocat-tree--fontify (path content)
@@ -335,21 +400,6 @@ With BROWSE-TOKEN, append the dimmed \"[Code]\" token."
                           'octocat-action  'browse-files))))
    'octocat-tree--type 'header))
 
-(vui-defcomponent octocat-tree--message (repo branch text face)
-  "Header plus a single TEXT line in FACE, or nothing below it if TEXT is nil."
-  :render
-  (vui-vstack
-   (vui-text (octocat-tree--header-line repo branch))
-   (and text (vui-text (propertize (concat "  " text) 'face face)))))
-
-(defun octocat-tree--render-loading ()
-  "Render a loading skeleton in the current tree buffer."
-  (vui-mount (vui-component 'octocat-tree--message
-                            :repo octocat-tree--repo
-                            :branch octocat-tree--branch
-                            :text nil :face nil)
-             (buffer-name)))
-
 (defun octocat-tree--sorted-entries (entries)
   "Return ENTRIES (a vector) as a list sorted dirs-first then alphabetically."
   (cl-sort (cl-coerce entries 'list)
@@ -364,15 +414,17 @@ With BROWSE-TOKEN, append the dimmed \"[Code]\" token."
 
 ;; The tree is a recursion of two components:
 ;;
-;;   `octocat-tree--dir'   fetches (or reads from the buffer-local
-;;                         `octocat-tree--subtree-cache') the children of
-;;                         one directory SHA and lists them as nodes.
+;;   `octocat-tree--dir'   reads from `octocat-tree--subtree-cache', the
+;;                         disk cache or the API the children of one
+;;                         directory SHA and lists them as nodes.
 ;;   `octocat-tree--node'  one entry's line; a directory node owns its
 ;;                         expanded/collapsed state and, when expanded,
 ;;                         nests another `octocat-tree--dir'.
 ;;
 ;; Lines carry no trailing newline: `vui-list' separates siblings, and a
-;; node's children follow it after one `vui-newline'.
+;; node's children follow it after one `vui-newline'.  Nodes are keyed by
+;; path, not SHA, so a directory changed by a new root SHA stays expanded;
+;; its listing stays up until the new one is loaded.
 
 (vui-defcomponent octocat-tree--dir (repo branch sha depth path)
   "Children of the directory with tree SHA, at nesting DEPTH.
@@ -380,22 +432,28 @@ PATH is this directory's full repository path (\"\" for the root)."
   :render
   (let* ((buf    (current-buffer))
          (indent (make-string (* depth 2) ?\s))
-         (result (vui-use-async (list 'dir repo sha)
+         (remember (lambda (entries)
+                     (when (buffer-live-p buf)
+                       (with-current-buffer buf
+                         (push (cons sha entries) octocat-tree--subtree-cache)))))
+         (result (octocat-vui-use-async-sticky (list 'dir repo sha)
                    (lambda (resolve reject)
-                     (let ((cached (cdr (assoc sha (buffer-local-value
-                                                    'octocat-tree--subtree-cache buf)))))
-                       (if cached
-                           (funcall resolve cached)
-                         (octocat-tree--fetch-dir
-                          repo sha
-                          (lambda (r)
-                            (if (eq (car-safe r) 'error)
-                                (funcall reject (cdr r))
-                              (when (buffer-live-p buf)
-                                (with-current-buffer buf
-                                  (push (cons sha r) octocat-tree--subtree-cache)))
-                              (funcall resolve r)))))))))
-         (loading (eq (plist-get result :status) 'pending)))
+                     (if-let* ((cached (or (cdr (assoc sha (buffer-local-value
+                                                            'octocat-tree--subtree-cache buf)))
+                                           (let ((disk (octocat-tree--dir-cache-load repo sha)))
+                                             (when disk (funcall remember disk))
+                                             disk))))
+                         (funcall resolve cached)
+                       (octocat-tree--fetch-dir
+                        repo sha
+                        (lambda (r)
+                          (if (eq (car-safe r) 'error)
+                              (funcall reject (cdr r))
+                            (funcall remember r)
+                            (octocat-tree--dir-cache-save repo sha r)
+                            (funcall resolve r))))))))
+         (loading (or (eq (plist-get result :status) 'pending)
+                      (plist-get result :refreshing))))
     (octocat-vui-use-mode-line-loading loading)
     (pcase (plist-get result :status)
       ('error
@@ -410,7 +468,8 @@ PATH is this directory's full repository path (\"\" for the root)."
                        (vui-component 'octocat-tree--node
                                       :repo repo :branch branch
                                       :entry entry :depth depth :parent path))
-                     (lambda (entry) (gethash "sha" entry))))))
+                     (lambda (entry)
+                       (concat (gethash "type" entry) ":" (gethash "path" entry)))))))
       (_ nil))))
 
 (vui-defcomponent octocat-tree--node (repo branch entry depth parent)
@@ -445,14 +504,46 @@ PARENT is the containing directory's full path (\"\" at the root)."
                    (octocat-tree--open-file-by-path
                     repo branch path sha)))))))
 
-(vui-defcomponent octocat-tree--root (repo branch root-sha)
-  "Root component of the tree buffer: header, then the root directory."
+(vui-defcomponent octocat-tree--root (repo branch tick)
+  "Root component of the tree buffer: header, then the root directory.
+The root SHA of BRANCH is painted from the disk cache and refetched; a
+new TICK refetches it again."
   :render
-  (vui-vstack
-   (vui-text (octocat-tree--header-line repo branch))
-   (apply #'vui-hstack :spacing 2 (octocat-vui-repo-tabs repo 'code))
-   (vui-component 'octocat-tree--dir
-                  :repo repo :branch branch :sha root-sha :depth 0 :path "")))
+  (let* ((buf    (current-buffer))
+         (result (octocat-vui-use-cached
+                  (list 'root repo branch tick)
+                  (lambda () (octocat-tree--ref-cache-load repo branch))
+                  (lambda (sha) (octocat-tree--ref-cache-save repo branch sha))
+                  (lambda (resolve reject)
+                    (octocat-tree--fetch-root-sha
+                     repo branch
+                     (lambda (r)
+                       (if (eq (car-safe r) 'error)
+                           (funcall reject (cdr r))
+                         (funcall resolve r)))))))
+         (sha    (and (eq (plist-get result :status) 'ready)
+                      (plist-get result :data))))
+    (octocat-vui-use-mode-line-loading
+     (or (eq (plist-get result :status) 'pending)
+         (plist-get result :refreshing)))
+    (vui-use-effect (sha)
+      (when (and sha (buffer-live-p buf))
+        (with-current-buffer buf
+          (unless (equal sha octocat-tree--root-sha)
+            (setq octocat-tree--root-sha sha
+                  octocat-tree--all-files nil))))
+      nil)
+    (vui-vstack
+     (vui-text (octocat-tree--header-line repo branch))
+     (apply #'vui-hstack :spacing 2 (octocat-vui-repo-tabs repo 'code))
+     (pcase (plist-get result :status)
+       ('error (vui-text (propertize (format "  Error: %s" (plist-get result :error))
+                                     'face 'error)))
+       ;; The root directory is itself the tree with this SHA; everything
+       ;; below it is fetched lazily as directories are expanded.
+       ('ready (vui-component 'octocat-tree--dir
+                              :repo repo :branch branch :sha sha
+                              :depth 0 :path ""))))))
 
 
 ;;;; Rendering — file mode
@@ -531,49 +622,26 @@ instead; this is how the tab strip of the other repo pages gets here."
       (octocat-tree-mode))
     (setq octocat-tree--repo   repo
           octocat-tree--branch branch)
-    (octocat-tree--render-loading)
     (octocat-tree-refresh)))
 
 (defun octocat-tree-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the tree buffer from the GitHub API.
-Clears the subtree cache and re-fetches the root tree."
+Refetches the root SHA, keeping what is expanded; the cached tree shows
+until it arrives."
   (interactive)
   (unless octocat-tree--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
-  (setq octocat-tree--subtree-cache nil
-        octocat-tree--all-files     nil)
-  (let ((buf    (current-buffer))
-        (repo   octocat-tree--repo)
-        (branch octocat-tree--branch))
-    (setq mode-line-process (octocat-vui-mode-line-busy ":refreshing"))
-    (octocat-tree--fetch-root-sha
-     repo branch
-     (lambda (result)
-       (when (buffer-live-p buf)
-         (with-current-buffer buf
-           (setq mode-line-process nil)
-           (octocat-vui-preserving-view
-             (if (eq (car-safe result) 'error)
-                 (vui-mount (vui-component 'octocat-tree--message
-                                           :repo repo :branch branch
-                                           :text (format "Error: %s" (cdr result))
-                                           :face 'error)
-                            (buffer-name))
-               ;; The root directory is itself the tree with this SHA, so
-               ;; `octocat-tree--dir' fetches the root entries; everything
-               ;; below it is fetched lazily as directories are expanded.
-               (setq octocat-tree--root-sha result)
-               (vui-mount (vui-component 'octocat-tree--root
-                                         :repo repo :branch branch
-                                         :root-sha result)
-                          (buffer-name))))))))))
+  (octocat-vui-refresh-page 'octocat-tree--root
+                            (list octocat-tree--repo octocat-tree--branch)
+                            (list :repo octocat-tree--repo
+                                  :branch octocat-tree--branch)))
 
 (defun octocat-tree-expand ()
   "Toggle expansion of the directory entry at point.
 The directory's expanded state lives in its `octocat-tree--node'
 component; the line carries a closure (the `octocat-tree--activate'
 property) that flips it.  Children are fetched on first expansion and
-come from `octocat-tree--subtree-cache' afterwards."
+cached by SHA afterwards (see `octocat-tree--dir')."
   (interactive)
   (unless (eq (octocat-tree--type-at-point) 'dir)
     (user-error "Octocat: No directory at point"))
@@ -764,7 +832,8 @@ all file paths via `completing-read', and opens the selected file in
 ;;;; Interactive commands — file mode
 
 (defun octocat-file-refresh (&optional _ignore-auto _noconfirm)
-  "Refresh the file viewer buffer by re-fetching the blob content."
+  "Refresh the file viewer buffer from its blob.
+The blob is fixed by its SHA, so a cached copy is shown without a fetch."
   (interactive)
   (unless (and octocat-tree--file-repo octocat-tree--file-path)
     (user-error "Octocat: Buffer is not associated with a file"))
@@ -772,10 +841,11 @@ all file paths via `completing-read', and opens the selected file in
         (repo   octocat-tree--file-repo)
         (sha    octocat-tree--file-sha)
         (path   octocat-tree--file-path))
-    (octocat-tree--render-file-loading path)
-    (setq mode-line-process (octocat-vui-mode-line-busy ":loading"))
+    (when (and sha (not (file-readable-p (octocat-tree--blob-cache-file repo sha))))
+      (octocat-tree--render-file-loading path)
+      (setq mode-line-process (octocat-vui-mode-line-busy ":loading")))
     (if sha
-        (octocat-tree--fetch-file
+        (octocat-tree--load-blob
          repo sha
          (lambda (result)
            (when (buffer-live-p buf)
@@ -789,7 +859,6 @@ all file paths via `completing-read', and opens the selected file in
                               'face 'error)))
                  (octocat-tree--render-file path result))))))
       ;; No SHA — show an error.
-      (setq mode-line-process nil)
       (let ((inhibit-read-only t))
         (erase-buffer)
         (insert (propertize "Error: no blob SHA available for this file.\n"
