@@ -32,6 +32,10 @@
 
 (declare-function evil-define-key*          "evil-core" (state keymap &rest bindings))
 (declare-function evil-normalize-keymaps    "evil-core" (&optional hook))
+(declare-function evil-insert-state         "evil-states" (&optional arg))
+(declare-function evil-normal-state         "evil-states" (&optional arg))
+(declare-function evil-local-set-key        "evil-core" (state key def))
+(declare-function evil-ret                  "evil-commands" (&optional count))
 
 (defvar octocat-mode-map)
 (defvar octocat-repo-mode-map)
@@ -89,6 +93,38 @@
 (declare-function octocat-vui-list-browse    "octocat-vui"       ())
 (declare-function octocat-vui-list-filter    "octocat-vui"       ())
 (declare-function octocat-vui-list-edit-query "octocat-vui"      ())
+(defvar octocat-vui-list-query-submit-hook)
+(defvar octocat-vui-list-mode-hook)
+(defvar evil-local-mode)
+(declare-function octocat-vui-list--query-widget "octocat-vui" ())
+
+(defun octocat-evil-list-edit-query ()
+  "Move into the query field of the current list, in insert state."
+  (interactive)
+  (octocat-vui-list-edit-query)
+  (evil-insert-state))
+
+(defun octocat-evil-list-ret ()
+  "Start editing the query field when on it, else `evil-ret'.
+`evil-ret' would treat the field as a button without an action and
+insert a newline into it."
+  (interactive)
+  (let ((widget (octocat-vui-list--query-widget)))
+    (if (and widget (eq (widget-field-at (point)) widget))
+        (octocat-evil-list-edit-query)
+      (call-interactively #'evil-ret))))
+
+(defun octocat-evil--list-setup ()
+  "Bind RET for the query field of a list buffer.
+Buffer-local, as the field's keymap replaces the mode's keymap, and
+with it the mode's Evil bindings."
+  (evil-local-set-key 'normal (kbd "RET") #'octocat-evil-list-ret))
+
+(defun octocat-evil--list-query-submitted ()
+  "Leave insert state once the query field is submitted."
+  (when evil-local-mode
+    (evil-normal-state)))
+
 (declare-function octocat-workflow-browse    "octocat-workflow"  ())
 (declare-function octocat-workflow-refresh   "octocat-workflow"  (&optional _ignore-auto _noconfirm))
 (declare-function octocat-run-browse         "octocat-run"       ())
@@ -145,12 +181,14 @@
       (kbd "C-c C-s") #'octocat-search-repo
       (kbd "gs")      #'octocat-search-repo
       (kbd "gr")      #'revert-buffer
-      (kbd "/")       #'octocat-vui-list-edit-query
+      (kbd "/")       #'octocat-evil-list-edit-query
       (kbd "F")       #'octocat-vui-list-filter
       (kbd "q")       #'quit-window)
     (evil-define-key* 'motion map
-      (kbd "/")       #'octocat-vui-list-edit-query
+      (kbd "/")       #'octocat-evil-list-edit-query
       (kbd "F")       #'octocat-vui-list-filter))
+  (add-hook 'octocat-vui-list-mode-hook #'octocat-evil--list-setup)
+  (add-hook 'octocat-vui-list-query-submit-hook #'octocat-evil--list-query-submitted)
 
   ;; ── octocat-pr-mode ───────────────────────────────────────────────────
   ;; vui.el-rendered like octocat-issue-mode: row RET actions come from

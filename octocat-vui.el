@@ -47,7 +47,7 @@
 ;;   `octocat-vui-repo-tabs'         Code / Issues / Pull requests / Actions
 ;;                                   tab strip shared by the repo pages
 ;;   `octocat-vui-list-header'       list page header with open/closed counts
-;;   `octocat-vui-list-filter-bar'   query line + facet buttons
+;;   `octocat-vui-list-filter-bar'   query field + facet buttons
 
 ;;; Code:
 
@@ -636,8 +636,11 @@ each call, for the page's fetch keys (see `octocat-vui-use-cached')."
 
 \\{octocat-vui-list-mode-map}"
   :group 'octocat
-  (setq-local buffer-read-only t)
+  ;; Not read-only, so the query field can be edited: as in any vui
+  ;; buffer, `widget-setup' rejects edits outside widget fields.
   (setq-local truncate-lines t)
+  (add-hook 'completion-at-point-functions
+            #'octocat-vui-list--qualifier-capf nil t)
   (octocat--ts-eldoc-setup))
 
 (defun octocat-vui-commit-top-row (repo sha)
@@ -745,7 +748,7 @@ for pulls) from one API call, or nil for no counts."
 ;;
 ;; The PR and issue pages are filtered by a GitHub search query string
 ;; (see octocat-core.el, "List filters"), kept in `octocat-vui-list--query'
-;; and shown as a line above the list.  `/' edits it directly, with
+;; and edited in a field above the list (`/' moves into it), with
 ;; completion for the usual qualifiers; the State / Author / Assignee /
 ;; Label buttons (or `F') edit single qualifiers through a toggle prompt:
 ;; choosing an item checks it, choosing a checked item unchecks it.
@@ -767,9 +770,6 @@ for pulls) from one API call, or nil for no counts."
     "review:approved" "review:changes_requested" "sort:updated-desc"
     "sort:created-desc" "sort:comments-desc")
   "Qualifier completions offered while editing a query.")
-
-(defvar octocat-vui-list--query-history nil
-  "Minibuffer history of list queries.")
 
 (defun octocat-vui-list-query ()
   "Return the search query of the current list buffer."
@@ -873,24 +873,40 @@ returns after the first choice, and choosing the checked item clears it."
   (setq octocat-vui-list--query (string-trim query))
   (revert-buffer nil t))
 
+(defvar octocat-vui-list-query-submit-hook nil
+  "Hook run in a list buffer when its query field is submitted.")
+
+(defun octocat-vui-list--query-widget ()
+  "Return the query field widget of the current buffer, or nil."
+  ;; `vui-field' keeps its :key as the widget's :vui-key.
+  (seq-find (lambda (widget) (eq (widget-get widget :vui-key) :query))
+            widget-field-list))
+
 (defun octocat-vui-list--qualifier-capf ()
-  "Complete a search qualifier before point (see `octocat-vui-list--qualifiers')."
-  (let ((end (point))
-        (beg (save-excursion (skip-chars-backward "^[:space:]") (point))))
-    (list beg end octocat-vui-list--qualifiers)))
+  "Complete a search qualifier before point in the query field.
+See `octocat-vui-list--qualifiers'."
+  (when-let* ((widget (octocat-vui-list--query-widget))
+              ((eq (widget-field-at (point)) widget)))
+    (let ((end (point))
+          (beg (save-excursion
+                 (skip-chars-backward "^[:space:]" (widget-field-start widget))
+                 (point))))
+      (list beg end octocat-vui-list--qualifiers))))
 
 (defun octocat-vui-list-edit-query ()
-  "Edit the search query of the current list in the minibuffer."
+  "Move point to the end of the search query in the query field."
   (interactive)
   (octocat-vui-list--check-filterable)
-  (let ((query (minibuffer-with-setup-hook
-                   (lambda ()
-                     (add-hook 'completion-at-point-functions
-                               #'octocat-vui-list--qualifier-capf nil t))
-                 (read-string "Filter (GitHub search syntax): "
-                              (octocat-vui-list-query)
-                              'octocat-vui-list--query-history))))
-    (octocat-vui-list--apply query)))
+  (let ((widget (or (octocat-vui-list--query-widget)
+                    (user-error "Octocat: No query field on this page"))))
+    ;; The field is padded with spaces, which its value leaves out.
+    (goto-char (+ (widget-field-start widget)
+                  (length (widget-value widget))))))
+
+(defun octocat-vui-list--query-submitted (query)
+  "Run QUERY, submitted by RET in the query field."
+  (run-hooks 'octocat-vui-list-query-submit-hook)
+  (octocat-vui-list--apply query))
 
 (defun octocat-vui-list--edit-facet (prefix prompt multi fetch extra)
   "Toggle the PREFIX qualifier of the query through a prompt named PROMPT.
@@ -970,14 +986,30 @@ as the way to enter a value."
   (interactive)
   (octocat-vui-list--check-filterable)
   (let* ((choices (append octocat-vui-list--facets
-                          '(("Query…" . octocat-vui-list-edit-query)
+                          '(("Query" . octocat-vui-list-edit-query)
                             ("Clear"  . octocat-vui-list-clear-filter))))
          (choice  (completing-read "Filter: " (mapcar #'car choices) nil t)))
     (call-interactively (cdr (assoc choice choices)))))
 
+(vui-defcomponent octocat-vui-list-query-field (query)
+  "Editable field holding QUERY.
+RET in it runs the edited query."
+  :render
+  (let* ((draft (vui-use-ref nil))
+         ;; Typed but unsubmitted text survives re-renders (a page
+         ;; arriving) until the query itself changes.
+         (value (if (equal (car (car draft)) query) (cdr (car draft)) query)))
+    (vui-field :key :query
+               :value value
+               :size (max 40 (1+ (string-width value)))
+               :face 'octocat-filter-input
+               :placeholder "(everything)"
+               :on-change (lambda (text) (setcar draft (cons query text)))
+               :on-submit #'octocat-vui-list--query-submitted)))
+
 (defun octocat-vui-list-filter-bar (query)
   "Return a vnode showing the search QUERY and one button per facet.
-The query line is highlighted when it differs from the default."
+A [clear] button shows when it differs from the default."
   (let ((active (octocat-vui-list-filter-active-p query)))
     (vui-fragment
      ;; The label and the facet row's indent are both as wide as "Filter"
@@ -985,19 +1017,8 @@ The query line is highlighted when it differs from the default."
      ;; start in the same column.
      (vui-hstack :spacing 2
        (vui-text "Filter" :face 'octocat-dimmed)
-       (vui-button (let* ((q     (string-trim (or query "")))
-                          (shown (if (string-empty-p q) "(everything)" q)))
-                     ;; Drawn as an input box: padded, with a search mark.
-                     (truncate-string-to-width
-                      (concat "⌕ " shown) (max 40 (+ 3 (string-width shown)))
-                      nil ?\s))
-                   :no-decoration t
-                   :face (if active
-                             '(octocat-branch octocat-filter-input)
-                           'octocat-filter-input)
-                   :key :query
-                   :help-echo "RET or /: edit the search query"
-                   :on-click #'octocat-vui-list-edit-query))
+       (vui-component 'octocat-vui-list-query-field
+                      :query (string-trim (or query ""))))
      (vui-newline)
      (apply #'vui-hstack :spacing 2
             (vui-text "      ")

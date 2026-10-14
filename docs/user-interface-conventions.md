@@ -116,6 +116,7 @@ success; on failure a message is shown in the echo area.
 |---|---|---|
 | Multi-line markdown (body, comment) | `octocat--open-edit-buffer` | Needs line editing, markdown mode, and an explicit discard path |
 | Single-line string (title) | `read-string` minibuffer | Single line; a split window would be disproportionate |
+| List search query | inline `vui-field` (`octocat-vui-list-query-field`) | Always on screen; editing it below in the minibuffer was confusing |
 
 ---
 
