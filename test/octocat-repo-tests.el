@@ -92,5 +92,35 @@
     (dolist (line (octocat-repo-vui--item-lines "open" cells '(:ref :branch) 40))
       (should (<= (string-width line) 39)))))
 
+(ert-deftest octocat-repo-test-unpushed ()
+  "Count local commits against the upstream, and how far it is ahead."
+  (skip-unless (executable-find "git"))
+  (let* ((root   (make-temp-file "octocat-unpushed" t))
+         (origin (expand-file-name "origin" root))
+         (clone  (expand-file-name "clone" root))
+         (git    (lambda (dir &rest args)
+                   (let ((default-directory (file-name-as-directory dir)))
+                     (apply #'call-process "git" nil nil nil
+                            "-c" "user.name=T" "-c" "user.email=t@t" args)))))
+    (unwind-protect
+        (progn
+          (make-directory origin)
+          (funcall git origin "init" "-q" "-b" "main")
+          (funcall git origin "commit" "-q" "--allow-empty" "-m" "base")
+          (funcall git root "clone" "-q" origin clone)
+          (should-not (octocat-repo--unpushed clone))
+          (funcall git clone "commit" "-q" "--allow-empty" "-m" "one")
+          (funcall git clone "commit" "-q" "--allow-empty" "-m" "two")
+          (funcall git origin "commit" "-q" "--allow-empty" "-m" "theirs")
+          (funcall git clone "fetch" "-q")
+          (let ((u (octocat-repo--unpushed clone)))
+            (should (equal (mapcar (lambda (c) (plist-get c :subject))
+                                   (plist-get u :commits))
+                           '("two" "one")))
+            (should (equal (plist-get u :branch) "main"))
+            (should (equal (plist-get u :upstream) "origin/main"))
+            (should (= (plist-get u :behind) 1))))
+      (delete-directory root t))))
+
 (provide 'octocat-repo-tests)
 ;;; octocat-repo-tests.el ends here
