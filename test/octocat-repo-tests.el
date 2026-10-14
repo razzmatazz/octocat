@@ -81,6 +81,45 @@
     (should (eq (octocat-repo--commits-merge longer fresh nil) longer))
     (should-not (octocat-repo--commits-merge nil fresh))))
 
+(ert-deftest octocat-repo-test-branch-candidates ()
+  "The default branch comes first, then the pushed local one, each noted."
+  (should (equal (octocat--branch-candidates '("a" "main" "feat") "main" "feat")
+                 '("main" "feat" "a")))
+  (should (equal (octocat--branch-candidates '("a" "main") "main" "unpushed")
+                 '("main" "a")))
+  (should (equal (octocat--branch-candidates '("a" "main") "main" "main")
+                 '("main" "a")))
+  (should (equal (octocat--branch-note "main" "main" "feat") "  default"))
+  (should (equal (octocat--branch-note "feat" "main" "feat") "  checked out"))
+  (should-not (octocat--branch-note "a" "main" "feat")))
+
+(ert-deftest octocat-repo-test-async-branches ()
+  "The cached branches show first; the fetched ones replace and are cached."
+  (let ((octocat-cache-directory (make-temp-file "octocat-cache" t))
+        got deliver)
+    (unwind-protect
+        (cl-letf (((symbol-function 'octocat--list-branches)
+                   (lambda (_repo callback) (setq deliver callback))))
+          (octocat--items-cache-save "o/r" "branches" "all" '("old" "main"))
+          (let ((stage (funcall (octocat--async-branches "o/r" "main" nil)
+                                (lambda (action)
+                                  (pcase action
+                                    ('flush (setq got nil))
+                                    ((pred consp) (setq got (append got action))))))))
+            (funcall stage 'setup)
+            (should (equal got '("main" "old")))
+            (funcall deliver '("new" "main"))
+            (should (equal got '("main" "new")))
+            (should (equal (plist-get (octocat--items-cache-load "o/r" "branches" "all")
+                                      :items)
+                           '("new" "main")))))
+      (delete-directory octocat-cache-directory t))))
+
+(ert-deftest octocat-repo-test-commits-cache-id ()
+  "The default branch keeps its cache; others get one each."
+  (should (equal (octocat-repo--commits-cache-id nil) "default"))
+  (should (equal (octocat-repo--commits-cache-id "feat/x") "branch-feat--x")))
+
 (ert-deftest octocat-repo-test-item-lines ()
   "Item lines put the author on the title line and cut only given a width."
   (let ((cells (list :title (make-string 60 ?t) :author "@a" :date "1d"

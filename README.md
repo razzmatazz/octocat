@@ -133,20 +133,24 @@ check opens the commit's checks.
 ### File tree browser (`octocat-tree-mode`)
 
 From any per-repository buffer, press `C-c C-f` or `RET` on the **[Code]**
-token in the header to open an interactive file tree browser for the current
-branch.
+token in the header to open an interactive file tree browser for the branch
+the repo page shows (the default branch unless switched there).
 
 ```
-owner/repo  ⎇  main  [Code]
+owner/repo  ⎇  [main ▾]  [Code]
 ▸ src/
 ▸ tests/
   .gitignore
   README.md
 ```
 
-- **`TAB`** on a directory fetches its children on first use (shown as
+- **`RET`** on a directory fetches its children on first use (shown as
   "Loading…") and caches them; subsequent presses toggle expand/collapse
-  without re-fetching.
+  without re-fetching.  `TAB` on a directory toggles it too, and moves to
+  the next button elsewhere; `^` goes to the containing directory; `n` /
+  `p` move between entries.
+- Under Evil, as in treemacs-evil: `l` opens or toggles, `h` collapses or
+  goes to the containing directory, and `TAB` walks the entries.
 - **`RET`** on a file opens it in `octocat-file-mode` with syntax
   highlighting applied via the normal major-mode machinery.
 - **`C-c C-f`** opens a fuzzy file finder (`completing-read`) over the full
@@ -154,6 +158,7 @@ owner/repo  ⎇  main  [Code]
   and cached for subsequent calls; pressing `C-c C-f` again is instant.  Selecting
   a path opens it directly in `octocat-file-mode` without navigating the
   tree manually.
+- **`C-c C-b`** or `RET` on `[main ▾]` browses another branch.
 - **`o` / `C-c C-o`** opens the selected file or directory on GitHub in
   the browser.
 - **`gr`** re-fetches the root tree from scratch, clearing the subtree cache.
@@ -197,6 +202,7 @@ owner/repo  src/foo.el  (7 commits)
 | `C-c C-m` | Merge the PR (PR detail view): edit the commit message, `C-c C-t` picks Merge / Squash / Rebase, `C-c C-d` toggles deleting the branch, `C-c C-c` merges |
 | `C-c C-v` | Toggle between rendered and raw markdown (PR, commit, and issue detail views) |
 | `C-c C-t` | Open file tree browser (repo buffer) |
+| `C-c C-b` | Pick the branch shown (repo buffer's commits, file tree); `[reset to main]` on the repo page goes back to the default branch |
 | `C-c C-f` | Open fuzzy file finder — `completing-read` over the full recursive file list; works from both the repo buffer and the file tree browser (list is cached after first fetch) |
 | `C-c C-l` | Open file commit log — shows the commit history for the file currently open in `octocat-file-mode` |
 | `g` / `gr` | Refresh current buffer |

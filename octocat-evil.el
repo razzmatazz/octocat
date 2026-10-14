@@ -36,6 +36,8 @@
 (declare-function evil-normal-state         "evil-states" (&optional arg))
 (declare-function evil-local-set-key        "evil-core" (state key def))
 (declare-function evil-ret                  "evil-commands" (&optional count))
+(declare-function evil-backward-char        "evil-commands" (&optional count crosslines noerror))
+(declare-function evil-forward-char         "evil-commands" (&optional count crosslines noerror))
 
 (defvar octocat-mode-map)
 (defvar octocat-repo-mode-map)
@@ -58,9 +60,11 @@
 
 (declare-function octocat-tree-open          "octocat-tree"      ())
 (declare-function octocat-tree-find-file     "octocat-tree"      ())
+(declare-function octocat-tree-switch-branch "octocat-tree"      ())
+(declare-function octocat-tree-collapse-or-up "octocat-tree"    ())
+(declare-function octocat-tree--entry-at-point-p "octocat-tree" ())
 (declare-function octocat-tree-visit         "octocat-tree"      ())
 (declare-function octocat-tree-browse        "octocat-tree"      ())
-(declare-function octocat-tree-expand        "octocat-tree"      ())
 (declare-function octocat-tree-refresh       "octocat-tree"      (&optional _ignore-auto _noconfirm))
 (declare-function octocat-file-refresh       "octocat-tree"      (&optional _ignore-auto _noconfirm))
 (declare-function octocat-file-browse        "octocat-tree"      ())
@@ -90,6 +94,7 @@
 (declare-function octocat-feed-load-more     "octocat"           ())
 (declare-function octocat-dashboard-browse   "octocat"           ())
 (declare-function octocat-repo-browse        "octocat-repo"      ())
+(declare-function octocat-repo-switch-branch "octocat-repo"      ())
 (declare-function octocat-vui-list-browse    "octocat-vui"       ())
 (declare-function octocat-vui-list-filter    "octocat-vui"       ())
 (declare-function octocat-vui-list-edit-query "octocat-vui"      ())
@@ -146,6 +151,22 @@ would start recording a macro."
 (declare-function octocat-job-browse         "octocat-job"       ())
 (declare-function octocat-job-refresh        "octocat-job"       (&optional _ignore-auto _noconfirm))
 
+(defun octocat-evil-tree-l ()
+  "Open the file or toggle the directory at point, as in treemacs-evil.
+Off an entry, such as on the header, move right."
+  (interactive)
+  (if (octocat-tree--entry-at-point-p)
+      (octocat-tree-visit)
+    (call-interactively #'evil-forward-char)))
+
+(defun octocat-evil-tree-h ()
+  "Collapse the directory at point, or move to its parent, as in treemacs-evil.
+Off an entry, such as on the header, move left."
+  (interactive)
+  (if (octocat-tree--entry-at-point-p)
+      (octocat-tree-collapse-or-up)
+    (call-interactively #'evil-backward-char)))
+
 
 ;;;###autoload
 (defun octocat-evil-setup ()
@@ -168,6 +189,7 @@ would start recording a macro."
   (evil-define-key* 'normal octocat-repo-mode-map
     (kbd "C-c C-o") #'octocat-repo-browse
     (kbd "C-c C-f") #'octocat-tree-find-file
+    (kbd "C-c C-b") #'octocat-repo-switch-branch
     (kbd "C-c C-r") #'octocat-switch-repo
     (kbd "C-c C-s") #'octocat-search-repo
     (kbd "gs")      #'octocat-search-repo
@@ -285,20 +307,21 @@ would start recording a macro."
     (kbd "q")       #'quit-window)
 
   ;; ── octocat-tree-mode ─────────────────────────────────────────────────
+  ;; TAB is left to the buttons' own keymaps: it walks them, which
+  ;; `octocat-tree-toggle-or-forward' does in normal state.
   (evil-define-key* 'normal octocat-tree-mode-map
     (kbd "RET")     #'octocat-tree-visit
-    (kbd "TAB")     #'octocat-tree-expand
-    [tab]           #'octocat-tree-expand
+    (kbd "l")       #'octocat-evil-tree-l
+    (kbd "h")       #'octocat-evil-tree-h
     (kbd "C-c C-f") #'octocat-tree-find-file
+    (kbd "C-c C-b") #'octocat-tree-switch-branch
     (kbd "C-c C-o") #'octocat-tree-browse
     (kbd "C-c C-r") #'octocat-switch-repo
     (kbd "o")       #'octocat-tree-browse
     (kbd "q")       #'quit-window
     (kbd "gr")      #'octocat-tree-refresh)
   (evil-define-key* 'motion octocat-tree-mode-map
-    (kbd "RET")     #'octocat-tree-visit
-    (kbd "TAB")     #'octocat-tree-expand
-    [tab]           #'octocat-tree-expand)
+    (kbd "RET")     #'octocat-tree-visit)
 
   ;; ── octocat-file-mode ─────────────────────────────────────────────────
   (evil-define-key* 'normal octocat-file-mode-map

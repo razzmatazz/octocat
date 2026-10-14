@@ -103,10 +103,13 @@ Set at buffer-open time from `default-directory' when the buffer is
 opened from inside a git working tree.  Nil means the buffer was opened
 in detached mode — tracking a remote repository without a local clone.")
 
-(defvar-local octocat-repo--current-branch nil
-  "Name of the local HEAD branch, or nil when detached or unknown.
-Set by `octocat-repo-refresh'.  Read by `octocat-tree.el' (`octocat-tree-open',
-`octocat-tree-find-file') to pick the branch whose tree to browse.")
+(defvar-local octocat-repo--branch nil
+  "Branch the page shows, or nil for the default branch.
+Chosen with `octocat-repo-switch-branch'; kept by `g', cleared when the
+page is opened anew.  The Code tab browses it too.")
+
+(defvar-local octocat-repo--default-branch nil
+  "The repository's default branch, once its summary is known.")
 
 
 ;;;; Repo detection
@@ -717,12 +720,40 @@ default branch, nor sit on top of it."
      (apply #'vui-vstack (mapcar #'octocat-repo-vui--unpushed-row commits))
      (vui-newline))))
 
+(defun octocat-repo-vui--commits-heading (label current-branch reset default)
+  "Return the Commits heading for the branch named LABEL.
+LABEL is a picker button, as GitHub's branch dropdown, highlighted when
+it is the local CURRENT-BRANCH.  RESET non-nil adds a button back to
+the DEFAULT branch.  Without LABEL the heading is plain \"Commits\"."
+  (if (and (stringp label) (not (string-empty-p label)))
+      (apply #'vui-hstack :spacing 1
+             (vui-text "Commits on" :face 'octocat-section-heading)
+             (vui-button (format "[%s ▾]" label)
+                         :no-decoration t
+                         :face (if (equal label current-branch)
+                                   'octocat-branch-current
+                                 'octocat-branch)
+                         :help-echo "RET: show another branch (C-c C-b)"
+                         :on-click #'octocat-repo-switch-branch)
+             (when reset
+               (list (vui-button (if default (format "[reset to %s]" default) "[reset]")
+                                 :no-decoration t
+                                 :face 'octocat-dimmed
+                                 :help-echo "RET: show the default branch"
+                                 :on-click #'octocat-repo-reset-branch))))
+    (vui-text "Commits" :face 'octocat-section-heading)))
+
+(defun octocat-repo--commits-cache-id (branch)
+  "Return the cache id of BRANCH's commits; nil means the default branch."
+  (if branch (concat "branch-" (octocat--cache-safe-repo branch)) "default"))
+
 (vui-defcomponent octocat-repo-vui--commits-section
-    (repo default-branch current-branch head-info)
+    (repo branch default-branch current-branch head-info)
   "Commits section for REPO.
-The commits are those of the default branch (the API call names no other),
-so DEFAULT-BRANCH appears once in the title instead of on every row; it is
-highlighted when it is also the local CURRENT-BRANCH.  HEAD-INFO is the
+The commits are those of BRANCH, or of the default branch when nil;
+the branch appears once in the title instead of on every row, with
+a button back to DEFAULT-BRANCH when it is another.  It is highlighted
+when it is also the local CURRENT-BRANCH.  HEAD-INFO is the
 plist from `octocat--head-info', used to highlight the local HEAD commit.
 Every commit loaded is cached on disk under its branch head, so while the
 head stays put, reopening and \"load more\" reuse them; only commits
@@ -732,12 +763,13 @@ beyond the cache are fetched, a page at a time, pinned to that head."
   :state ((limit octocat-repo-commits-page-size) (more nil) (fetching nil))
   :render
   (let* ((size   octocat-repo-commits-page-size)
-         (cached (vui-use-memo (repo)
-                   (octocat--items-cache-load repo "commits" "default")))
-         (first  (vui-use-async (list 'commits repo)
+         (cache-id (octocat-repo--commits-cache-id branch))
+         (cached (vui-use-memo (repo cache-id)
+                   (octocat--items-cache-load repo "commits" cache-id)))
+         (first  (vui-use-async (list 'commits repo branch)
                    (lambda (resolve reject)
                      (octocat-repo--list-commits
-                      repo nil 1
+                      repo branch 1
                       (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
          (fresh  (and (eq (plist-get first :status) 'ready)
                       (plist-get first :data)))
@@ -749,22 +781,16 @@ beyond the cache are fetched, a page at a time, pinned to that head."
          (done   (or (and (plist-get more :done) (eq commits more-items))
                      (/= 0 (% (length commits) size))))
          (loading (and (or (plist-get result :refreshing) fetching) t))
-         ;; The cached list is labelled with the branch it was fetched for.
-         (branch (if fresh default-branch (plist-get cached :branch))))
+         ;; The cached default-branch list is labelled with the branch it
+         ;; was fetched for.
+         (label  (or branch (if fresh default-branch (plist-get cached :branch)))))
     (octocat-vui-use-mode-line-loading loading)
-    (vui-use-effect (fresh commits default-branch)
-      (when (and fresh default-branch)
-        (octocat--items-cache-save repo "commits" "default" commits default-branch))
+    (vui-use-effect (fresh commits label)
+      (when (and fresh label)
+        (octocat--items-cache-save repo "commits" cache-id commits label))
       nil)
     (vui-vstack
-     (vui-text (concat
-                (if (and (stringp branch) (not (string-empty-p branch)))
-                    (concat (propertize "Commits on " 'face 'octocat-section-heading)
-                            (propertize branch 'face
-                                        (if (equal branch current-branch)
-                                            'octocat-branch-current
-                                          'octocat-branch)))
-                  (propertize "Commits" 'face 'octocat-section-heading))))
+     (octocat-repo-vui--commits-heading label current-branch (and branch t) default-branch)
      (pcase (plist-get result :status)
        ('pending (vui-text (octocat-vui-line-skeleton)))
        ('error   (vui-text (format "%s" (plist-get result :error)) :face 'octocat-dimmed))
@@ -820,12 +846,14 @@ from `octocat-repo--fetch-summary', or an ellipsis while it loads."
                          (or (plist-get summary :open-issues) "…")
                          (or (plist-get summary :open-prs) "…")))
 
-(vui-defcomponent octocat-repo-vui--root (repo local-dir unpushed)
+(vui-defcomponent octocat-repo-vui--root (repo branch local-dir unpushed)
   "Root component for the repo buffer: header, local-head/fork-parent
 info, issue/PR summary line, then the UNPUSHED and the commits sections.
+BRANCH is the branch whose commits to show, nil for the default.
 Everything but the commits comes from a single summary API call."
   :render
-  (let* ((head-info      (octocat--head-info))
+  (let* ((buf            (current-buffer))
+         (head-info      (octocat--head-info))
          (current-branch (plist-get head-info :branch))
          (cached         (vui-use-memo (repo) (octocat-repo--summary-cache-load repo)))
          (summary-result (vui-use-async (list 'summary repo)
@@ -844,6 +872,11 @@ Everything but the commits comes from a single summary API call."
     (vui-use-effect (fresh)
       (when fresh (octocat-repo--summary-cache-save repo fresh))
       nil)
+    (vui-use-effect (default-branch)
+      (when (buffer-live-p buf)
+        (with-current-buffer buf
+          (setq octocat-repo--default-branch default-branch)))
+      nil)
     (octocat-vui-use-mode-line-loading loading)
     (vui-vstack
      (apply #'vui-hstack :spacing 2
@@ -853,7 +886,14 @@ Everything but the commits comes from a single summary API call."
        (vui-text
         (concat (propertize "Local clone:" 'face 'octocat-dimmed)
                 "  "
-                (propertize local-dir 'face 'octocat-branch))))
+                (propertize local-dir 'face 'octocat-branch)
+                (cond (current-branch
+                       (concat "  on " (propertize current-branch
+                                                   'face 'octocat-branch-current)))
+                      ((plist-get head-info :hash)
+                       (concat "  detached at "
+                               (propertize (plist-get head-info :hash)
+                                           'face 'octocat-commit-sha)))))))
      (when fork-parent
        (octocat-vui-row
         (concat "Forked from  " (propertize fork-parent 'face 'octocat-repo) "\n")
@@ -863,7 +903,7 @@ Everything but the commits comes from a single summary API call."
      (when unpushed
        (octocat-repo-vui--unpushed-section unpushed))
      (vui-component 'octocat-repo-vui--commits-section
-                    :repo repo :default-branch default-branch
+                    :repo repo :branch branch :default-branch default-branch
                     :current-branch current-branch :head-info head-info))))
 
 
@@ -877,6 +917,24 @@ Everything but the commits comes from a single summary API call."
   (message "Octocat: Opening %s in browser…" octocat-repo--repo)
   (browse-url (format "https://github.com/%s" octocat-repo--repo)))
 
+(defun octocat-repo-switch-branch ()
+  "Show the commits of another branch, picked from the repository's."
+  (interactive)
+  (unless octocat-repo--repo
+    (user-error "Octocat: Buffer is not associated with a repository"))
+  (let* ((default octocat-repo--default-branch)
+         (picked  (octocat--read-branch
+                   octocat-repo--repo default (plist-get (octocat--head-info) :branch)
+                   (or octocat-repo--branch default))))
+    (setq octocat-repo--branch (unless (equal picked default) picked))
+    (octocat-repo-refresh)))
+
+(defun octocat-repo-reset-branch ()
+  "Show the commits of the default branch again."
+  (interactive)
+  (setq octocat-repo--branch nil)
+  (octocat-repo-refresh))
+
 (defvar octocat-repo-mode-map
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map vui-mode-map)
@@ -886,6 +944,7 @@ Everything but the commits comes from a single summary API call."
 (define-key octocat-repo-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-repo-mode-map (kbd "C-c C-t") #'octocat-tree-open)
 (define-key octocat-repo-mode-map (kbd "C-c C-f") #'octocat-tree-find-file)
+(define-key octocat-repo-mode-map (kbd "C-c C-b") #'octocat-repo-switch-branch)
 (define-key octocat-repo-mode-map (kbd "C-c C-o") #'octocat-repo-browse)
 (define-key octocat-repo-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
 (define-key octocat-repo-mode-map (kbd "C-c C-s") #'octocat-search-repo)
@@ -911,11 +970,10 @@ the Commentary at the top of this file)."
   (interactive)
   (unless octocat-repo--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
-  (setq octocat-repo--current-branch
-        (plist-get (octocat--head-info) :branch))
   (octocat-vui-preserving-view
     (vui-mount (vui-component 'octocat-repo-vui--root
                               :repo octocat-repo--repo
+                              :branch octocat-repo--branch
                               :local-dir octocat-repo--local-dir
                               :unpushed (and octocat-repo--local-dir
                                              (octocat-repo--unpushed

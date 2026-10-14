@@ -924,6 +924,7 @@ After toggling, the buffer is refreshed via `octocat--refresh-fn'."
 
 (defvar octocat-repo--repo)
 (defvar octocat-repo--local-dir)
+(defvar octocat-repo--branch)
 
 (defun octocat--async-search-repos ()
   "Return a consult async pipeline stage that queries GitHub for repos.
@@ -1076,7 +1077,8 @@ by the repo-nav section in every detail view."
     (unless (derived-mode-p 'octocat-repo-mode)
       (octocat-repo-mode))
     (setq octocat-repo--repo      repo
-          octocat-repo--local-dir (octocat-repo--local-dir-for repo))
+          octocat-repo--local-dir (octocat-repo--local-dir-for repo)
+          octocat-repo--branch    nil)
     (octocat-repo-refresh)))
 
 ;;;; Current repo detection
@@ -1197,6 +1199,82 @@ CALLBACK is called with a list of strings, or a cons \\=(error . MSG)."
                          "--jq" ".[].login")
                    (lambda (output) (split-string output "\n" t))
                    callback))
+
+(defun octocat--list-branches (repo callback)
+  "Fetch the branch names of REPO and call CALLBACK.
+CALLBACK is called with a list of strings, or a cons \\=(error . MSG)."
+  (octocat--run-gh "branches"
+                   (list "api" "--paginate"
+                         (format "repos/%s/branches?per_page=100" repo)
+                         "--jq" ".[].name")
+                   (lambda (output) (split-string output "\n" t))
+                   callback))
+
+(defun octocat--branch-candidates (names default local)
+  "Return branch NAMES ordered for a picker, as GitHub's branch dropdown.
+DEFAULT (the default branch) comes first, then LOCAL (the checked-out
+branch) when it was pushed, then the rest as given."
+  (let ((front (delete-dups (seq-filter (lambda (b) (and b (member b names)))
+                                        (list default local)))))
+    (append front (seq-difference names front))))
+
+(defun octocat--branch-note (branch default local)
+  "Return the picker annotation of BRANCH, given DEFAULT and LOCAL, or nil."
+  (cond ((equal branch default) "  default")
+        ((equal branch local)   "  checked out")))
+
+(defun octocat--async-branches (repo default local)
+  "Return a consult async stage listing the branches of REPO.
+The list cached on disk shows at once; the fetched one replaces it and
+is cached in turn.  DEFAULT and LOCAL order it (see
+`octocat--branch-candidates').  Input is not passed on: the completion
+style filters the list."
+  (lambda (sink)
+    (let (live)
+      (lambda (action)
+        (pcase action
+          ('setup
+           (setq live t)
+           (funcall sink 'setup)
+           (when-let* ((cached (plist-get (octocat--items-cache-load repo "branches" "all")
+                                          :items)))
+             (funcall sink (octocat--branch-candidates cached default local)))
+           (funcall sink [indicator running])
+           (octocat--list-branches
+            repo
+            (lambda (result)
+              (if (eq (car-safe result) 'error)
+                  (when live
+                    (funcall sink [indicator failed])
+                    (message "Octocat: %s" (cdr result)))
+                (octocat--items-cache-save repo "branches" "all" result)
+                (when live
+                  (funcall sink 'flush)
+                  (funcall sink (octocat--branch-candidates result default local))
+                  (funcall sink [indicator finished]))))))
+          ((or 'cancel 'destroy)
+           (setq live nil)
+           (funcall sink action))
+          ((pred stringp) nil)
+          (_ (funcall sink action)))))))
+
+(defun octocat--read-branch (repo default local shown)
+  "Prompt for a branch of REPO and return its name.
+DEFAULT and LOCAL are as in `octocat--branch-candidates'; SHOWN is the
+branch on screen, which an empty answer keeps."
+  (consult--read
+   (octocat--async-branches repo default local)
+   :prompt      (format "Branch (shown: %s): " shown)
+   :default     shown
+   :require-match t
+   :sort        nil
+   :category    'octocat-branch
+   :annotate    (lambda (b) (octocat--branch-note b default local))
+   ;; Without `consult--async-split', so the input filters the list.
+   :async-wrap  (lambda (async)
+                  (consult--async-pipeline async
+                                           (consult--async-indicator)
+                                           (consult--async-refresh)))))
 
 (provide 'octocat-core)
 ;;; octocat-core.el ends here

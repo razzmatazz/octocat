@@ -104,7 +104,8 @@ pre-seeded in the subtree cache, so no gh call is made."
   (with-temp-buffer
     (octocat-tree-tests--mount-tree [])
     (should (> (buffer-size) 0))
-    (should (string-match-p "owner/repo" (buffer-string)))))
+    (should (string-match-p "owner/repo" (buffer-string)))
+    (should (string-match-p "\\[main ▾\\]" (buffer-string)))))
 
 (ert-deftest octocat-tree-test-render-entries-mixed ()
   "The tree shows dirs before files and uses correct labels."
@@ -127,6 +128,34 @@ pre-seeded in the subtree cache, so no gh call is made."
         ;; Dir should appear before file in the buffer.
         (should (< (string-match "src" text)
                    (string-match "README.md" text)))))))
+
+(ert-deftest octocat-tree-test-entries-are-tab-stops ()
+  "Each entry is a button that RET runs; a directory expands in place."
+  (with-temp-buffer
+    (octocat-tree-tests--with-cache
+      (octocat-tree-mode)
+      (setq octocat-tree--subtree-cache
+            (list (cons "rootsha" (vector (octocat-tree-tests--entry "src" "tree" "srcsha")))
+                  (cons "srcsha"  (vector (octocat-tree-tests--entry "a.el" "blob" "b1")))))
+      (octocat-tree-tests--mount-root
+       (lambda (_repo _branch callback) (funcall callback "rootsha")))
+      (goto-char (point-min))
+      (forward-line 1)
+      (should (button-at (point)))
+      (should (equal (octocat-tree--path-at-point) "src"))
+      (octocat-tree-visit)
+      (vui-flush-sync)
+      (should (string-match-p "▾ src/" (buffer-string)))
+      (should (string-match-p "a\\.el" (buffer-string)))
+      (forward-line 1)
+      (should (button-at (next-button (line-beginning-position))))
+      (should (equal (octocat-tree--path-at-point) "src/a.el"))
+      (octocat-tree-up)
+      (should (equal (octocat-tree--path-at-point) "src"))
+      (octocat-tree-collapse-or-up)
+      (vui-flush-sync)
+      (should (string-match-p "▸ src/" (buffer-string)))
+      (should-error (octocat-tree-up) :type 'user-error))))
 
 (defconst octocat-tree-tests--file-log-commits-json
   (concat "[{\"sha\":\"a1b2c3d4e5f6\",\"author\":{\"login\":\"ann\"},"

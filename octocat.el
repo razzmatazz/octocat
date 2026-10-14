@@ -54,6 +54,7 @@
 
 ;; Buffer-locals of other files, used below.
 (defvar octocat-repo--repo)           ; defined as buffer-local in octocat-repo.el
+(defvar octocat-repo--branch)         ; likewise
 (defvar octocat-tree--repo)           ; defined as buffer-local in octocat-tree.el
 
 ;; Evil integration is optional; declare its entry point to silence the
@@ -543,7 +544,8 @@ mode with no local directory bound."
       (octocat-repo-mode))
     (setq octocat-repo--repo      repo
           octocat-repo--local-dir (and local-dir
-                                       (expand-file-name local-dir)))
+                                       (expand-file-name local-dir))
+          octocat-repo--branch    nil)
     (octocat-repo-refresh)))
 
 ;;;###autoload
