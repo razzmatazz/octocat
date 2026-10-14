@@ -117,7 +117,6 @@
             (should (equal (mapcar (lambda (c) (plist-get c :subject))
                                    (plist-get u :commits))
                            '("two" "one")))
-            (should (equal (plist-get u :branch) "main"))
             (should (equal (plist-get u :upstream) "origin/main"))
             (should (= (plist-get u :behind) 1))))
       (delete-directory root t))))

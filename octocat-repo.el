@@ -167,11 +167,10 @@ the remote points to a different repository."
 (defun octocat-repo--unpushed (dir)
   "Return the local commits in DIR not yet on GitHub, or nil when none.
 The result is a plist: :commits from `octocat-repo--parse-unpushed',
-newest first, :branch the local branch (nil when detached), :upstream
-the remote-tracking branch they are counted against (nil for a branch
-never pushed, counted against every origin branch), and
-:behind how many upstream commits HEAD lacks, as of the last fetch;
-non-zero means the branches diverged.  Reads git synchronously."
+newest first, :upstream the remote-tracking branch they are counted
+against (nil for a branch never pushed, counted against every origin
+branch), and :behind how many upstream commits HEAD lacks, as of the
+last fetch; non-zero means the branches diverged.  Reads git synchronously."
   (let* ((upstream (car (octocat-repo--git-lines
                          dir "rev-parse" "--abbrev-ref" "--symbolic-full-name" "@{u}")))
          (log      (append '("log" "--format=%H%x00%s")
@@ -182,7 +181,6 @@ non-zero means the branches diverged.  Reads git synchronously."
                     (apply #'octocat-repo--git-lines dir log))))
     (when commits
       (list :commits commits
-            :branch (car (octocat-repo--git-lines dir "symbolic-ref" "--short" "HEAD"))
             :upstream upstream
             :behind (if upstream
                         (string-to-number
@@ -687,17 +685,14 @@ commit is highlighted.  AUTHOR-W is the width of the author column, see
                      "RET: viewcommit")))
 
 
-(defun octocat-repo-vui--unpushed-row (commit branch)
+(defun octocat-repo-vui--unpushed-row (commit)
   "Return a line for COMMIT, a plist from `octocat-repo--parse-unpushed'.
-BRANCH, when non-nil, labels it as the branch tip, as magit does.  Not
-RET-able: the commit page reads from GitHub, which lacks it."
+Not RET-able: the commit page reads from GitHub, which lacks it."
   (let ((sha (plist-get commit :sha)))
     (vui-text
      (concat
       (propertize (substring sha 0 (min 7 (length sha))) 'face 'octocat-commit-sha)
       " "
-      (when branch
-        (concat (propertize branch 'face 'octocat-branch-current) " "))
       (plist-get commit :subject)))))
 
 
@@ -708,20 +703,18 @@ RET-able: the commit page reads from GitHub, which lacks it."
 
 (defun octocat-repo-vui--unpushed-section (unpushed)
   "Return the section listing UNPUSHED, from `octocat-repo--unpushed'.
-Titled as magit's.  It is apart from the commits section: the local
-branch need not be the default branch, nor sit on top of it."
+It is apart from the commits section: the local branch need not be the
+default branch, nor sit on top of it."
   (let ((commits (plist-get unpushed :commits))
         (behind  (plist-get unpushed :behind)))
     (vui-vstack
      (vui-text
-      (concat (propertize "Unmerged into " 'face 'octocat-section-heading)
+      (concat (propertize "Local commits not on " 'face 'octocat-section-heading)
               (propertize (or (plist-get unpushed :upstream) "origin") 'face 'octocat-branch)
               (propertize (format " (%d)" (length commits)) 'face 'octocat-section-heading)
               (when (> behind 0)
                 (propertize (format "  diverged, %d behind" behind) 'face 'octocat-dimmed))))
-     (apply #'vui-vstack
-            (octocat-repo-vui--unpushed-row (car commits) (plist-get unpushed :branch))
-            (mapcar (lambda (c) (octocat-repo-vui--unpushed-row c nil)) (cdr commits)))
+     (apply #'vui-vstack (mapcar #'octocat-repo-vui--unpushed-row commits))
      (vui-newline))))
 
 (vui-defcomponent octocat-repo-vui--commits-section
