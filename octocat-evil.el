@@ -114,11 +114,25 @@ insert a newline into it."
         (octocat-evil-list-edit-query)
       (call-interactively #'evil-ret))))
 
+(defconst octocat-evil--list-bindings
+  '(("RET"     . octocat-evil-list-ret)
+    ("C-c C-o" . octocat-vui-list-browse)
+    ("C-c C-r" . octocat-switch-repo)
+    ("C-c C-s" . octocat-search-repo)
+    ("gs"      . octocat-search-repo)
+    ("gr"      . revert-buffer)
+    ("/"       . octocat-evil-list-edit-query)
+    ("F"       . octocat-vui-list-filter)
+    ("q"       . quit-window))
+  "Normal-state bindings of the PR, issue and Actions list pages.")
+
 (defun octocat-evil--list-setup ()
-  "Bind RET for the query field of a list buffer.
-Buffer-local, as the field's keymap replaces the mode's keymap, and
-with it the mode's Evil bindings."
-  (evil-local-set-key 'normal (kbd "RET") #'octocat-evil-list-ret))
+  "Bind `octocat-evil--list-bindings' in the current list buffer.
+Buffer-local, as the query field's keymap replaces the mode's keymap,
+and with it the mode's Evil bindings: after ESC in the field, `q'
+would start recording a macro."
+  (pcase-dolist (`(,key . ,def) octocat-evil--list-bindings)
+    (evil-local-set-key 'normal (kbd key) def)))
 
 (defun octocat-evil--list-query-submitted ()
   "Leave insert state once the query field is submitted."
@@ -169,21 +183,12 @@ with it the mode's Evil bindings."
     (kbd "q")       #'quit-window)
 
   ;; ── PR / issue list pages and the Actions page ──────────────────────────────────
-  ;; vui.el-rendered like octocat-repo-mode, so the same rules apply.
-  ;; Bound on each derived mode's own map: Evil's auxiliary keymaps are
-  ;; not reliably found through the parent `octocat-vui-list-mode-map'.
+  ;; Normal state is bound per buffer by `octocat-evil--list-setup'.
+  ;; Motion state on each derived mode's own map: Evil's auxiliary keymaps
+  ;; are not reliably found through the parent `octocat-vui-list-mode-map'.
   (dolist (map (list octocat-pr-list-mode-map
                      octocat-issue-list-mode-map
                      octocat-actions-mode-map))
-    (evil-define-key* 'normal map
-      (kbd "C-c C-o") #'octocat-vui-list-browse
-      (kbd "C-c C-r") #'octocat-switch-repo
-      (kbd "C-c C-s") #'octocat-search-repo
-      (kbd "gs")      #'octocat-search-repo
-      (kbd "gr")      #'revert-buffer
-      (kbd "/")       #'octocat-evil-list-edit-query
-      (kbd "F")       #'octocat-vui-list-filter
-      (kbd "q")       #'quit-window)
     (evil-define-key* 'motion map
       (kbd "/")       #'octocat-evil-list-edit-query
       (kbd "F")       #'octocat-vui-list-filter))
