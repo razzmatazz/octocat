@@ -470,7 +470,11 @@ PATH is this directory's full repository path (\"\" for the root)."
                                       :entry entry :depth depth :parent path))
                      (lambda (entry)
                        (concat (gethash "type" entry) ":" (gethash "path" entry)))))))
-      (_ nil))))
+      (_ (vui-text (octocat-tree--skeleton indent))))))
+
+(defun octocat-tree--skeleton (indent)
+  "Return grey bars shaped like a few tree entries, each after INDENT."
+  (octocat-vui-skeleton (mapcar (lambda (n) (list indent "  " n)) '(14 22 10 18))))
 
 (vui-defcomponent octocat-tree--node (repo branch entry depth parent)
   "One tree ENTRY (hash-table) at nesting DEPTH, inside directory PARENT.
@@ -544,7 +548,8 @@ new TICK refetches it again."
        ;; below it is fetched lazily as directories are expanded.
        ('ready (vui-component 'octocat-tree--dir
                               :repo repo :branch branch :sha sha
-                              :depth 0 :path ""))))))
+                              :depth 0 :path ""))
+       (_ (vui-text (octocat-tree--skeleton "")))))))
 
 
 ;;;; Rendering — file mode
@@ -562,7 +567,8 @@ new TICK refetches it again."
             (or path "")
             "\n"
             (propertize (make-string 60 ?━) 'face 'octocat-dimmed)
-            "\n")))
+            "\n"
+            (octocat-vui-skeleton '((30) (46) ("  " 38) ("  " 24) (12))))))
 
 (defun octocat-tree--render-file (path content)
   "Render file PATH with fontified CONTENT in the current file buffer."
@@ -935,7 +941,8 @@ they keep working under Evil."
 (vui-defcomponent octocat-file-log--page (repo path commits text face)
   "The file log page: a REPO and PATH header, then COMMITS or TEXT.
 COMMITS is a list of commit hash-tables.  When TEXT is non-nil it is
-shown in FACE in place of the list (errors; \"\" while loading), and the
+shown in FACE in place of the list (errors; \"\" while loading, drawn
+as grey bars), and the
 header leaves out the commit count."
   :render
   (vui-vstack
@@ -948,9 +955,10 @@ header leaves out the commit count."
                         (propertize (format "(%d commits)" (length commits))
                                     'face 'octocat-dimmed)))))
    (cond
+    ((equal text "")
+     (vui-text (octocat-vui-line-skeleton "  ")))
     (text
-     (and (not (string-empty-p text))
-          (vui-text (propertize (concat "  " text) 'face face))))
+     (vui-text (propertize (concat "  " text) 'face face)))
     ((null commits)
      (vui-text (propertize "  (no commits found)" 'face 'octocat-dimmed)))
     (t

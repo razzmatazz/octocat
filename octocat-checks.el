@@ -252,7 +252,7 @@ CHECKS is a list of REST check-runs."
                              (when ref (concat "  " (propertize ref 'face 'octocat-branch)))))
            (vui-newline)
            (pcase (plist-get checks :status)
-             ('pending nil)
+             ('pending (list (vui-text (octocat-vui-line-skeleton "  "))))
              ('error   (list (vui-text (format "  Error: %s" (plist-get checks :error))
                                        :face 'error)))
              (_ (octocat-checks--list repo (plist-get checks :data)))))))

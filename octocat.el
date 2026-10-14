@@ -398,6 +398,7 @@ function turning the loaded data into the vnode of its rows."
   (vui-vstack
    (vui-text title :face 'octocat-section-heading)
    (pcase (plist-get result :status)
+     ('pending (vui-text (octocat-vui-line-skeleton "  ")))
      ('ready (let ((data (plist-get result :data)))
                (if (null data)
                    (vui-text (concat "  " empty) :face 'octocat-dimmed)
@@ -469,7 +470,8 @@ the fresh data arrives (stale-while-revalidate)."
             'load-more-feed octocat-feed-limit
             "RET / +: load more feed events"
             #'octocat-feed-load-more
-            (plist-get feed :refreshing)))))))))
+            (and (plist-get feed :refreshing) (< (length data) feed-limit))
+            nil (octocat-vui-line-skeleton)))))))))
 
 
 ;;;; Dashboard refresh

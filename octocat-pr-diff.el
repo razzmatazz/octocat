@@ -201,7 +201,7 @@ COMMENTS is the `vui-use-async' result for the review comments."
                        (when (eq (plist-get comments :status) 'ready)
                          (propertize (format " (%d)" n) 'face 'octocat-section-heading))))
      (pcase (plist-get comments :status)
-       ('pending nil)
+       ('pending (vui-text (octocat-vui-skeleton '(("  " 36)))))
        ('error   (vui-text (format "  %s" (plist-get comments :error)) :face 'octocat-dimmed))
        (_ (vui-text (if (zerop n)
                         "  (no review comments)"
@@ -242,7 +242,7 @@ COMMENTS is the `vui-use-async' result for the review comments."
                           :face 'octocat-dimmed)
                 (octocat-pr--tabs 'files repo number))))
      (pcase (plist-get files :status)
-       ('pending nil)
+       ('pending (vui-text (octocat-vui-skeleton '(("  " 40) ("  " 28) ("  " 34)))))
        ('error   (vui-text (format "  Error: %s" (plist-get files :error)) :face 'error))
        (_ (octocat-diff-files-section (plist-get files :data) by-path)))
      (vui-newline)

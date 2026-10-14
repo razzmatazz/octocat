@@ -440,7 +440,8 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
               'load-more-issues octocat-list-page-size
               "RET: load more issues"
               (lambda () (vui-set-state :limit (+ limit octocat-list-page-size)))
-              (plist-get result :refreshing) 0)))))))))
+              (and (plist-get result :refreshing) (< (length issues) limit)) 0
+              (octocat-vui-list-skeleton width))))))))))
 
 (defun octocat-issue-list-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current issue list buffer."

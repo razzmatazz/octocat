@@ -773,7 +773,7 @@ beyond the cache are fetched, a page at a time, pinned to that head."
                                           'octocat-branch)))
                   (propertize "Commits" 'face 'octocat-section-heading))))
      (pcase (plist-get result :status)
-       ('pending nil)
+       ('pending (vui-text (octocat-vui-line-skeleton)))
        ('error   (vui-text (format "%s" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
         (let ((shown (seq-take commits limit)))
@@ -792,7 +792,7 @@ beyond the cache are fetched, a page at a time, pinned to that head."
               "RET: load more commits"
               (lambda ()
                 (octocat-repo-vui--load-more-commits repo commits (+ limit size)))
-              fetching 0)))))))))
+              fetching 0 (octocat-vui-line-skeleton))))))))))
 
 (defun octocat-repo-vui--load-more-commits (repo commits limit)
   "Show LIMIT of COMMITS of REPO, fetching the next page when short.

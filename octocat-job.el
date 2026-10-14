@@ -551,7 +551,9 @@ unfolded, until the fresh data replaces it."
     (apply #'vui-vstack
            (octocat-vui-actions-top-row repo)
            (pcase (plist-get result :status)
-             ('pending (list (vui-text name :face 'octocat-run-job-name)))
+             ('pending (list (vui-text name :face 'octocat-run-job-name)
+                             (vui-newline)
+                             (vui-text (octocat-vui-line-skeleton "  "))))
              ('error   (list (vui-text (format "  Error: %s" (plist-get result :error))
                                        :face 'error)))
              (_ (let ((job (gethash "job" data)))

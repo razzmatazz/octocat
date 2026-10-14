@@ -131,10 +131,7 @@ the author, date and full SHA under it."
   "Return grey bars shaped like a commit page below its top row, cut to WIDTH.
 Shown when there is neither a cache nor a response yet: the subject,
 author and SHA rows, then a few changed files."
-  (let ((bar (lambda (n) (octocat-vui-skeleton-bar (min n (1- width))))))
-    (concat (funcall bar 48) "\n" (funcall bar 30) "\n" (funcall bar 44) "\n\n"
-            (mapconcat (lambda (n) (concat "  " (funcall bar (min n (- width 3)))))
-                       '(40 28) "\n"))))
+  (octocat-vui-skeleton '((48) (30) (44) nil ("  " 40) ("  " 28)) width))
 
 (defun octocat-commit--body (commit raw width)
   "Return the Message section of COMMIT: the message below its subject.
@@ -151,10 +148,10 @@ Nil when the message is the subject alone.  RAW and WIDTH are as for
 
 (defun octocat-commit--async-status (result empty)
   "Return a dimmed vnode for RESULT if it failed or is empty, else nil.
-EMPTY is the text shown when it is ready but has no data.  Nothing while
-it is pending: the mode line shows that."
+EMPTY is the text shown when it is ready but has no data.  Grey bars
+while it is pending."
   (pcase (plist-get result :status)
-    ('pending nil)
+    ('pending (vui-text (octocat-vui-skeleton '(("  " 40) ("  " 28)))))
     ('error   (vui-text (format "  %s" (plist-get result :error)) :face 'octocat-dimmed))
     (_ (and (zerop (length (plist-get result :data)))
             (vui-text (concat "  " empty) :face 'octocat-dimmed)))))

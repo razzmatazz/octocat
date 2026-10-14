@@ -236,7 +236,7 @@ AVATAR is a list of equally wide strings; the shorter list is padded."
     (vui-vstack
      (vui-text "Repositories" :face 'octocat-section-heading)
      (pcase (plist-get sticky :status)
-       ('pending nil)
+       ('pending (vui-text (octocat-vui-line-skeleton "  ")))
        ('error   (vui-text (format "%s" (plist-get sticky :error)) :face 'octocat-dimmed))
        ('ready
         (let ((repos (plist-get sticky :data)))
@@ -255,7 +255,8 @@ AVATAR is a list of equally wide strings; the shorter list is padded."
               'load-more-user-repos octocat-section-limit
               "RET: load more repositories"
               (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
-              (plist-get sticky :refreshing) 2)))))))))
+              (and (plist-get sticky :refreshing) (< (length repos) limit)) 2
+              (octocat-vui-line-skeleton))))))))))
 
 (vui-defcomponent octocat-user--pinned-section (login)
   "Pinned repositories of LOGIN, shown only when there are any.
@@ -304,9 +305,10 @@ time the window's width changes."
          (art    (cond ((= cols 0) nil)
                        (image (octocat-avatar-render
                                image cols nil octocat-user-avatar-style))
-                       ;; Keep the text where it will be while loading.
+                       ;; A grey block the size of the square avatar, so
+                       ;; the text stays put when it arrives.
                        ((and url (eq (plist-get result :status) 'pending))
-                        (list (make-string cols ?\s))))))
+                        (make-list (max 1 (/ cols 2)) (octocat-vui-skeleton-bar cols))))))
     (vui-vstack
      (mapcar (lambda (line) (vui-text line))
              (if art (octocat-user--beside art lines) lines)))))
@@ -332,7 +334,9 @@ time the window's width changes."
         (vui-vstack
          (vui-text (propertize (concat "@" login) 'face 'octocat-repo))
          (vui-text (format "%s" (plist-get result :error)) :face 'octocat-dimmed)))
-       (_ (vui-text (propertize (concat "@" login) 'face 'octocat-repo))))
+       (_ (vui-vstack
+           (vui-text (propertize (concat "@" login) 'face 'octocat-repo))
+           (vui-text (octocat-vui-skeleton '((24) (40) (18)))))))
      (vui-newline)
      (vui-component 'octocat-user--pinned-section :login login)
      (vui-component 'octocat-user--repos-section :login login))))

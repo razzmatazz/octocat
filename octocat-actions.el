@@ -68,7 +68,7 @@ TICK is the page's refresh tick."
      :title "Workflow Runs"
      :key 'workflow-runs :initially-expanded t :indent 0
      (pcase (plist-get result :status)
-       ('pending nil)
+       ('pending (vui-text (octocat-vui-line-skeleton)))
        ('error   (vui-text (format "%s\n" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
         (let* ((runs (plist-get result :data))
@@ -90,7 +90,8 @@ TICK is the page's refresh tick."
               'load-more-runs octocat-section-limit
               "RET: load more runs"
               (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
-              (plist-get result :refreshing) 0)))))))))
+              (and (plist-get result :refreshing) (< (length runs) limit)) 0
+              (octocat-vui-line-skeleton))))))))))
 
 (vui-defcomponent octocat-actions--workflows-section (repo tick)
   "Workflows section for REPO (no pagination: run history lives in
@@ -105,7 +106,7 @@ TICK is as for `octocat-actions--runs-section'."
     (vui-collapsible
      :title "Workflows" :key 'workflows :initially-expanded t :indent 0
      (pcase (plist-get result :status)
-       ('pending nil)
+       ('pending (vui-text (octocat-vui-line-skeleton)))
        ('error   (vui-text (format "%s\n" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
         (let ((workflows (plist-get result :data)))

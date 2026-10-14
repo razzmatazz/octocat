@@ -419,6 +419,14 @@ as in `(Compilation:run)`.  No loading text in the buffer.  Components
 call `octocat-vui-use-mode-line-loading`; other code sets
 `octocat-vui-mode-line-busy`.
 
+Anything that may load slowly holds its place with a **skeleton**: grey
+bars (`octocat-vui-skeleton-bar`, face `octocat-skeleton`) shaped like
+the content to come, so the layout doesn't jump when it arrives.  A
+page with no cache shows one for its body (`octocat-vui-list-skeleton`,
+`octocat-vui-detail-skeleton`); a page of rows being fetched shows one
+under the list (see "Revealing more rows" below).  A cached paint needs
+none: stale content stands in until fresh data replaces it.
+
 ---
 
 ## Revealing more rows ("Load N more…")
@@ -438,6 +446,11 @@ page.
   items *before* the call, so columns do not shift while rows appear.
 - Keep the load-more button below the list, with its `:key`, so point stays
   on it while the rows unfold.
+- While the page is fetched, pass the button LOADING -- that page is on
+  the way, not merely a background refresh -- and a SKELETON shaped like
+  the rows (`octocat-vui-list-skeleton`, `octocat-vui-line-skeleton`).
+  The skeleton unfolds above the button, then folds away as the rows
+  unfold: nothing → skeleton → rows, never a jump.
 - Folded text uses the same constants through `octocat-timeline-fold`;
   tune the pace in `octocat-vui.el` and both follow.
 

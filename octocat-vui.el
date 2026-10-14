@@ -151,68 +151,81 @@ fresh data arrives, instead of flashing a \"Loading…\" placeholder."
   "Return a grey bar N columns wide (at least one) standing in for content."
   (propertize (make-string (max 1 n) ?\s) 'face 'octocat-skeleton))
 
+(defun octocat-vui-skeleton (rows &optional width)
+  "Return ROWS of grey bars, each cut short of WIDTH when it is given.
+A row is a list of bar widths and literal strings, such as an indent or
+a dimmed marker; nil is an empty line."
+  (mapconcat (lambda (row)
+               (let ((line (mapconcat (lambda (x)
+                                        (if (numberp x) (octocat-vui-skeleton-bar x) x))
+                                      row "")))
+                 (if width (truncate-string-to-width line (max 10 (1- width))) line)))
+             rows "\n"))
+
 (defun octocat-vui-detail-skeleton (repo number width)
-  "Return grey bars shaped like the issue or PR NUMBER of REPO.
+  "Return grey bars shaped like the issue or PR NUMBER of REPO, cut to WIDTH.
 Shown when there is neither a cache nor a response yet: the header and
-the opening timeline entry, laid out as the real page lays them out,
-with no bar wider than WIDTH."
-  (let* ((indent (+ octocat-repo-vui--state-width 2))
-         (bar (lambda (n) (octocat-vui-skeleton-bar (min n (- width indent)))))
-         (body (lambda (n) (concat "  " (propertize "│" 'face 'octocat-dimmed)
-                                   " " (funcall bar n) "\n"))))
-    (concat (propertize repo 'face 'octocat-repo)
-            (propertize (format "#%d" number) 'face 'octocat-pr-number) "\n"
-            (truncate-string-to-width
-             (concat (funcall bar octocat-repo-vui--state-width) "  "
-                     (funcall bar 44) "  " (funcall bar 16))
-             width)
-            "\n"
-            (make-string indent ?\s) (funcall bar 32) "\n\n"
-            "  " (propertize "●" 'face 'octocat-dimmed) " " (funcall bar 36) "\n"
-            (funcall body 64) (funcall body 58) (funcall body 40))))
+the opening timeline entry, laid out as the real page lays them out."
+  (let ((state  octocat-repo-vui--state-width)
+        (indent (make-string (+ octocat-repo-vui--state-width 2) ?\s))
+        (rail   (concat "  " (propertize "│" 'face 'octocat-dimmed) " ")))
+    (octocat-vui-skeleton
+     `((,(propertize repo 'face 'octocat-repo)
+        ,(propertize (format "#%d" number) 'face 'octocat-pr-number))
+       (,state "  " 44 "  " 16)
+       (,indent 32)
+       nil
+       ("  " ,(propertize "●" 'face 'octocat-dimmed) " " 36)
+       (,rail 64) (,rail 58) (,rail 40)
+       nil)
+     width)))
 
 (defun octocat-vui-list-skeleton (width)
   "Return grey bars shaped like a page of two-line list rows, cut to WIDTH.
 Shown when there is neither a cache nor a response yet; see
 `octocat-repo-vui--item-row' for the layout it imitates."
-  (let* ((indent (+ octocat-repo-vui--state-width 2))
-         (cap (max 10 (1- width)))
-         (bar #'octocat-vui-skeleton-bar))
-    (mapconcat
-     (lambda (title)
-       (concat (truncate-string-to-width
-                (concat (funcall bar octocat-repo-vui--state-width) "  "
-                        (funcall bar title) "  " (funcall bar 16))
-                cap)
-               "\n"
-               (truncate-string-to-width
-                (concat (make-string indent ?\s) (funcall bar (- title 12)))
-                cap)))
-     '(44 30)
-     "\n")))
+  (let ((state  octocat-repo-vui--state-width)
+        (indent (make-string (+ octocat-repo-vui--state-width 2) ?\s)))
+    (octocat-vui-skeleton
+     `((,state "  " 44 "  " 16) (,indent 32)
+       (,state "  " 30 "  " 16) (,indent 18))
+     width)))
 
-(defun octocat-vui-load-more-button (key count help-echo on-click &optional loading indent)
+(defun octocat-vui-line-skeleton (&optional indent)
+  "Return grey bars shaped like a few one-line rows: an id, a title, a date.
+INDENT, a string, starts each row."
+  (let ((indent (or indent "")))
+    (octocat-vui-skeleton (mapcar (lambda (title) (list indent 7 "  " title "  " 12))
+                                  '(44 30 38)))))
+
+(defun octocat-vui-load-more-button (key count help-echo on-click
+                                         &optional loading indent skeleton)
   "Return a \"Load COUNT more…\" vui-button with HELP-ECHO, invoking ON-CLICK.
 KEY is a per-section symbol: it is the button's cursor identity, so point
 stays on this section's button when growing the list re-renders it
 instead of drifting to a neighbouring section's button.
-When LOADING is non-nil (a page is being fetched, see
-`octocat-vui-use-async-sticky') the button is disabled so it cannot be
-triggered twice; its label stays put, since the mode line shows the
-activity (see `octocat-vui-use-mode-line-loading').
+LOADING is non-nil while the next page is fetched: the button is
+disabled so it cannot be triggered twice, and SKELETON, grey bars
+shaped like the rows (see `octocat-vui-list-skeleton'), unfolds above
+it, folding away as the page's rows unfold.
 Rows carry no trailing newline (`vui-list' only separates them), so the
-button starts on a fresh line and carries the same indent, INDENT columns
-\(default two).  The flush-left list pages pass 0."
-  (vui-fragment
-   (vui-newline)
-   (vui-text (make-string (or indent 2) ?\s))
-   (vui-button (format "[+] Load %d more…" count)
-               :no-decoration t
-               :face 'octocat-dimmed
-               :key key
-               :disabled loading
-               :help-echo (if loading nil help-echo)
-               :on-click on-click)))
+skeleton and the button start on a fresh line and carry the same indent,
+INDENT columns \(default two).  The flush-left list pages pass 0."
+  (let ((pad (make-string (or indent 2) ?\s)))
+    (vui-fragment
+     (when skeleton
+       (vui-component 'octocat-vui-unfolding-text
+                      :text (concat "\n" pad (string-replace "\n" (concat "\n" pad) skeleton))
+                      :open (and loading t)))
+     (vui-newline)
+     (vui-text pad)
+     (vui-button (format "[+] Load %d more…" count)
+                 :no-decoration t
+                 :face 'octocat-dimmed
+                 :key key
+                 :disabled loading
+                 :help-echo (if loading nil help-echo)
+                 :on-click on-click))))
 
 (defmacro octocat-vui-use-timer (deps interval active &rest body)
   "Run BODY every INTERVAL seconds while ACTIVE, tied to the component.
@@ -312,25 +325,39 @@ fold that mounts while BULK says open starts open, without animating."
   (let* ((active (or open (> shown 0)))
          (body   (vui-use-memo (deps active) (and active (funcall prepare))))
          (total  (or (car body) 0))
-         (target (if open total 0))
-         (moving (/= shown target))
          (toggle (vui-async-callback () (vui-set-state :open (not open))))
          (set-open (vui-async-callback (v) (vui-set-state :open v))))
     (vui-use-effect (bulk)
       (when bulk (funcall set-open (cdr bulk)))
       nil)
-    (let ((now (min shown total)))
-      (octocat-vui-use-timer (moving open total) octocat-vui-unfold-interval moving
-        (setq now (if open
-                      (octocat-vui-unfold-step now 0 total)
-                    (octocat-vui-unfold-step now total 0)))
-        (vui-set-state :shown now)
-        ;; Done at the target: setting the same value again would not
-        ;; re-render, so the timer would never be cleaned up.
-        (/= now target)))
-    (apply #'vui-vstack
-           (funcall header open toggle)
-           (and body (> shown 0) (funcall (cdr body) (min shown total))))))
+    (let ((now (octocat-vui-use-unfold shown open total)))
+      (apply #'vui-vstack
+             (funcall header open toggle)
+             (and body (> now 0) (funcall (cdr body) now))))))
+
+(defun octocat-vui-use-unfold (shown open total)
+  "Step the calling component's :shown state, SHOWN, towards TOTAL lines.
+Towards 0 when OPEN is nil; return how many lines to show now.  Must be
+called during render, like any hook."
+  (let* ((now    (min shown total))
+         (target (if open total 0))
+         (moving (/= now target)))
+    (octocat-vui-use-timer (moving open total) octocat-vui-unfold-interval moving
+      (setq now (octocat-vui-unfold-step now (- total target) target))
+      (vui-set-state :shown now)
+      ;; Done at the target: setting the same value again would not
+      ;; re-render, so the timer would never be cleaned up.
+      (/= now target))
+    now))
+
+(vui-defcomponent octocat-vui-unfolding-text (text open)
+  "TEXT, unfolding line by line when OPEN turns non-nil, folding back when nil.
+It moves as `octocat-vui-fold' does, and mounts at rest."
+  :state ((shown (if open most-positive-fixnum 0)))
+  :render
+  (let* ((ends (octocat-vui-line-ends text))
+         (now  (octocat-vui-use-unfold shown open (1+ (length ends)))))
+    (and (> now 0) (vui-text (octocat-vui-take-lines text ends now)))))
 
 (defun octocat-vui-expand-all-button (bulk on-click)
   "Return an \"[Expand all]\" button, \"[Collapse all]\" once pressed.

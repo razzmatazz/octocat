@@ -244,7 +244,9 @@ data replaces it."
     (apply #'vui-vstack
            (octocat-vui-actions-top-row repo)
            (pcase (plist-get run :status)
-             ('pending (list (vui-text (format "run %s" run-id) :face 'octocat-dimmed)))
+             ('pending (list (vui-text (format "run %s" run-id) :face 'octocat-dimmed)
+                             (vui-newline)
+                             (vui-text (octocat-vui-line-skeleton "  "))))
              ('error   (list (vui-text (format "  Error: %s" (plist-get run :error))
                                        :face 'error)))
              (_ (append (octocat-run--header data local-branch)

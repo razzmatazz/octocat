@@ -947,7 +947,8 @@ background."
               'load-more-prs octocat-list-page-size
               "RET: load more pull requests"
               (lambda () (vui-set-state :limit (+ limit octocat-list-page-size)))
-              (plist-get result :refreshing) 0)))))))))
+              (and (plist-get result :refreshing) (< (length prs) limit)) 0
+              (octocat-vui-list-skeleton width))))))))))
 
 (defun octocat-pr-list-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current PR list buffer."

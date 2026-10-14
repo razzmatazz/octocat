@@ -70,6 +70,12 @@
     (dolist (line (split-string text "\n"))
       (should (<= (string-width line) 29)))))
 
+(ert-deftest octocat-vui-test-line-skeleton ()
+  "The line skeleton draws one-line rows of grey bars."
+  (let ((text (octocat-vui-line-skeleton)))
+    (should (text-property-any 0 (length text) 'face 'octocat-skeleton text))
+    (should (> (length (split-string text "\n")) 1))))
+
 (ert-deftest octocat-vui-test-mode-line-loading ()
   "The mode line shows :loading while any component of the buffer loads."
   (with-temp-buffer

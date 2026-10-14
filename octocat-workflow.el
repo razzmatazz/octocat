@@ -175,7 +175,7 @@ The latest of RUNS gives the status icon after the state."
 (defun octocat-workflow--runs (repo runs more on-more loading)
   "Return the vnodes of the section listing each workflow run of REPO.
 RUNS is the list of them.  MORE says a further page may exist, loaded
-by ON-MORE; LOADING disables its button while a page is fetched."
+by ON-MORE; LOADING is non-nil while that page is fetched."
   (cons
    (vui-text (propertize (format "%d workflow runs" (length runs))
                          'face 'octocat-section-heading))
@@ -190,7 +190,8 @@ by ON-MORE; LOADING disables its button while a page is fetched."
               (when more
                 (octocat-vui-load-more-button
                  'load-more-runs octocat-workflow-runs-limit
-                 "RET: load more runs" on-more loading))))))))
+                 "RET: load more runs" on-more loading nil
+                 (octocat-vui-line-skeleton)))))))))
 
 (defun octocat-workflow--cache-pair (cached)
   "Return the disk-cache hash-table CACHED as (WORKFLOW . RUN-LIST), or nil."
@@ -230,7 +231,8 @@ by ON-MORE; LOADING disables its button while a page is fetched."
     (apply #'vui-vstack
            (octocat-vui-actions-top-row repo)
            (pcase (plist-get result :status)
-             ('pending (list (vui-text name)))
+             ('pending (list (vui-text name) (vui-newline)
+                             (vui-text (octocat-vui-line-skeleton))))
              ('error   (list (vui-text (format "  Error: %s" (plist-get result :error))
                                        :face 'error)))
              (_ (let* ((data (plist-get result :data))
@@ -241,7 +243,8 @@ by ON-MORE; LOADING disables its button while a page is fetched."
                            repo runs
                            (or (plist-get result :refreshing) (>= (length runs) limit))
                            (lambda () (vui-set-state :limit (+ limit octocat-workflow-runs-limit)))
-                           (plist-get result :refreshing)))))))))
+                           (and (plist-get result :refreshing)
+                                (< (length runs) limit))))))))))
 
 
 ;;;; Major mode
