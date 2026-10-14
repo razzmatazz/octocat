@@ -749,9 +749,10 @@ for pulls) from one API call, or nil for no counts."
 ;; The PR and issue pages are filtered by a GitHub search query string
 ;; (see octocat-core.el, "List filters"), kept in `octocat-vui-list--query'
 ;; and edited in a field above the list (`/' moves into it), with
-;; completion for the usual qualifiers; the State / Author / Assignee /
-;; Label buttons (or `F') edit single qualifiers through a toggle prompt:
-;; choosing an item checks it, choosing a checked item unchecks it.
+;; completion for the usual qualifiers; the State / Author / Assignee
+;; buttons (or `F') edit single qualifiers through a toggle prompt:
+;; choosing an item checks it, choosing the checked item unchecks it.
+;; The Label button reads all labels at once, comma-separated.
 ;; Either way the buffer is refreshed with the new query.
 
 (defvar-local octocat-vui-list--query nil
@@ -826,42 +827,43 @@ for pulls) from one API call, or nil for no counts."
    query (lambda (tok) (string-prefix-p prefix tok))
    (mapcar (lambda (v) (concat prefix (octocat-vui-list--quote v))) values)))
 
-(defun octocat-vui-list--toggle-read (prompt candidates selected multi)
-  "Read values by toggling CANDIDATES; return the new list of selected values.
-PROMPT names what is being chosen.  SELECTED are the initially checked
-values.  Items are shown with a
-trailing check mark when selected, checked ones first.  Choosing an item
-toggles it; free text not in CANDIDATES is added as a new checked value.
-With MULTI the prompt repeats until an empty answer; otherwise it
-returns after the first choice, and choosing the checked item clears it."
-  (let ((all (delete-dups (append selected candidates)))
-        (selected selected)
-        (done nil))
-    (while (not done)
-      (let* ((items (append (seq-filter (lambda (c) (member c selected)) all)
-                            (seq-remove (lambda (c) (member c selected)) all)))
-             (marked (mapcar (lambda (c) (if (member c selected) (concat c " ✓") c))
-                             items))
-             (table (lambda (string pred action)
-                      (if (eq action 'metadata)
-                          '(metadata (display-sort-function . identity)
-                                     (cycle-sort-function . identity))
-                        (complete-with-action action marked string pred))))
-             (choice (string-trim
-                      (completing-read
-                       (format "%s (✓ = selected%s): " prompt
-                               (if multi ", empty = done" ""))
-                       table nil nil)))
-             (value (string-remove-suffix " ✓" choice)))
-        (cond
-         ((string-empty-p choice) (setq done t))
-         (t
-          (unless (member value all) (setq all (append all (list value))))
-          (setq selected (if (member value selected)
-                             (delete value selected)
-                           (if multi (append selected (list value)) (list value))))
-          (unless multi (setq done t))))))
-    selected))
+(defun octocat-vui-list--toggle-read (prompt candidates selected)
+  "Read one of CANDIDATES; return it in a list, or nil to clear it.
+PROMPT names what is being chosen.  SELECTED is the currently chosen
+value, shown first with a trailing check mark; choosing it clears it,
+an empty answer keeps it.  Free text not in CANDIDATES is accepted as a
+new value."
+  (let* ((all (let ((all (delete-dups (append candidates selected))))
+                (append (seq-filter (lambda (c) (member c selected)) all)
+                        (seq-remove (lambda (c) (member c selected)) all))))
+         (marked (mapcar (lambda (c) (if (member c selected) (concat c " ✓") c))
+                         all))
+         (table (lambda (string pred action)
+                  (if (eq action 'metadata)
+                      '(metadata (display-sort-function . identity)
+                                 (cycle-sort-function . identity))
+                    (complete-with-action action marked string pred))))
+         (value (string-remove-suffix
+                 " ✓" (string-trim
+                       (completing-read (format "%s (✓ = selected): " prompt)
+                                        table nil nil)))))
+    (cond ((string-empty-p value) selected)
+          ((member value selected) nil)
+          (t (list value)))))
+
+(defun octocat-vui-list--read-multiple (prompt candidates selected)
+  "Read values from CANDIDATES in one prompt; return the list of them.
+PROMPT names what is being chosen.  SELECTED are the current values,
+given as initial input so RET alone keeps them."
+  (delete-dups
+   (seq-remove #'string-empty-p
+               (mapcar #'string-trim
+                       (completing-read-multiple
+                        (format "%s (comma-separated): " prompt)
+                        ;; Candidates first, keeping their faces over
+                        ;; the plain selected strings.
+                        (delete-dups (append candidates selected)) nil nil
+                        (and selected (concat (string-join selected ",") ",")))))))
 
 (defun octocat-vui-list--check-filterable ()
   "Signal a `user-error' unless the current buffer is a filterable list."
@@ -911,7 +913,8 @@ See `octocat-vui-list--qualifiers'."
 (defun octocat-vui-list--edit-facet (prefix prompt multi fetch extra)
   "Toggle the PREFIX qualifier of the query through a prompt named PROMPT.
 Candidates come from FETCH (`octocat--list-labels' or
-`octocat--list-people') plus EXTRA.  MULTI allows several values.  The
+`octocat--list-people') plus EXTRA.  MULTI allows several values,
+read with `octocat-vui-list--read-multiple'.  The
 fetch is asynchronous; the prompt opens once it completes, outside the
 process sentinel.  A failed fetch only logs a message, leaving free text
 as the way to enter a value."
@@ -929,10 +932,12 @@ as the way to enter a value."
                         (let* ((names (if (eq (car-safe result) 'error)
                                           (progn (message "Octocat: %s" (cdr result)) nil)
                                         (append extra result)))
-                               (picked (octocat-vui-list--toggle-read
+                               (picked (funcall
+                                        (if multi
+                                            #'octocat-vui-list--read-multiple
+                                          #'octocat-vui-list--toggle-read)
                                         prompt names
-                                        (octocat-vui-list--values query prefix)
-                                        multi)))
+                                        (octocat-vui-list--values query prefix))))
                           (octocat-vui-list--apply
                            (octocat-vui-list--with-values
                             (octocat-vui-list-query) prefix picked))))))))))))
@@ -944,7 +949,7 @@ as the way to enter a value."
   (let* ((query  (octocat-vui-list-query))
          (picked (octocat-vui-list--toggle-read
                   "State" octocat-vui-list--states
-                  (list (octocat-vui-list--state query)) nil)))
+                  (list (octocat-vui-list--state query)))))
     (octocat-vui-list--apply
      (octocat-vui-list--with-state query (or (car picked) "all")))))
 

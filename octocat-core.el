@@ -163,18 +163,23 @@ truncated with a trailing ellipsis (…)."
     ;; Perceived luminance (ITU-R BT.601), 0-255.
     (if (> (+ (* 0.299 r) (* 0.587 g) (* 0.114 b)) 150) "black" "white")))
 
+(defun octocat--label-face (label)
+  "Return the face of GitHub LABEL hash-table, or nil without a valid colour.
+The background is the label's own GitHub colour, with a black or white
+foreground chosen for contrast."
+  (let ((c (gethash "color" label)))
+    (and (stringp c) (string-match-p "\\`[0-9a-fA-F]\\{6\\}\\'" c)
+         `(:background ,(concat "#" c)
+           :foreground ,(octocat--label-foreground c)))))
+
 (defun octocat--format-label (label)
   "Return a propertized chip string for GitHub LABEL hash-table.
-The chip is coloured with the label's own GitHub colour, with a black or
-white foreground chosen for contrast.  Without a valid colour it falls
-back to the `octocat-branch' face."
-  (let* ((name  (or (gethash "name" label) ""))
-         (color (let ((c (gethash "color" label)))
-                  (and (stringp c) (string-match-p "\\`[0-9a-fA-F]\\{6\\}\\'" c) c))))
-    (if color
-        (propertize (concat " " name " ")
-                    'face `(:background ,(concat "#" color)
-                            :foreground ,(octocat--label-foreground color)))
+See `octocat--label-face'; without a colour it falls back to the
+`octocat-branch' face."
+  (let ((name (or (gethash "name" label) ""))
+        (face (octocat--label-face label)))
+    (if face
+        (propertize (concat " " name " ") 'face face)
       (propertize name 'face 'octocat-branch))))
 
 (defun octocat--format-labels (labels)
@@ -1168,14 +1173,19 @@ in `octocat--parse-counts', or a cons \\=(error . MSG).  One API call."
 
 (defun octocat--list-labels (repo callback)
   "Fetch the label names of REPO asynchronously and call CALLBACK.
-CALLBACK is called with a list of strings, or a cons \\=(error . MSG)."
+CALLBACK is called with a list of strings, each in its label's face so
+completion shows the colours, or a cons \\=(error . MSG)."
   (octocat--run-gh "labels"
                    (list "label" "list"
                          "--repo" repo
                          "--limit" "200"
-                         "--json" "name")
+                         "--json" "name,color")
                    (lambda (output)
-                     (mapcar (lambda (h) (gethash "name" h))
+                     (mapcar (lambda (h)
+                               (let ((face (octocat--label-face h)))
+                                 (if face
+                                     (propertize (gethash "name" h) 'face face)
+                                   (gethash "name" h))))
                              (octocat--parse-json-list output)))
                    callback))
 
