@@ -29,6 +29,8 @@
 
 ;;; Code:
 
+(require 'cl-lib)
+(require 'seq)
 (require 'octocat-core)
 (require 'octocat-checks)
 (require 'octocat-commit)
@@ -278,34 +280,130 @@ none.  DELETE non-nil deletes the head branch as well."
                     "--body" (string-trim (mapconcat #'identity (cdr lines) "\n"))))
             (and delete (list "--delete-branch")))))
 
-(defun octocat-pr--merge-status (pr)
-  "Return the merge box of open PR as (TEXT FACE CAN-MERGE).
-CAN-MERGE is nil only when GitHub would refuse it outright: a draft or a
-conflict.  A blocked merge may still pass with admin rights."
-  (let ((review (pcase (octocat-timeline--get pr "reviewDecision")
-                  ("APPROVED"          "Approved")
-                  ("CHANGES_REQUESTED" "Changes requested")
-                  ("REVIEW_REQUIRED"   "Review required"))))
-    (let ((with-review (lambda (text) (if review (concat text " · " review) text))))
+(defun octocat-pr--check-counts (rollup)
+  "Return the outcome tally of ROLLUP: (FAILING PENDING SKIPPED SUCCESSFUL).
+ROLLUP is a `statusCheckRollup' vector; outcomes are as in
+`octocat--checks-ci-status'."
+  (let ((counts (list 0 0 0 0)))
+    (seq-doseq (c rollup)
+      (let ((outcome (upcase (or (octocat--nonempty (gethash "conclusion" c))
+                                 (octocat--nonempty (gethash "state" c))
+                                 "PENDING"))))
+        (cl-incf (nth (cond ((member outcome '("SUCCESS" "NEUTRAL")) 3)
+                            ((equal outcome "SKIPPED") 2)
+                            ((member outcome '("PENDING" "EXPECTED" "QUEUED"
+                                               "IN_PROGRESS" "WAITING"))
+                             1)
+                            (t 0))
+                      counts))))
+    counts))
+
+(defun octocat-pr--merge-icon (kind)
+  "Return the merge box icon of KIND: `ok', `fail' or `wait'."
+  (pcase kind
+    ('ok   (propertize "✓" 'face 'octocat-ci-success))
+    ('fail (propertize "✗" 'face 'octocat-ci-failure))
+    (_     (propertize "●" 'face 'octocat-ci-pending))))
+
+(defun octocat-pr--merge-rows (pr)
+  "Return the status rows of PR's merge box, as GitHub words them.
+Each is (KIND TITLE SUBTITLE CHECKS), KIND as for `octocat-pr--merge-icon'
+and SUBTITLE nil or a line under TITLE; CHECKS marks the row of the
+checks, under which they are listed."
+  (let* ((checks  (or (octocat-timeline--get pr "statusCheckRollup") []))
+         (counts  (octocat-pr--check-counts checks))
+         (approvals (seq-count (lambda (r) (equal (gethash "state" r) "APPROVED"))
+                               (or (octocat-timeline--get pr "latestReviews") []))))
+    (delq nil
+     (list
+      (pcase (octocat-timeline--get pr "reviewDecision")
+        ("APPROVED"
+         (list 'ok "Changes approved"
+               (format "%d approving review%s" approvals (if (= approvals 1) "" "s"))))
+        ("CHANGES_REQUESTED"
+         (list 'fail "Changes requested"
+               "Changes must be addressed before merging."))
+        ("REVIEW_REQUIRED"
+         (list 'fail "Review required"
+               "At least 1 approving review is required by reviewers with write access.")))
+      (unless (zerop (length checks))
+        (list (cond ((> (nth 0 counts) 0) 'fail) ((> (nth 1 counts) 0) 'wait) (t 'ok))
+              (cond ((> (nth 0 counts) 0) "Some checks were not successful")
+                    ((> (nth 1 counts) 0) "Some checks haven't completed yet")
+                    (t "All checks have passed"))
+              (concat (mapconcat #'identity
+                                 (delq nil (cl-mapcar (lambda (n label)
+                                                        (and (> n 0) (format "%d %s" n label)))
+                                                      counts
+                                                      '("failing" "in progress" "skipped" "successful")))
+                                 ", ")
+                      (if (= (length checks) 1) " check" " checks"))
+              t))
       (cond
-       ((eq (gethash "isDraft" pr) t)
-        (list "This pull request is still a draft" 'octocat-dimmed nil))
-       ((or (equal (octocat-timeline--get pr "mergeable") "CONFLICTING")
-            (equal (octocat-timeline--get pr "mergeStateStatus") "DIRTY"))
-        (list "✗ This branch has conflicts that must be resolved" 'octocat-ci-failure nil))
-       (t
-        (pcase (octocat-timeline--get pr "mergeStateStatus")
-          ((or "CLEAN" "HAS_HOOKS")
-           (list (funcall with-review "✓ Ready to merge") 'octocat-ci-success t))
-          ("BEHIND"
-           (list (funcall with-review "● This branch is out-of-date with the base branch")
-                 'octocat-ci-pending t))
-          ("BLOCKED"
-           (list (funcall with-review "● Merging is blocked") 'octocat-ci-pending t))
-          ("UNSTABLE"
-           (list (funcall with-review "● Some checks were not successful") 'octocat-ci-pending t))
-          (_ (list (funcall with-review "Checking whether this branch can be merged…")
-                   'octocat-dimmed t))))))))
+       ((octocat-pr--conflicts-p pr)
+        (list 'fail "This branch has conflicts that must be resolved"
+              "Use the web editor or the command line to resolve conflicts."))
+       ((equal (octocat-timeline--get pr "mergeStateStatus") "BEHIND")
+        (list 'wait "This branch is out-of-date with the base branch"
+              (format "Merge the latest changes from %s into this branch."
+                      (or (gethash "baseRefName" pr) "the base branch"))))
+       ((equal (octocat-timeline--get pr "mergeable") "MERGEABLE")
+        (list 'ok "No conflicts with base branch"))
+       (t (list 'wait "Checking for the ability to merge automatically…")))))))
+
+(defun octocat-pr--conflicts-p (pr)
+  "Return non-nil when PR conflicts with its base branch."
+  (or (equal (octocat-timeline--get pr "mergeable") "CONFLICTING")
+      (equal (octocat-timeline--get pr "mergeStateStatus") "DIRTY")))
+
+(defun octocat-pr--merge-refusal (pr)
+  "Return why PR cannot be merged at all, or nil.
+A blocked merge is not refused: it may pass with admin rights."
+  (cond ((eq (gethash "isDraft" pr) t) "Draft pull requests cannot be merged.")
+        ((octocat-pr--conflicts-p pr) "This branch has conflicts that must be resolved")))
+
+(defun octocat-pr--merge-section (pr on-visit-check)
+  "Return the vnodes of the merge box of open PR, or nil.
+Like GitHub's, it holds the review, checks and conflict status, then
+the merge (or, for a draft, the ready for review) button.
+ON-VISIT-CHECK is called by RET on a check."
+  (when (equal (gethash "state" pr) "OPEN")
+    (let ((draft  (eq (gethash "isDraft" pr) t))
+          (checks (or (octocat-timeline--get pr "statusCheckRollup") [])))
+      (append
+       (list (vui-text "Merge" :face 'octocat-section-heading))
+       (mapcan (lambda (row)
+                 (pcase-let ((`(,kind ,title ,subtitle ,checks-p) row))
+                   (delq nil
+                         (list (vui-text (concat "  " (octocat-pr--merge-icon kind) " " title))
+                               (and subtitle
+                                    (vui-text (concat "    " subtitle) :face 'octocat-dimmed))
+                               (and checks-p
+                                    (octocat-checks-rows checks on-visit-check "    "))))))
+               (octocat-pr--merge-rows pr))
+       (list (vui-newline))
+       (if draft
+           (append
+            (list (vui-text "  This pull request is still a work in progress" :face 'bold)
+                  (vui-text "  Draft pull requests cannot be merged." :face 'octocat-dimmed))
+            (octocat-timeline-buttons
+             '(("Ready for review" "RET: mark this pull request ready for review"
+                octocat-pr-ready))
+             'tight))
+         (append
+          (unless (octocat-pr--conflicts-p pr)
+            (list
+             (if (equal (octocat-timeline--get pr "mergeStateStatus") "BLOCKED")
+                 (vui-text "  Merging is blocked" :face 'octocat-ci-failure)
+               (vui-text "  Merging can be performed automatically."
+                         :face 'octocat-dimmed))))
+          (octocat-timeline-buttons
+           (list (and (not (octocat-pr--conflicts-p pr))
+                      '("Merge pull request" "RET: merge this pull request"
+                        octocat-pr-merge))
+                 '("Still in progress? Convert to draft"
+                   "RET: convert this pull request to a draft" octocat-pr-convert-to-draft))
+           'tight)))))))
 
 (defun octocat-pr--merge-data (method methods defaults delete)
   "Return the merge dialog's user data for METHOD, one of METHODS.
@@ -427,14 +525,14 @@ is the confirmation."
   (interactive)
   (unless (and octocat--pr-repo octocat--pr-number)
     (user-error "Octocat: Buffer is not associated with a pull request"))
-  (let* ((pr     (octocat--detail-cache-load octocat--pr-repo "pr" octocat--pr-number))
-         (status (and pr (octocat-pr--merge-status pr)))
-         (source (current-buffer)))
+  (let* ((pr      (octocat--detail-cache-load octocat--pr-repo "pr" octocat--pr-number))
+         (refusal (and pr (octocat-pr--merge-refusal pr)))
+         (source  (current-buffer)))
     (cond
      ((not pr) (user-error "Octocat: PR not loaded yet"))
      ((not (equal (gethash "state" pr) "OPEN"))
       (user-error "Octocat: PR #%d is not open" octocat--pr-number))
-     ((not (nth 2 status)) (user-error "Octocat: %s" (car status))))
+     (refusal (user-error "Octocat: %s" refusal)))
     (message "Octocat: Fetching merge options…")
     (octocat--run-gh "merge-methods"
       (list "repo" "view" octocat--pr-repo "--json"
@@ -450,6 +548,35 @@ is the confirmation."
             (message nil)
             (with-current-buffer source
               (octocat-pr--open-merge-dialog pr methods)))))))))
+
+(defun octocat-pr--set-draft (draft)
+  "Mark the current PR a draft if DRAFT, else ready for review."
+  (unless (and octocat--pr-repo octocat--pr-number)
+    (user-error "Octocat: Buffer is not associated with a pull request"))
+  (let ((buf    (current-buffer))
+        (number octocat--pr-number))
+    (octocat--run-gh "ready"
+      (append (list "pr" "ready" (number-to-string number) "--repo" octocat--pr-repo)
+              (and draft (list "--undo")))
+      #'identity
+      (lambda (result)
+        (if (eq (car-safe result) 'error)
+            (message "Octocat: Failed to update PR #%d: %s" number (cdr result))
+          (message "Octocat: PR #%d %s" number
+                   (if draft "converted to draft" "is ready for review"))
+          (when (buffer-live-p buf)
+            (with-current-buffer buf (octocat-pr-refresh))))))))
+
+(defun octocat-pr-ready ()
+  "Mark the current draft PR ready for review."
+  (interactive)
+  (octocat-pr--set-draft nil))
+
+(defun octocat-pr-convert-to-draft ()
+  "Convert the current PR to a draft, after asking, as GitHub does."
+  (interactive)
+  (when (y-or-n-p (format "Convert PR #%d to draft? " octocat--pr-number))
+    (octocat-pr--set-draft t)))
 
 
 ;;;; Data fetching
@@ -668,39 +795,31 @@ Each is \"@login (state)\": the state of their latest review, or
       ('pending (vui-text (octocat-vui-detail-skeleton repo number width)))
       ('error   (vui-text (format "  Error: %s" (plist-get result :error)) :face 'error))
       ('ready
-       (let* ((pr     (plist-get result :data))
-              (status (and (equal (gethash "state" pr) "OPEN")
-                           (octocat-pr--merge-status pr))))
+       (let* ((pr (plist-get result :data))
+              (on-visit-check
+               (lambda ()
+                 (octocat-checks-open repo (or (octocat-pr--head-sha pr) "")
+                                      (octocat--nonempty (gethash "headRefName" pr))))))
          (apply #'vui-vstack
                 (append
                  (delq nil (octocat-pr--header repo pr))
                  entries
-                 ;; Under the timeline, as it adds to it; the checks and
-                 ;; state changes are about the PR as a whole.
+                 ;; Under the timeline, as they add to it; the checks and
+                 ;; merge are about the PR as a whole.
                  (octocat-timeline-buttons
-                  '(("+ Add a comment" "RET: write a comment" octocat-pr-add-comment))
+                  (list '("+ Add a comment" "RET: write a comment" octocat-pr-add-comment)
+                        (pcase (gethash "state" pr)
+                          ("OPEN"   '("Close pull request" "RET: close this pull request"
+                                      octocat-pr-close))
+                          ("CLOSED" '("Reopen pull request" "RET: reopen this pull request"
+                                      octocat-pr-reopen))))
                   t)
                  (list (vui-newline))
-                 (octocat-checks-block
-                  (or (octocat-timeline--get pr "statusCheckRollup") [])
-                  (lambda ()
-                    (octocat-checks-open repo (or (octocat-pr--head-sha pr) "")
-                                         (octocat--nonempty (gethash "headRefName" pr)))))
-                 (and status
-                      (list (vui-newline)
-                            (vui-text (concat "  " (car status)) :face (nth 1 status))))
-                 (let ((buttons
-                        (delq nil
-                              (list (and (nth 2 status)
-                                         '("Merge pull request" "RET: merge this pull request"
-                                           octocat-pr-merge))
-                                    (pcase (gethash "state" pr)
-                                      ("OPEN"   '("Close pull request" "RET: close this pull request"
-                                                  octocat-pr-close))
-                                      ("CLOSED" '("Reopen pull request" "RET: reopen this pull request"
-                                                  octocat-pr-reopen)))))))
-                   ;; A merged PR has none.
-                   (and buttons (octocat-timeline-buttons buttons))))))))))
+                 ;; An open PR's checks are in its merge box, as on GitHub.
+                 (or (octocat-pr--merge-section pr on-visit-check)
+                     (octocat-checks-block
+                      (or (octocat-timeline--get pr "statusCheckRollup") [])
+                      on-visit-check)))))))))
 
 
 ;;;; Major mode

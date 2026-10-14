@@ -143,11 +143,11 @@ The entries are CHECKS.  The name and workflow columns stop at
     (cl-mapcar (lambda (w cap) (if cap (min w cap) w))
                widths (append octocat-checks--column-max '(nil nil)))))
 
-(defun octocat-checks--row (check widths on-visit &optional help-echo)
+(defun octocat-checks--row (check widths on-visit &optional help-echo indent)
   "Return a RET-able vnode for the status CHECK (a hash-table).
 WIDTHS are the column widths, as from `octocat-checks--widths'.  A
 column no check has anything in takes no space.  ON-VISIT is called by
-RET, described by HELP-ECHO."
+RET, described by HELP-ECHO.  INDENT starts the row, two spaces if nil."
   (let ((cells (cl-mapcar
                 (lambda (field width face)
                   (and (> width 0)
@@ -157,7 +157,7 @@ RET, described by HELP-ECHO."
                 '(nil octocat-dimmed octocat-dimmed octocat-dimmed))))
     (octocat-vui-row
      (string-trim-right
-      (concat "  "
+      (concat (or indent "  ")
               (octocat--run-icon (or (gethash "status" check) "")
                                  (octocat-timeline--get check "conclusion"))
               " "
@@ -172,33 +172,38 @@ The rest expands on RET.  Nil never folds."
   :type '(choice (const :tag "Never fold" nil) integer)
   :group 'octocat)
 
+(defun octocat-checks-rows (rollup on-visit &optional indent)
+  "Return a vnode listing ROLLUP; all but a few fold away.
+ROLLUP is a `statusCheckRollup' vector, as a PR has (see
+`octocat-checks-from-rest' for a commit's check-runs).  ON-VISIT is
+called by RET on a check.  INDENT starts each row, two spaces if nil."
+  (let ((widths (octocat-checks--widths rollup))) ; Of all, so unfolding shifts no column.
+    (vui-component
+     'octocat-timeline-fold
+     :total (length rollup)
+     :limit octocat-checks-shown
+     :noun "checks"
+     :key 'checks-fold
+     :prefix (or indent "  ")
+     :render (lambda (shown)
+               (apply #'vui-vstack
+                      (cl-loop for check across rollup
+                               repeat shown
+                               collect (octocat-checks--row check widths on-visit
+                                                            nil indent)))))))
+
 (defun octocat-checks-block (checks on-visit)
   "Return the vnodes of the CI section, with a CI summary.
-The runs are CHECKS, a `statusCheckRollup' vector, as a PR has (see
-`octocat-checks-from-rest' for a commit's check-runs).  ON-VISIT is
-called by RET on a check."
-  (let* (;; From all checks, so unfolding the rest shifts no column.
-         (widths (octocat-checks--widths checks)))
-    (cons
-     (vui-text (concat (propertize (format "Checks (%d)" (length checks))
-                                   'face 'octocat-section-heading)
-                       (unless (zerop (length checks))
-                         (concat "  " (propertize "CI:" 'face 'octocat-dimmed)
-                                 " " (octocat--checks-ci-status checks)))))
-     (if (zerop (length checks))
-         (list (vui-text (propertize "  (no checks)" 'face 'octocat-dimmed)))
-       (list (vui-component
-              'octocat-timeline-fold
-              :total (length checks)
-              :limit octocat-checks-shown
-              :noun "checks"
-              :key 'checks-fold
-              :prefix "  "
-              :render (lambda (shown)
-                        (apply #'vui-vstack
-                               (cl-loop for check across checks
-                                        repeat shown
-                                        collect (octocat-checks--row check widths on-visit))))))))))
+CHECKS and ON-VISIT are as for `octocat-checks-rows'."
+  (list
+   (vui-text (concat (propertize (format "Checks (%d)" (length checks))
+                                 'face 'octocat-section-heading)
+                     (unless (zerop (length checks))
+                       (concat "  " (propertize "CI:" 'face 'octocat-dimmed)
+                               " " (octocat--checks-ci-status checks)))))
+   (if (zerop (length checks))
+       (vui-text (propertize "  (no checks)" 'face 'octocat-dimmed))
+     (octocat-checks-rows checks on-visit))))
 
 ;;;; Page
 

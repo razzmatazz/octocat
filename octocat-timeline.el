@@ -528,9 +528,14 @@ last item."
 
 (defun octocat-timeline-buttons (buttons &optional joined)
   "Return the vnodes of a row of BUTTONS, each (LABEL HELP ON-CLICK).
-With JOINED the row hangs off the end of the timeline's rail.  A nil
+With JOINED the row hangs off the end of the timeline's rail; when it is
+`tight', it directly follows what is above, as in a section.  A nil
 entry in BUTTONS is skipped."
-  (list (if joined (vui-text octocat-timeline--rail) (vui-newline))
+  (delq nil
+   (list (pcase joined
+           ('tight nil)
+           ('nil   (vui-newline))
+           (_      (vui-text octocat-timeline--rail)))
         (apply #'vui-hstack :spacing 0
                (vui-text "  ")
                (let (nodes)
@@ -543,7 +548,7 @@ entry in BUTTONS is skipped."
                                      :help-echo (nth 1 button)
                                      :on-click (nth 2 button))
                          nodes))
-                 (nreverse nodes)))))
+                 (nreverse nodes))))))
 
 (defun octocat-timeline-state-change (kind verb repo number refresh)
   "Close or reopen issue or PR NUMBER of REPO after asking, then REFRESH.

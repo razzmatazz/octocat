@@ -44,18 +44,28 @@
                                        \"rebaseMergeAllowed\":true}"))
                  '("Squash" "Rebase"))))
 
-(ert-deftest octocat-pr-test-merge-status ()
-  "Drafts and conflicts cannot be merged; a blocked PR still offers it."
-  (should-not (nth 2 (octocat-pr--merge-status
-                      (octocat-pr-test--pr "{\"isDraft\":true}"))))
-  (should-not (nth 2 (octocat-pr--merge-status
-                      (octocat-pr-test--pr "{\"mergeable\":\"CONFLICTING\"}"))))
-  (should (equal (octocat-pr--merge-status
-                  (octocat-pr-test--pr "{\"mergeStateStatus\":\"CLEAN\",
-                                         \"reviewDecision\":\"APPROVED\"}"))
-                 '("✓ Ready to merge · Approved" octocat-ci-success t)))
-  (should (nth 2 (octocat-pr--merge-status
-                  (octocat-pr-test--pr "{\"mergeStateStatus\":\"BLOCKED\"}")))))
+(ert-deftest octocat-pr-test-merge-refusal ()
+  "Drafts and conflicts cannot be merged; a blocked PR is left to GitHub."
+  (should (octocat-pr--merge-refusal (octocat-pr-test--pr "{\"isDraft\":true}")))
+  (should (octocat-pr--merge-refusal
+           (octocat-pr-test--pr "{\"mergeable\":\"CONFLICTING\"}")))
+  (should-not (octocat-pr--merge-refusal
+               (octocat-pr-test--pr "{\"mergeStateStatus\":\"BLOCKED\"}"))))
+
+(ert-deftest octocat-pr-test-merge-rows ()
+  "The merge box rows read as GitHub's."
+  (should (equal (octocat-pr--merge-rows
+                  (octocat-pr-test--pr
+                   "{\"reviewDecision\":\"APPROVED\",
+                     \"latestReviews\":[{\"state\":\"APPROVED\"}],
+                     \"statusCheckRollup\":[{\"conclusion\":\"SUCCESS\"},
+                                            {\"conclusion\":\"SKIPPED\"},
+                                            {\"status\":\"IN_PROGRESS\"}],
+                     \"mergeable\":\"MERGEABLE\"}"))
+                 '((ok "Changes approved" "1 approving review")
+                   (wait "Some checks haven't completed yet"
+                         "1 in progress, 1 skipped, 1 successful checks" t)
+                   (ok "No conflicts with base branch")))))
 
 (provide 'octocat-pr-tests)
 ;;; octocat-pr-tests.el ends here
