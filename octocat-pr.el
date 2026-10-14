@@ -675,6 +675,11 @@ Each is \"@login (state)\": the state of their latest review, or
                 (append
                  (delq nil (octocat-pr--header repo pr))
                  entries
+                 ;; Under the timeline, as it adds to it; the checks and
+                 ;; state changes are about the PR as a whole.
+                 (octocat-timeline-buttons
+                  '(("+ Add a comment" "RET: write a comment" octocat-pr-add-comment))
+                  t)
                  (list (vui-newline))
                  (octocat-checks-block
                   (or (octocat-timeline--get pr "statusCheckRollup") [])
@@ -684,16 +689,18 @@ Each is \"@login (state)\": the state of their latest review, or
                  (and status
                       (list (vui-newline)
                             (vui-text (concat "  " (car status)) :face (nth 1 status))))
-                 (octocat-timeline-buttons
-                  (list '("+ Add a comment" "RET: write a comment" octocat-pr-add-comment)
-                        (and (nth 2 status)
-                             '("Merge pull request" "RET: merge this pull request"
-                               octocat-pr-merge))
-                        (pcase (gethash "state" pr)
-                          ("OPEN"   '("Close pull request" "RET: close this pull request"
-                                      octocat-pr-close))
-                          ("CLOSED" '("Reopen pull request" "RET: reopen this pull request"
-                                      octocat-pr-reopen))))))))))))
+                 (let ((buttons
+                        (delq nil
+                              (list (and (nth 2 status)
+                                         '("Merge pull request" "RET: merge this pull request"
+                                           octocat-pr-merge))
+                                    (pcase (gethash "state" pr)
+                                      ("OPEN"   '("Close pull request" "RET: close this pull request"
+                                                  octocat-pr-close))
+                                      ("CLOSED" '("Reopen pull request" "RET: reopen this pull request"
+                                                  octocat-pr-reopen)))))))
+                   ;; A merged PR has none.
+                   (and buttons (octocat-timeline-buttons buttons))))))))))
 
 
 ;;;; Major mode
