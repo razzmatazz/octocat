@@ -210,9 +210,6 @@ The buffer is rendered by vui.el; see `octocat-file-log--page'.
 
 ;;;; Branch glyph helper
 
-(defun octocat-tree--branch-glyph ()
-  "Return a branch indicator glyph: ⎇ when displayable, else @."
-  (if (char-displayable-p ?⎇) "⎇" "@"))
 
 
 ;;;; API fetch helpers
@@ -404,15 +401,14 @@ Evil, whose state keymaps outrank text-property keymaps."
 (defun octocat-tree--header (repo branch)
   "Return the vnodes of the tree header for REPO on BRANCH.
 BRANCH is a picker button, as GitHub's branch dropdown."
-  (list (vui-text (propertize (concat (propertize (or repo "") 'face 'octocat-repo)
-                                      "  "
-                                      (octocat-tree--branch-glyph))
-                              'octocat-tree--type 'header))
-        (vui-button (format "[%s ▾]" (or branch ""))
-                    :no-decoration t
-                    :face 'octocat-branch
-                    :help-echo "RET: browse another branch (C-c C-b)"
-                    :on-click #'octocat-tree-switch-branch)))
+  (list (vui-text (propertize (or repo "") 'face 'octocat-repo 'octocat-tree--type 'header))
+        (vui-hstack :spacing 0
+          (vui-text (octocat--branch-glyph))
+          (vui-button (format "[%s ▾]" (or branch ""))
+                      :no-decoration t
+                      :face 'octocat-branch
+                      :help-echo "RET: browse another branch (C-c C-b)"
+                      :on-click #'octocat-tree-switch-branch))))
 
 (defun octocat-tree--sorted-entries (entries)
   "Return ENTRIES (a vector) as a list sorted dirs-first then alphabetically."
@@ -574,8 +570,7 @@ new TICK refetches it again."
     (erase-buffer)
     (insert (propertize (or octocat-tree--file-repo "") 'face 'octocat-repo)
             "  "
-            (octocat-tree--branch-glyph)
-            "  "
+            (octocat--branch-glyph)
             (propertize (or octocat-tree--file-branch "") 'face 'octocat-branch)
             "  "
             (or path "")
@@ -591,8 +586,7 @@ new TICK refetches it again."
     (erase-buffer)
     (insert (propertize (or octocat-tree--file-repo "") 'face 'octocat-repo)
             "  "
-            (octocat-tree--branch-glyph)
-            "  "
+            (octocat--branch-glyph)
             (propertize (or octocat-tree--file-branch "") 'face 'octocat-branch)
             "  "
             (or path "")

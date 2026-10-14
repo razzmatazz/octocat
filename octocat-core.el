@@ -1200,6 +1200,10 @@ CALLBACK is called with a list of strings, or a cons \\=(error . MSG)."
                    (lambda (output) (split-string output "\n" t))
                    callback))
 
+(defun octocat--branch-glyph ()
+  "Return the glyph put before a branch name: ⎇ when displayable, else @."
+  (if (char-displayable-p ?⎇) "⎇" "@"))
+
 (defun octocat--list-branches (repo callback)
   "Fetch the branch names of REPO and call CALLBACK.
 CALLBACK is called with a list of strings, or a cons \\=(error . MSG)."

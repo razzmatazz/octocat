@@ -25,8 +25,8 @@
     (should (= (length content) (length result)))))
 
 (ert-deftest octocat-tree-test-branch-glyph ()
-  "octocat-tree--branch-glyph returns a non-empty string."
-  (let ((g (octocat-tree--branch-glyph)))
+  "octocat--branch-glyph returns a non-empty string."
+  (let ((g (octocat--branch-glyph)))
     (should (stringp g))
     (should (> (length g) 0))))
 

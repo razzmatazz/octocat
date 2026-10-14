@@ -137,7 +137,7 @@ token in the header to open an interactive file tree browser for the branch
 the repo page shows (the default branch unless switched there).
 
 ```
-owner/repo  ⎇  [main ▾]  [Code]
+owner/repo  ⎇[main ▾]  [Code]
 ▸ src/
 ▸ tests/
   .gitignore
