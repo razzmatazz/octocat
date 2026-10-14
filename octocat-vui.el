@@ -239,19 +239,31 @@ of on every tick.  BODY runs in the component's context, so it may call
                              (signal (car err) (cdr err)))))))
            (lambda () (cancel-timer ,timer)))))))
 
-(defconst octocat-vui-unfold-growth 0.5
-  "How much faster each frame of an unfolding animation is than the last.
-Every frame reveals this fraction of what is already unfolded (at least
-two things more), so the unfolding starts slowly and then speeds up.")
+(defconst octocat-vui-unfold-growth 0.4
+  "How much of the distance still to go each frame of an animation moves.
+At least two things, so an animation eases out onto its end.")
+
+(defconst octocat-vui-unfold-peak 0.15
+  "Most of an animation's whole distance one frame may move.
+Caps the speed at the start, so it begins at full speed rather than
+jumping most of the way in its first frame.")
 
 (defconst octocat-vui-unfold-interval 0.025
   "Seconds between the frames of an unfolding animation.")
+
+(defun octocat-vui-unfold-step (now from to)
+  "Return the position after NOW of an animation going FROM to TO.
+Starts fast and eases out, see `octocat-vui-unfold-growth'."
+  (let* ((span (abs (- to from)))
+         (step (max 2 (min (ceiling (* octocat-vui-unfold-peak span))
+                           (ceiling (* octocat-vui-unfold-growth (abs (- to now))))))))
+    (if (< from to) (min to (+ now step)) (max to (- now step)))))
 
 (vui-defcomponent octocat-vui-reveal (items render)
   "Call RENDER with ITEMS, revealing items added later one frame at a time.
 RENDER is a function of the list of items to show, returning a vnode.
 The first render shows every item at once.  When ITEMS then grows (a
-\"Load more\" page arrived), the new items unfold at a growing pace like
+\"Load more\" page arrived), the new items unfold, easing out, like
 the rest of a long comment (see `octocat-timeline-fold'), instead of
 all appearing in one jump.  A list that shrinks just shows what is left.
 The timer exists only while items are being revealed."
@@ -277,11 +289,8 @@ The timer exists only while items are being revealed."
            (visible    (aref v 0))
            (unfolding  (< visible total)))
       (octocat-vui-use-timer (unfolding) octocat-vui-unfold-interval unfolding
-        (let* ((now  (aref v 0))
-               (all  (aref v 1))
-               (step (max 2 (ceiling (* octocat-vui-unfold-growth
-                                        (- now (aref v 2)))))))
-          (aset v 0 (min all (+ now step)))
+        (let ((all (aref v 1)))
+          (aset v 0 (octocat-vui-unfold-step (aref v 0) (aref v 2) all))
           (vui-set-state :tick (lambda (n) (1+ n)))
           (< (aref v 0) all)))
       (funcall render (seq-take items visible)))))
@@ -293,9 +302,8 @@ toggles it, returning the header vnode; typically an `octocat-vui-row'
 with the toggle as its RET.  PREPARE builds the body, only once it is
 first unfolded and again when DEPS change: it returns (TOTAL . RENDER),
 the body's number of lines and a function of how many of them to show
-returning a list of vnodes.  Unfolding reveals lines at a growing pace,
-as `octocat-timeline-fold' does; folding hides them the same way in
-reverse.  Lines added while open, say by a refresh, unfold too.
+returning a list of vnodes.  Unfolding and folding start fast and ease
+out, as `octocat-timeline-fold' does.  Lines added while open, say by a refresh, unfold too.
 BULK, from an \"Expand all\" button (see `octocat-vui-expand-all-button'),
 is nil or (GENERATION . OPEN): each new value unfolds or folds it.  A
 fold that mounts while BULK says open starts open, without animating."
@@ -313,14 +321,13 @@ fold that mounts while BULK says open starts open, without animating."
       nil)
     (let ((now (min shown total)))
       (octocat-vui-use-timer (moving open total) octocat-vui-unfold-interval moving
-        ;; A fraction of what shows: unfolding speeds up, folding starts
-        ;; fast and eases out.
-        (let ((step (max 2 (ceiling (* octocat-vui-unfold-growth now)))))
-          (setq now (if open (min target (+ now step)) (max target (- now step))))
-          (vui-set-state :shown now)
-          ;; Done at the target: setting the same value again would not
-          ;; re-render, so the timer would never be cleaned up.
-          (/= now target))))
+        (setq now (if open
+                      (octocat-vui-unfold-step now 0 total)
+                    (octocat-vui-unfold-step now total 0)))
+        (vui-set-state :shown now)
+        ;; Done at the target: setting the same value again would not
+        ;; re-render, so the timer would never be cleaned up.
+        (/= now target)))
     (apply #'vui-vstack
            (funcall header open toggle)
            (and body (> shown 0) (funcall (cdr body) (min shown total))))))

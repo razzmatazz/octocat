@@ -392,12 +392,9 @@ See `octocat-timeline-body-lines'."
   :type '(choice (const :tag "Never fold" nil) integer)
   :group 'octocat)
 
-(defconst octocat-timeline--expand-growth octocat-vui-unfold-growth
-  "How much faster each frame of the unfolding animation is than the last.
-Shared with the \"Load more\" lists, see `octocat-vui-reveal'.")
-
 (defconst octocat-timeline--expand-interval octocat-vui-unfold-interval
-  "Seconds between the frames of the unfolding animation.")
+  "Seconds between the frames of the unfolding animation.
+Shared with the \"Load more\" lists, see `octocat-vui-reveal'.")
 
 (defun octocat-timeline--line-limit (item)
   "Return how many body lines of ITEM show while folded, or nil."
@@ -411,7 +408,7 @@ RENDER is a function of the number of things to show, returning a vnode.
 PREFIX starts the marker row and NOUN (\"lines\", \"checks\") names the
 things in it.  KEY names the marker button, so point stays on it when
 the view re-renders.  With LIMIT nil, or TOTAL not above it, nothing
-folds.  RET on the marker unfolds the rest at a growing pace, and then
+folds.  RET on the marker unfolds the rest, easing out, and then
 folds it back."
   :state ((shown nil) (open nil) (closing nil))
   :render
@@ -420,22 +417,17 @@ folds it back."
          (done    (>= visible total))
          (unfolding (and open (not done) (not closing))))
     ;; Unfold progressively: a timer adds more things each frame (see
-    ;; `octocat-timeline--expand-growth') until all show.  It exists only
-    ;; while that is going on.
+    ;; `octocat-vui-unfold-step') until all show.  It exists only while
+    ;; that is going on.
     (let ((now visible))
       (octocat-vui-use-timer (unfolding) octocat-timeline--expand-interval unfolding
-        (setq now (min total
-                       (+ now (max 2 (ceiling (* octocat-timeline--expand-growth
-                                                 (- now limit)))))))
+        (setq now (octocat-vui-unfold-step now limit total))
         (vui-set-state :shown now)
         (< now total)))
-    ;; Fold back the same way, in reverse: each frame hides a fraction of
-    ;; what is still unfolded, so it starts fast and eases out onto LIMIT.
+    ;; Fold back the same way, in reverse.
     (let ((now visible))
       (octocat-vui-use-timer (closing) octocat-timeline--expand-interval closing
-        (setq now (max limit
-                       (- now (max 2 (ceiling (* octocat-timeline--expand-growth
-                                                 (- now limit)))))))
+        (setq now (octocat-vui-unfold-step now total limit))
         (if (> now limit)
             (vui-set-state :shown now)
           (vui-set-state :shown nil)

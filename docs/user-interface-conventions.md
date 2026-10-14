@@ -425,9 +425,10 @@ call `octocat-vui-use-mode-line-loading`; other code sets
 
 Rows that a `[+] Load N more…` button brings in **unfold** one frame at a
 time, the way the rest of a long PR body or comment does when its fold
-marker is expanded: slowly at first, then faster, a fraction of what is
-already shown per frame (`octocat-vui-unfold-growth`, every
-`octocat-vui-unfold-interval` seconds).  The list never jumps by a whole
+marker is expanded: fast at first, easing out towards the end
+(`octocat-vui-unfold-step`: a fraction, `octocat-vui-unfold-growth`, of
+the distance left, capped at `octocat-vui-unfold-peak` of the whole,
+every `octocat-vui-unfold-interval` seconds).  The list never jumps by a whole
 page.
 
 - Draw a pageable list with `octocat-vui-reveal-list` (ITEMS, ROW-FN,
