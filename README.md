@@ -194,6 +194,7 @@ owner/repo  src/foo.el  (7 commits)
 | `C-c C-o` | Open item at point in browser |
 | `C-c C-a` | Add a comment (PR and issue detail views); submit a review (PR files changed view; `C-c C-t` picks Comment / Approve / Request changes) |
 | `C-c C-e` | Edit body or comment at point (PR and issue detail views) |
+| `C-c C-m` | Merge the PR (PR detail view): edit the commit message, `C-c C-t` picks Merge / Squash / Rebase, `C-c C-d` toggles deleting the branch, `C-c C-c` merges |
 | `C-c C-v` | Toggle between rendered and raw markdown (PR, commit, and issue detail views) |
 | `C-c C-t` | Open file tree browser (repo buffer) |
 | `C-c C-f` | Open fuzzy file finder — `completing-read` over the full recursive file list; works from both the repo buffer and the file tree browser (list is cached after first fetch) |

@@ -232,6 +232,226 @@ On someone else\\='s comment: signal an error."
   (octocat-pr--change-state "reopen"))
 
 
+;;;; Merge
+
+(defconst octocat-pr--merge-methods
+  '(("Merge"  "--merge"  "mergeCommitAllowed")
+    ("Squash" "--squash" "squashMergeAllowed")
+    ("Rebase" "--rebase" "rebaseMergeAllowed"))
+  "Merge methods: name, `gh pr merge' flag, and the repo field allowing it.")
+
+(defun octocat-pr--merge-allowed (repo-info)
+  "Return the names of the merge methods allowed by REPO-INFO, a hash-table."
+  (delq nil (mapcar (lambda (m) (and (eq (gethash (nth 2 m) repo-info) t) (car m)))
+                    octocat-pr--merge-methods)))
+
+(defun octocat-pr--merge-message (method pr)
+  "Return GitHub's default commit message for a METHOD merge of PR.
+The first line is the subject; a rebase keeps the commits, so has none."
+  (let ((number (gethash "number" pr))
+        (title  (or (gethash "title" pr) "")))
+    (pcase method
+      ("Merge"
+       (format "Merge pull request #%d from %s/%s\n\n%s" number
+               (or (octocat-timeline--get pr "headRepositoryOwner" "login") "")
+               (or (gethash "headRefName" pr) "")
+               title))
+      ("Squash"
+       (concat (format "%s (#%d)" title number)
+               (let ((commits (append (octocat-timeline--get pr "commits") nil)))
+                 (and commits
+                      (concat "\n\n"
+                              (mapconcat (lambda (c)
+                                           (concat "* " (or (gethash "messageHeadline" c) "")))
+                                         commits "\n"))))))
+      (_ ""))))
+
+(defun octocat-pr--merge-args (repo number method text delete)
+  "Return the `gh' arguments merging PR NUMBER of REPO by METHOD.
+TEXT is the commit message, its first line the subject; a rebase has
+none.  DELETE non-nil deletes the head branch as well."
+  (let ((lines (split-string text "\n")))
+    (append (list "pr" "merge" (number-to-string number) "--repo" repo
+                  (nth 1 (assoc method octocat-pr--merge-methods)))
+            (unless (equal method "Rebase")
+              (list "--subject" (car lines)
+                    "--body" (string-trim (mapconcat #'identity (cdr lines) "\n"))))
+            (and delete (list "--delete-branch")))))
+
+(defun octocat-pr--merge-status (pr)
+  "Return the merge box of open PR as (TEXT FACE CAN-MERGE).
+CAN-MERGE is nil only when GitHub would refuse it outright: a draft or a
+conflict.  A blocked merge may still pass with admin rights."
+  (let ((review (pcase (octocat-timeline--get pr "reviewDecision")
+                  ("APPROVED"          "Approved")
+                  ("CHANGES_REQUESTED" "Changes requested")
+                  ("REVIEW_REQUIRED"   "Review required"))))
+    (let ((with-review (lambda (text) (if review (concat text " · " review) text))))
+      (cond
+       ((eq (gethash "isDraft" pr) t)
+        (list "This pull request is still a draft" 'octocat-dimmed nil))
+       ((or (equal (octocat-timeline--get pr "mergeable") "CONFLICTING")
+            (equal (octocat-timeline--get pr "mergeStateStatus") "DIRTY"))
+        (list "✗ This branch has conflicts that must be resolved" 'octocat-ci-failure nil))
+       (t
+        (pcase (octocat-timeline--get pr "mergeStateStatus")
+          ((or "CLEAN" "HAS_HOOKS")
+           (list (funcall with-review "✓ Ready to merge") 'octocat-ci-success t))
+          ("BEHIND"
+           (list (funcall with-review "● This branch is out-of-date with the base branch")
+                 'octocat-ci-pending t))
+          ("BLOCKED"
+           (list (funcall with-review "● Merging is blocked") 'octocat-ci-pending t))
+          ("UNSTABLE"
+           (list (funcall with-review "● Some checks were not successful") 'octocat-ci-pending t))
+          (_ (list (funcall with-review "Checking whether this branch can be merged…")
+                   'octocat-dimmed t))))))))
+
+(defun octocat-pr--merge-data (method methods defaults delete)
+  "Return the merge dialog's user data for METHOD, one of METHODS.
+DEFAULTS is an alist of each method's default message; DELETE whether
+to delete the head branch."
+  (list :method method :methods methods :defaults defaults :delete delete
+        :allow-empty (equal method "Rebase")))
+
+(defun octocat-pr--merge-header (title data)
+  "Return the merge dialog's two header lines for TITLE with user DATA.
+The first shows the choices, the second their keys: one line overflows
+a narrow window."
+  (let ((method (plist-get data :method))
+        (key    (lambda (k) (propertize k 'face 'help-key-binding))))
+    (list
+     (concat "  " title "    "
+             (mapconcat (lambda (m)
+                          (if (equal m method)
+                              (propertize (format "(•) %s" m) 'face 'bold)
+                            (propertize (format "( ) %s" m) 'face 'octocat-dimmed)))
+                        (plist-get data :methods) "  ")
+             "    "
+             (if (plist-get data :delete)
+                 (propertize "[x] Delete branch" 'face 'bold)
+               (propertize "[ ] Delete branch" 'face 'octocat-dimmed))
+             (and (equal method "Rebase")
+                  (propertize "    (message unused)" 'face 'octocat-dimmed)))
+     (concat "  "
+             (funcall key "C-c C-t") " method   "
+             (funcall key "C-c C-d") " delete branch   "
+             (funcall key "C-c C-c") " merge   "
+             (funcall key "C-c C-k") " cancel"))))
+
+(defun octocat-pr--merge-update (data)
+  "Store DATA as the merge dialog's user data and redraw its header."
+  (setq octocat-edit--user-data data)
+  (let ((lines (octocat-pr--merge-header octocat-edit--title data)))
+    ;; The tab line sits above the header line, giving a second line.
+    (setq tab-line-format    (car lines)
+          header-line-format (cadr lines)))
+  (force-mode-line-update))
+
+(defun octocat-pr--submit-merge (text source on-success on-error)
+  "Merge the PR in SOURCE buffer with commit message TEXT.
+The method and branch deletion are read from the edit buffer's user
+data.  Calls ON-SUCCESS on completion or ON-ERROR with a message."
+  (let ((method (plist-get octocat-edit--user-data :method))
+        (delete (plist-get octocat-edit--user-data :delete)))
+    (with-current-buffer source
+      (let ((number octocat--pr-number))
+        (octocat--run-gh "merge"
+          (octocat-pr--merge-args octocat--pr-repo number method text delete)
+          #'string-trim
+          (lambda (result)
+            (if (eq (car-safe result) 'error)
+                (funcall on-error (cdr result))
+              (message "Octocat: Merged PR #%d" number)
+              (funcall on-success))))))))
+
+(defun octocat-pr-merge-cycle ()
+  "Switch the merge dialog to the next allowed method.
+An unedited default message is replaced by the next method's."
+  (interactive)
+  (let* ((data     octocat-edit--user-data)
+         (methods  (plist-get data :methods))
+         (defaults (plist-get data :defaults))
+         (method   (plist-get data :method))
+         (next     (or (cadr (member method methods)) (car methods))))
+    (when (equal (string-trim (buffer-string))
+                 (string-trim (cdr (assoc method defaults))))
+      (erase-buffer)
+      (insert (cdr (assoc next defaults)))
+      (goto-char (point-min))
+      (set-buffer-modified-p nil))
+    (octocat-pr--merge-update
+     (octocat-pr--merge-data next methods defaults (plist-get data :delete)))))
+
+(defun octocat-pr-merge-toggle-delete ()
+  "Toggle whether the merge dialog deletes the head branch."
+  (interactive)
+  (let ((data octocat-edit--user-data))
+    (octocat-pr--merge-update
+     (plist-put (copy-sequence data) :delete (not (plist-get data :delete))))))
+
+(defvar octocat-pr-merge-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-t") #'octocat-pr-merge-cycle)
+    (define-key map (kbd "C-c C-d") #'octocat-pr-merge-toggle-delete)
+    map)
+  "Keymap for `octocat-pr-merge-mode'.")
+
+;; A minor mode so the dialog keys live only in merge dialogs.
+(define-minor-mode octocat-pr-merge-mode
+  "Pick the method of a PR merge in its edit buffer."
+  :keymap octocat-pr-merge-mode-map)
+
+(defun octocat-pr--open-merge-dialog (pr methods)
+  "Open the dialog merging PR (a hash-table) by one of METHODS."
+  (let* ((title    (format "Merge PR #%d" octocat--pr-number))
+         (defaults (mapcar (lambda (m) (cons m (octocat-pr--merge-message m pr)))
+                           methods))
+         (data     (octocat-pr--merge-data (car methods) methods defaults nil))
+         (win      (octocat--open-edit-buffer
+                    title #'octocat-pr--submit-merge #'octocat-pr-refresh
+                    (cdar defaults) data)))
+    (with-current-buffer (window-buffer win)
+      (goto-char (point-min))
+      ;; Draw the tab line used as a second header line like the header
+      ;; line; themes style it for tabs, some hiding its text.
+      (face-remap-set-base 'tab-line 'header-line)
+      (octocat-pr-merge-mode 1)
+      (octocat-pr--merge-update octocat-edit--user-data))))
+
+(defun octocat-pr-merge ()
+  "Open the dialog to merge the current PR.
+Edit the commit message and pick the method with
+\\<octocat-pr-merge-mode-map>\\[octocat-pr-merge-cycle]; submitting the dialog
+is the confirmation."
+  (interactive)
+  (unless (and octocat--pr-repo octocat--pr-number)
+    (user-error "Octocat: Buffer is not associated with a pull request"))
+  (let* ((pr     (octocat--detail-cache-load octocat--pr-repo "pr" octocat--pr-number))
+         (status (and pr (octocat-pr--merge-status pr)))
+         (source (current-buffer)))
+    (cond
+     ((not pr) (user-error "Octocat: PR not loaded yet"))
+     ((not (equal (gethash "state" pr) "OPEN"))
+      (user-error "Octocat: PR #%d is not open" octocat--pr-number))
+     ((not (nth 2 status)) (user-error "Octocat: %s" (car status))))
+    (message "Octocat: Fetching merge options…")
+    (octocat--run-gh "merge-methods"
+      (list "repo" "view" octocat--pr-repo "--json"
+            (mapconcat (lambda (m) (nth 2 m)) octocat-pr--merge-methods ","))
+      (lambda (out) (json-parse-string (string-trim out)))
+      (lambda (result)
+        (let ((methods (and (hash-table-p result) (octocat-pr--merge-allowed result))))
+          (cond
+           ((eq (car-safe result) 'error)
+            (message "Octocat: Failed to fetch merge options: %s" (cdr result)))
+           ((not methods) (message "Octocat: The repo allows no merge method"))
+           ((buffer-live-p source)
+            (message nil)
+            (with-current-buffer source
+              (octocat-pr--open-merge-dialog pr methods)))))))))
+
+
 ;;;; Data fetching
 
 (defun octocat--list-prs (repo limit callback &optional query)
@@ -257,7 +477,8 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
                          "--repo" repo
                          "--json" (concat "number,title,author,state,body,"
                                           "createdAt,mergedAt,closedAt,"
-                                          "baseRefName,headRefName,"
+                                          "baseRefName,headRefName,headRepositoryOwner,"
+                                          "isDraft,mergeable,mergeStateStatus,"
                                           "changedFiles,"
                                           "labels,reviewDecision,reviews,"
                                           "comments,statusCheckRollup,url,commits,"
@@ -447,7 +668,9 @@ Each is \"@login (state)\": the state of their latest review, or
       ('pending (vui-text (octocat-vui-detail-skeleton repo number width)))
       ('error   (vui-text (format "  Error: %s" (plist-get result :error)) :face 'error))
       ('ready
-       (let ((pr (plist-get result :data)))
+       (let* ((pr     (plist-get result :data))
+              (status (and (equal (gethash "state" pr) "OPEN")
+                           (octocat-pr--merge-status pr))))
          (apply #'vui-vstack
                 (append
                  (delq nil (octocat-pr--header repo pr))
@@ -458,8 +681,14 @@ Each is \"@login (state)\": the state of their latest review, or
                   (lambda ()
                     (octocat-checks-open repo (or (octocat-pr--head-sha pr) "")
                                          (octocat--nonempty (gethash "headRefName" pr)))))
+                 (and status
+                      (list (vui-newline)
+                            (vui-text (concat "  " (car status)) :face (nth 1 status))))
                  (octocat-timeline-buttons
                   (list '("+ Add a comment" "RET: write a comment" octocat-pr-add-comment)
+                        (and (nth 2 status)
+                             '("Merge pull request" "RET: merge this pull request"
+                               octocat-pr-merge))
                         (pcase (gethash "state" pr)
                           ("OPEN"   '("Close pull request" "RET: close this pull request"
                                       octocat-pr-close))
@@ -479,6 +708,7 @@ Each is \"@login (state)\": the state of their latest review, or
 (define-key octocat-pr-mode-map (kbd "C-c C-o") #'octocat-pr-browse)
 (define-key octocat-pr-mode-map (kbd "C-c C-a") #'octocat-pr-add-comment)
 (define-key octocat-pr-mode-map (kbd "C-c C-e") #'octocat-pr-edit)
+(define-key octocat-pr-mode-map (kbd "C-c C-m") #'octocat-pr-merge)
 (define-key octocat-pr-mode-map (kbd "C-c C-v") #'octocat-toggle-markdown)
 (define-key octocat-pr-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
 (define-key octocat-pr-mode-map (kbd "C-c C-s") #'octocat-search-repo)

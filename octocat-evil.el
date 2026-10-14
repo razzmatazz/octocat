@@ -70,6 +70,7 @@
 (declare-function octocat-pr-add-comment     "octocat-pr"        ())
 (declare-function octocat-pr-edit-body       "octocat-pr"        ())
 (declare-function octocat-pr-edit            "octocat-pr"        ())
+(declare-function octocat-pr-merge           "octocat-pr"        ())
 (declare-function octocat-commit-refresh     "octocat-commit"    (&optional _ignore-auto _noconfirm))
 (declare-function octocat-pr-diff-browse    "octocat-pr-diff"   ())
 (declare-function octocat-pr-diff-review    "octocat-pr-diff"   ())
@@ -158,6 +159,7 @@
     (kbd "C-c C-o") #'octocat-pr-browse
     (kbd "C-c C-a") #'octocat-pr-add-comment
     (kbd "C-c C-e") #'octocat-pr-edit
+    (kbd "C-c C-m") #'octocat-pr-merge
     (kbd "C-c C-v") #'octocat-toggle-markdown
     (kbd "C-c C-r") #'octocat-switch-repo
     (kbd "C-c C-s") #'octocat-search-repo
