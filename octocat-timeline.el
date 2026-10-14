@@ -519,7 +519,8 @@ last item."
     (nreverse nodes)))
 
 (defun octocat-timeline-buttons (buttons &optional joined)
-  "Return the vnodes of a row of BUTTONS, each (LABEL HELP ON-CLICK).
+  "Return the vnodes of a row of BUTTONS, each (LABEL HELP ON-CLICK PREFIX).
+PREFIX, if given, is plain text drawn just before the button.
 With JOINED the row hangs off the end of the timeline's rail; when it is
 `tight', it directly follows what is above, as in a section.  A nil
 entry in BUTTONS is skipped."
@@ -533,6 +534,9 @@ entry in BUTTONS is skipped."
                (let (nodes)
                  (dolist (button (delq nil buttons))
                    (when nodes (push (vui-text "   ") nodes))
+                   (when (nth 3 button)
+                     (push (vui-text (concat (nth 3 button) " ") :face 'octocat-dimmed)
+                           nodes))
                    (push (vui-button (format "[%s]" (nth 0 button))
                                      :no-decoration t
                                      :face 'octocat-dimmed

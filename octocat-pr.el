@@ -384,11 +384,10 @@ ON-VISIT-CHECK is called by RET on a check."
        (list (vui-newline))
        (if draft
            (append
-            (list (vui-text "  This pull request is still a work in progress" :face 'bold)
-                  (vui-text "  Draft pull requests cannot be merged." :face 'octocat-dimmed))
+            (list (vui-text "  This pull request is still a work in progress" :face 'bold))
             (octocat-timeline-buttons
              '(("Ready for review" "RET: mark this pull request ready for review"
-                octocat-pr-ready))
+                octocat-pr-ready "Draft pull requests cannot be merged."))
              'tight))
          (append
           (unless (octocat-pr--conflicts-p pr)
@@ -396,13 +395,13 @@ ON-VISIT-CHECK is called by RET on a check."
              (if (equal (octocat-timeline--get pr "mergeStateStatus") "BLOCKED")
                  (vui-text "  Merging is blocked" :face 'octocat-ci-failure)
                (vui-text "  Merging can be performed automatically."
-                         :face 'octocat-dimmed))))
+                         :face 'octocat-merge-ready))))
           (octocat-timeline-buttons
            (list (and (not (octocat-pr--conflicts-p pr))
                       '("Merge pull request" "RET: merge this pull request"
                         octocat-pr-merge))
-                 '("Still in progress? Convert to draft"
-                   "RET: convert this pull request to a draft" octocat-pr-convert-to-draft))
+                 '("Convert to draft" "RET: convert this pull request to a draft"
+                   octocat-pr-convert-to-draft "Still in progress?"))
            'tight)))))))
 
 (defun octocat-pr--merge-data (method methods defaults delete)

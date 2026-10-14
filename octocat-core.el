@@ -220,6 +220,13 @@ with a floor of 1."
   "Face for the grey bars standing in for content that is still loading."
   :group 'octocat)
 
+(defface octocat-merge-ready
+  '((((class color) (background dark)) :foreground "#3fb950")
+    (((class color) (background light)) :foreground "#1a7f37")
+    (t :inherit success))
+  "Face for the status of a PR that can be merged, green as on GitHub."
+  :group 'octocat)
+
 (defface octocat-filter-input
   '((t :inherit secondary-selection :extend nil))
   "Face for the search query field of the list pages, drawn like an input box."
