@@ -282,9 +282,8 @@ or when the fetch fails."
   "Profile lines of PROFILE with its avatar drawn beside them in ASCII.
 The image is fetched and decoded once; it is drawn again, cheaply, each
 time the window's width changes."
-  :state ((win-width nil))
   :render
-  (let* ((width  (octocat-vui-use-window-width))
+  (let* ((width  (octocat-vui-window-width))
          (url    (and octocat-user-show-avatar
                       (octocat--nonempty (gethash "avatar_url" profile))))
          (result (vui-use-async (list 'user-avatar url)

@@ -815,9 +815,8 @@ user's page."
 (vui-defcomponent octocat-pr--page (repo number raw merging)
   "Pull request NUMBER of REPO as a timeline; RAW shows markdown verbatim.
 MERGING non-nil shows a merge under way."
-  :state ((win-width nil))
   :render
-  (let* ((width  (octocat-vui-use-window-width))
+  (let* ((width  (octocat-vui-window-width))
          (bg     (octocat--label-background))
          (result (octocat-pr--use-data repo number))
          (timeline (octocat-timeline-use-events repo number))

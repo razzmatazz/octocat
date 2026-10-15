@@ -580,29 +580,6 @@ It is at most `octocat-max-width' on a capped page, see
   (let ((win (get-buffer-window (current-buffer) t)))
     (octocat--cap-width (if win (window-body-width win) 80))))
 
-(defmacro octocat-vui-use-window-width ()
-  "Return the width of the buffer's window; a resize re-renders.
-The component must declare a `(win-width nil)' entry in its `:state'.
-The size-change hook only exists while the component is mounted."
-  `(progn
-     (vui-use-effect ()
-       (let* ((buf  (current-buffer))
-              (last (octocat-vui-window-width))
-              (set  (vui-with-async-context
-                      (vui-set-state :win-width (octocat-vui-window-width))))
-              ;; A hidden buffer has no width: its fallback is no resize,
-              ;; and re-rendering it would lose the point `q' returns to.
-              (hook (lambda (_frame)
-                      (when (and (buffer-live-p buf) (get-buffer-window buf t))
-                        (let ((w (with-current-buffer buf
-                                   (octocat-vui-window-width))))
-                          (unless (eql w last)
-                            (setq last w)
-                            (funcall set)))))))
-         (add-hook 'window-size-change-functions hook)
-         (lambda () (remove-hook 'window-size-change-functions hook))))
-     (or win-width (octocat-vui-window-width))))
-
 (defun octocat-vui--save-view ()
   "Return the point and scroll of every window showing the current buffer.
 Each entry is (WINDOW POINT-LINE POINT-COLUMN START-LINE)."
@@ -861,9 +838,9 @@ The first page is cached on disk and painted while it is refetched;
 \"load more\" fetches only the page after the last, by its cursor."
   ;; MORE is (:items LIST :cursor C): the items of the pages after the
   ;; first, and the cursor after the last of them.
-  :state ((more nil) (fetching nil) (win-width nil))
+  :state ((more nil) (fetching nil))
   :render
-  (let* ((width  (octocat-vui-use-window-width))
+  (let* ((width  (octocat-vui-window-width))
          (type   (if (eq kind 'pulls) "prs" "issues"))
          (noun   (if (eq kind 'pulls) "pull requests" "issues"))
          (id     (octocat--query-cache-id query))

@@ -265,9 +265,8 @@ BG is as for `octocat--label-face'."
 
 (vui-defcomponent octocat-issue--page (repo number raw)
   "Issue NUMBER of REPO as a timeline; RAW shows markdown bodies verbatim."
-  :state ((win-width nil))
   :render
-  (let* ((width  (octocat-vui-use-window-width))
+  (let* ((width  (octocat-vui-window-width))
          (bg     (octocat--label-background))
          (cached (vui-use-memo (repo number)
                    (octocat--detail-cache-load repo "issue" number)))

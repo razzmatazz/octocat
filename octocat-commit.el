@@ -188,9 +188,8 @@ Its check-runs are in CHECKS, a `vui-use-async' result."
   "Commit SHA of REPO: header, message, checks, files and comments.
 RAW shows markdown verbatim.  The commit, its checks and its comments
 are fetched independently; each shows its cached copy until then."
-  :state ((win-width nil))
   :render
-  (let* ((width    (octocat-vui-use-window-width))
+  (let* ((width    (octocat-vui-window-width))
          (commit   (octocat-repo-vui-use-cached "commit" repo sha #'octocat--fetch-commit))
          (checks   (octocat-repo-vui-use-cached "checks" repo sha #'octocat--fetch-checks t))
          (comments (octocat-repo-vui-use-cached
