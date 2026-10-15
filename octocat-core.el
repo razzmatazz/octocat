@@ -87,7 +87,7 @@ to disable caching."
   :type 'integer
   :group 'octocat)
 
-(defcustom octocat-max-width 100
+(defcustom octocat-max-width 112
   "Most columns the text of an issue or pull request page takes, or nil.
 A wider window gets margins that centre the page, as GitHub bounds its
 conversation column.  A page with wider content, such as an unfolded
