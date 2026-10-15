@@ -86,6 +86,13 @@ to disable caching."
   :type 'integer
   :group 'octocat)
 
+(defcustom octocat-max-width 100
+  "Most columns the text of an issue or pull request page takes, or nil.
+A wider window gets margins that centre the page, as GitHub bounds its
+conversation column."
+  :type '(choice (const :tag "No limit" nil) integer)
+  :group 'octocat)
+
 
 
 
@@ -876,6 +883,46 @@ point is saved around it."
   (save-excursion
     (window-max-chars-per-line (or (get-buffer-window (current-buffer) t)
                                    (selected-window)))))
+
+;;;; Width cap
+
+(defun octocat--centered-margins (full max)
+  "Return (LEFT . RIGHT) margins centring MAX columns in FULL.
+A nil MAX, or one at least FULL, gives no margins."
+  (let ((extra (if max (max 0 (- full max)) 0)))
+    (cons (/ extra 2) (- extra (/ extra 2)))))
+
+(defun octocat--fit-window (win)
+  "Give WIN margins capping its text at `octocat-max-width' columns.
+Margins are only set when they change, since setting them is itself a
+size change that runs this again."
+  (let* ((old  (window-margins win))
+         (full (+ (window-body-width win) (or (car old) 0) (or (cdr old) 0)))
+         (new  (octocat--centered-margins full octocat-max-width)))
+    (set-window-parameter win 'octocat--fitted t)
+    (unless (equal (cons (or (car old) 0) (or (cdr old) 0)) new)
+      (set-window-margins win (car new) (cdr new)))))
+
+(defun octocat--unfit-windows (frame)
+  "Restore the margins of FRAME's fitted windows now showing other buffers.
+Switching buffers keeps a window's margins, so they would carry over."
+  (dolist (win (window-list frame 'nomini))
+    (when (and (window-parameter win 'octocat--fitted)
+               (not (memq #'octocat--fit-window
+                          (buffer-local-value 'window-size-change-functions
+                                              (window-buffer win)))))
+      (set-window-parameter win 'octocat--fitted nil)
+      (with-current-buffer (window-buffer win)
+        (set-window-margins win left-margin-width right-margin-width)))))
+
+(defun octocat--max-width-setup ()
+  "Cap the current buffer's windows at `octocat-max-width' columns.
+The hooks are buffer-local, so they run for this buffer's windows only,
+and before vui's global size hook measures the width to re-render."
+  (add-hook 'window-size-change-functions #'octocat--fit-window nil t)
+  (add-hook 'window-buffer-change-functions #'octocat--fit-window nil t)
+  (add-hook 'window-buffer-change-functions #'octocat--unfit-windows)
+  (mapc #'octocat--fit-window (get-buffer-window-list nil nil t)))
 
 (defun octocat--insert-markdown (text &optional indent)
   "Insert TEXT rendered by `octocat--markdown-string' into the current buffer.

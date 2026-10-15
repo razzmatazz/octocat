@@ -229,6 +229,18 @@ the window's point; mid-render that scrambled the page."
     (should (eq (octocat-markdown-tests--prop out "defun" 'face)
                 'octocat-markdown-code-block))))
 
+(ert-deftest octocat-markdown-test-code-block-fits-width ()
+  "A code block pads to the width, not its longest line, which wraps marked."
+  (let* ((out (octocat-markdown-render
+               (concat "```\nshort\n" (make-string 50 ?x) "\n```") "" 20))
+         (lines (split-string out "\n" t)))
+    (should (= (string-width (car lines)) 20))
+    (should (string-search "↪" (get-text-property 0 'wrap-prefix (cadr lines))))
+    (should-not (string-search "↪" (or (get-text-property
+                                         0 'wrap-prefix
+                                         (octocat-markdown-render "text" "" 20))
+                                        "")))))
+
 (ert-deftest octocat-markdown-test-mermaid-is-labelled ()
   "A mermaid fence is shown as source, labelled as such."
   (should (equal (octocat-markdown-tests--md "```mermaid\nA-->B\n```")

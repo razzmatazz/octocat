@@ -168,14 +168,14 @@ Shown when there is neither a cache nor a response yet: the header and
 the opening timeline entry, laid out as the real page lays them out."
   (let ((state  octocat-repo-vui--state-width)
         (indent (make-string (+ octocat-repo-vui--state-width 2) ?\s))
-        (rail   (concat "  " (propertize "│" 'face 'octocat-dimmed) " ")))
+        (rail   (concat (propertize "│" 'face 'octocat-dimmed) " ")))
     (octocat-vui-skeleton
      `((,(propertize repo 'face 'octocat-repo)
         ,(propertize (format "#%d" number) 'face 'octocat-pr-number))
        (,state "  " 44 "  " 16)
        (,indent 32)
        nil
-       ("  " ,(propertize "●" 'face 'octocat-dimmed) " " 36)
+       (,(propertize "●" 'face 'octocat-dimmed) " " 36)
        (,rail 64) (,rail 58) (,rail 40)
        nil)
      width)))

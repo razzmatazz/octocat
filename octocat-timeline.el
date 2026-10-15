@@ -330,10 +330,10 @@ single entry such as \"added the A B labels\"."
 
 ;;;; Rendering
 
-(defconst octocat-timeline--rail (propertize "  │" 'face 'octocat-dimmed)
+(defconst octocat-timeline--rail (propertize "│" 'face 'octocat-dimmed)
   "The timeline's vertical line, drawn between two entries.")
 
-(defconst octocat-timeline--body-prefix (propertize "  │ " 'face 'octocat-dimmed)
+(defconst octocat-timeline--body-prefix (propertize "│ " 'face 'octocat-dimmed)
   "Prefix of a box body: the rail, then the text.
 The text lines up with the author's handle in the heading above it.")
 
@@ -359,12 +359,12 @@ bodies verbatim.  WIDTH is the columns markdown bodies fit, as for
                              'face (octocat-timeline--bullet-face (plist-get item :state))))
          (text
           (if line
-              (concat "  " bullet " " actor (if (string-empty-p actor) "" " ")
+              (concat bullet " " actor (if (string-empty-p actor) "" " ")
                       (plist-get item :text) "  " date (plist-get item :suffix))
             (let ((body   (plist-get item :body))
                   (empty  (plist-get item :empty))
                   (prefix octocat-timeline--body-prefix))
-              (concat "  " bullet " " actor " "
+              (concat bullet " " actor " "
                       (propertize (plist-get item :verb) 'face 'octocat-dimmed)
                       "  " date
                       (cond
@@ -530,7 +530,8 @@ entry in BUTTONS is skipped."
            ('nil   (vui-newline))
            (_      (vui-text octocat-timeline--rail)))
         (apply #'vui-hstack :spacing 0
-               (vui-text "  ")
+               ;; Off the rail the row lines up with section content.
+               (vui-text (if (memq joined '(nil tight)) "  " ""))
                (let (nodes)
                  (dolist (button (delq nil buttons))
                    (when nodes (push (vui-text "   ") nodes))

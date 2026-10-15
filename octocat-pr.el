@@ -847,7 +847,8 @@ Each is \"@login (state)\": the state of their latest review, or
   (setq-local truncate-lines nil)
   (setq-local revert-buffer-function #'octocat-pr-refresh)
   (setq-local octocat--refresh-fn #'octocat-pr-refresh)
-  (octocat--ts-eldoc-setup))
+  (octocat--ts-eldoc-setup)
+  (octocat--max-width-setup))
 
 (defvar-local octocat--pr-number nil
   "The PR number this buffer is displaying.")

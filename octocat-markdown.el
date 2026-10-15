@@ -761,15 +761,21 @@ draw it, the source is shown, labelled as such."
                       (split-string (octocat-markdown--tex (string-join code "\n")) "\n"))
                      (t code)))
          (code (or (and (not diagram) (octocat-markdown--highlight code lang)) code))
-         (width (apply #'max 0 (mapcar #'string-width code))))
+         ;; Padding stops at the column, so one long line wraps alone
+         ;; instead of padding every line to its width.
+         (width (min (apply #'max 0 (mapcar #'string-width code))
+                     (if octocat-markdown--avail
+                         (max 1 (- octocat-markdown--avail 2))
+                       most-positive-fixnum))))
     (append
      (when (and (equal lang "mermaid") (not diagram))
        (list (cons (octocat-markdown--face "mermaid diagram (source)"
                                            'octocat-markdown-dimmed 'italic)
                    0)))
      (mapcar (lambda (l)
-               (let ((s (concat " " l (make-string (- width (string-width l)) ?\s) " ")))
+               (let ((s (concat " " l (make-string (max 0 (- width (string-width l))) ?\s) " ")))
                  (add-face-text-property 0 (length s) 'octocat-markdown-code-block t s)
+                 (put-text-property 0 (length s) 'octocat-markdown-code t s)
                  (cons s 0)))
              (or code '(""))))))
 
@@ -1074,13 +1080,19 @@ sections are easy to tell apart."
 
 (defun octocat-markdown--finish (rows indent)
   "Join ROWS (see `octocat-markdown--blocks') into a string prefixed by INDENT.
-Wrapped continuation lines repeat INDENT, plus each row's hang.  The
+Wrapped continuation lines repeat INDENT, plus each row's hang, and a
+code line's also an arrow, so the wrap is not taken for a newline.  The
 lines of a collapsed <details> body are invisible, newline included."
   (mapconcat (lambda (row)
                (let ((full (concat indent (car row) "\n"))
                      (fold (octocat-markdown--row-fold row)))
-                 (put-text-property 0 (length full) 'wrap-prefix
-                                    (concat indent (make-string (cdr row) ?\s)) full)
+                 (put-text-property
+                  0 (length full) 'wrap-prefix
+                  (concat indent (make-string (cdr row) ?\s)
+                          (and (text-property-not-all 0 (length (car row))
+                                                      'octocat-markdown-code nil (car row))
+                               (propertize "↪ " 'face 'octocat-markdown-dimmed)))
+                  full)
                  (when fold
                    (add-text-properties
                     0 (length full)

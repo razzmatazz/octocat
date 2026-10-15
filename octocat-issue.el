@@ -348,7 +348,8 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
   (setq-local truncate-lines nil)
   (setq-local revert-buffer-function #'octocat-issue-refresh)
   (setq-local octocat--refresh-fn #'octocat-issue-refresh)
-  (octocat--ts-eldoc-setup))
+  (octocat--ts-eldoc-setup)
+  (octocat--max-width-setup))
 
 
 ;;;; Refresh

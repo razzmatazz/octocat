@@ -105,5 +105,13 @@
                   "{\"data\":{\"repository\":{\"open\":{\"totalCount\":2},\"closed\":{\"totalCount\":5}}}}")
                  '(:open 2 :closed 5))))
 
+
+(ert-deftest octocat-core-test-centered-margins ()
+  "Margins centre MAX columns in a wider window, and vanish otherwise."
+  (should (equal (octocat--centered-margins 120 nil) '(0 . 0)))
+  (should (equal (octocat--centered-margins 80 100) '(0 . 0)))
+  (should (equal (octocat--centered-margins 140 100) '(20 . 20)))
+  (should (equal (octocat--centered-margins 141 100) '(20 . 21))))
+
 (provide 'octocat-core-tests)
 ;;; octocat-core-tests.el ends here
