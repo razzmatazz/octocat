@@ -1108,27 +1108,26 @@ A [clear] button shows when it differs from the default."
      (vui-hstack :spacing 2
        (vui-text "Filter" :face 'octocat-dimmed)
        (vui-component 'octocat-vui-list-query-field
-                      :query (string-trim (or query ""))))
+                      :query (string-trim (or query "")))
+       (when active
+         (vui-button "[clear]"
+                     :no-decoration t
+                     :face 'octocat-dimmed
+                     :key :clear
+                     :help-echo "RET: reset the query"
+                     :on-click #'octocat-vui-list-clear-filter)))
      (vui-newline)
      (apply #'vui-hstack :spacing 2
             (vui-text "      ")
-            (append
-             (mapcar (lambda (facet)
-                       (vui-button (format "[%s]" (car facet))
-                                   :no-decoration t
-                                   :face 'octocat-dimmed
-                                   :key (car facet)
-                                   :help-echo (format "RET: filter by %s"
-                                                      (downcase (car facet)))
-                                   :on-click (cdr facet)))
-                     octocat-vui-list--facets)
-             (when active
-               (list (vui-button "[clear]"
-                                 :no-decoration t
-                                 :face 'octocat-dimmed
-                                 :key :clear
-                                 :help-echo "RET: reset the query"
-                                 :on-click #'octocat-vui-list-clear-filter)))))
+            (mapcar (lambda (facet)
+                      (vui-button (format "[%s]" (car facet))
+                                  :no-decoration t
+                                  :face 'octocat-dimmed
+                                  :key (car facet)
+                                  :help-echo (format "RET: filter by %s"
+                                                     (downcase (car facet)))
+                                  :on-click (cdr facet)))
+                    octocat-vui-list--facets))
      (vui-newline))))
 
 (define-key octocat-vui-list-mode-map (kbd "F") #'octocat-vui-list-filter)
