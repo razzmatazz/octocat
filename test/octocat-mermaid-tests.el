@@ -399,8 +399,10 @@ in its way are not drawn."
     (should (string-prefix-p "mermaid diagram (source)\n" out))
     (should (string-match-p "subgraph b" out)))
   ;; Too narrow for the diagram.
-  (should (string-match-p "mermaid diagram (source)"
-                          (octocat-markdown-render "```mermaid\ngraph TD\nA[Start] --> B\n```" "" 5))))
+  (should (string-match-p "mermaiddiagram(source)"
+                          (replace-regexp-in-string
+                           "[\n ]" ""
+                           (octocat-markdown-render "```mermaid\ngraph TD\nA[Start] --> B\n```" "" 5)))))
 
 (provide 'octocat-mermaid-tests)
 ;;; octocat-mermaid-tests.el ends here

@@ -742,7 +742,7 @@ text onto several lines, with a rule between rows to keep them apart."
                                             " ")))
                                 specs (funcall bar "│"))
                                (funcall bar "│")))))))
-    (mapcar (lambda (s) (cons s 0))
+    (mapcar (lambda (s) (cons (propertize s 'octocat-markdown-table t) 0))
             (append
              (list (funcall rule "┌" "┬" "┐"))
              (funcall row head 'bold)
@@ -1183,6 +1183,53 @@ sections are easy to tell apart."
          (i (text-property-not-all 0 (length s) 'octocat-markdown-fold nil s)))
     (and i (get-text-property i 'octocat-markdown-fold s))))
 
+(defun octocat-markdown--cut (string width)
+  "Return STRING cut into pieces of at most WIDTH columns, as a list."
+  (let ((beg 0) pieces)
+    (while (< beg (length string))
+      (let ((end (1+ beg)))
+        (while (and (< end (length string))
+                    (<= (string-width (substring string beg (1+ end))) width))
+          (setq end (1+ end)))
+        (push (substring string beg end) pieces)
+        (setq beg end)))
+    (or (nreverse pieces) (list ""))))
+
+(defun octocat-markdown--fill (rows width)
+  "Return ROWS with those wider than WIDTH columns broken to fit it.
+Emacs would wrap them at the window's edge, past a capped page's column.
+Prose breaks at spaces, hung as a wrap would be; code breaks anywhere,
+each continuation marked with an arrow.  Tables were already fit where
+they can be.  A nil WIDTH leaves ROWS as they are."
+  (if (null width)
+      rows
+    (cl-mapcan
+     (lambda (row)
+       (let* ((s    (car row))
+              (hang (cdr row))
+              (has  (lambda (prop) (text-property-not-all 0 (length s) prop nil s))))
+         (cond
+          ((or (<= (string-width s) width) (funcall has 'octocat-markdown-table))
+           (list row))
+          ((funcall has 'octocat-markdown-code)
+           (let* ((head  (car (octocat-markdown--cut s width)))
+                  (arrow (concat (make-string hang ?\s)
+                                 (propertize "↪ " 'face 'octocat-markdown-dimmed))))
+             (add-face-text-property 0 (length arrow) 'octocat-markdown-code-block t arrow)
+             (put-text-property 0 (length arrow) 'octocat-markdown-code t arrow)
+             (cons (cons head hang)
+                   (mapcar (lambda (piece) (cons (concat arrow piece) hang))
+                           (octocat-markdown--cut (substring s (length head))
+                                                  (max 1 (- width hang 2)))))))
+          (t
+           (let* ((lead  (- (length s) (length (string-trim-left s " +"))))
+                  (lines (octocat-markdown--wrap (substring s lead)
+                                                 (max 1 (- width (max lead hang))))))
+             (cons (cons (concat (substring s 0 lead) (car lines)) hang)
+                   (mapcar (lambda (l) (cons (concat (make-string hang ?\s) l) hang))
+                           (cdr lines))))))))
+     rows)))
+
 (defun octocat-markdown--finish (rows indent)
   "Join ROWS (see `octocat-markdown--blocks') into a string prefixed by INDENT.
 Wrapped continuation lines repeat INDENT, plus each row's hang, and a
@@ -1261,10 +1308,11 @@ long lines.  Windows-style CR characters are stripped first."
 INDENT is as for `octocat-markdown-render-verbatim'.
 
 WIDTH is the number of columns the output, INDENT included, should fit,
-or nil for no limit.  Only tables use it: one that would be wider
-squeezes its columns and wraps its cells over several lines, since Emacs
-wrapping a table at the window edge breaks its borders.  A table that
-cannot fit even squeezed is left at its natural width.
+or nil for no limit.  Longer lines are broken to fit, see
+`octocat-markdown--fill'.  A table that would be wider squeezes its
+columns and wraps its cells over several lines instead, since breaking
+a table's lines breaks its borders; one that cannot fit even squeezed
+is left at its natural width.
 
 Markup is replaced by faces; see the Commentary for what is understood."
   (let* ((indent (or indent "  "))
@@ -1281,8 +1329,10 @@ Markup is replaced by faces; see the Commentary for what is understood."
     ;; summary has been toggled, or they show while the arrow says ▸.
     (octocat-markdown--ensure-invisibility)
     (octocat-markdown--finish
-     (or (octocat-markdown--tidy (append rows (octocat-markdown--footnote-rows)))
-         (list (cons "" 0)))
+     (octocat-markdown--fill
+      (or (octocat-markdown--tidy (append rows (octocat-markdown--footnote-rows)))
+          (list (cons "" 0)))
+      octocat-markdown--avail)
      indent)))
 
 ;;;; Font-lock for markdown source
