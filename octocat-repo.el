@@ -456,16 +456,17 @@ DRAFT is the JSON isDraft value; t shows an open pull request as \"draft\"."
                 'face face)))
 
 ;; PR and issue rows are two lines, each cut to the window width: the
-;; title with who opened it and when, then the labels and a dimmed line
-;; about where the item lives.  The title gives way to the author and age.
+;; title with its number, who opened it and when, then the labels and a
+;; dimmed line about the item's branch, checks and comments.  The title
+;; gives way to the rest.
 ;;
-;;   open  Another dummy PR  @me · 3 days ago
-;;         duplicate enhancement  owner/repo#5 · some-pr · CI: ●
+;;   open  Another dummy PR · #5 by @me · 3 days ago
+;;         duplicate enhancement  some-pr · CI: ●
 
-(defun octocat-repo-vui--cells (item current-branch repo bg)
-  "Return the display cells of the PR or issue ITEM of REPO as a plist.
+(defun octocat-repo-vui--cells (item current-branch bg)
+  "Return the display cells of the PR or issue ITEM as a plist.
 The keys are :title, :chips (label chips), :branch, :ci, :author, :prs
-\(the PRs that close an issue), :comments, :date and :ref (\"owner/repo#N\");
+\(the PRs that close an issue), :comments, :date and :number (\"#N\");
 a cell that ITEM does not have is nil or empty.  CURRENT-BRANCH, when
 non-nil, is the local HEAD branch name; a matching PR branch is
 highlighted with `octocat-branch-current'.  BG is as for
@@ -478,8 +479,8 @@ highlighted with `octocat-branch-current'.  BG is as for
                        (let ((c (gethash "comments" item)))
                          (if (vectorp c) (length c) 0)))))
     (list :title  (or (gethash "title" item) "")
-          :ref    (propertize (format "%s#%d" repo (gethash "number" item))
-                              'face 'octocat-dimmed)
+          :number (propertize (format "#%d" (gethash "number" item))
+                              'face 'octocat-pr-number)
           :date   (propertize (octocat--format-ts-relative
                                (or (gethash "createdAt" item) ""))
                               'face 'octocat-dimmed)
@@ -505,8 +506,8 @@ highlighted with `octocat-branch-current'.  BG is as for
 
 (defun octocat-repo-vui--item-lines (state cells keys &optional width)
   "Return the two lines of an item with STATE text, as a list of strings.
-The first is the state, title, author and date; the second the label
-chips and then the cells under KEYS.  CELLS are as made by
+The first is the state, title, number, author and date; the second
+the label chips and then the cells under KEYS.  CELLS are as made by
 `octocat-repo-vui--cells'.  WIDTH, when non-nil, cuts each line to fit,
 shortening the title first.  Shared by the list rows and the page
 headers so the two read alike."
@@ -517,7 +518,9 @@ headers so the two read alike."
                              (seq-remove (lambda (s) (or (null s) (string-empty-p s)))
                                          (mapcar (lambda (key) (plist-get cells key)) keys))
                              dot)))
-         (who   (funcall join '(:author :date)))
+         (who   (concat (plist-get cells :number)
+                        (propertize " by " 'face 'octocat-dimmed)
+                        (funcall join '(:author :date))))
          (title (plist-get cells :title))
          (chips (or (plist-get cells :chips) ""))
          (cut   (lambda (s) (if cap (truncate-string-to-width s cap nil nil "…") s))))
@@ -527,10 +530,10 @@ headers so the two read alike."
                       (if cap
                           (truncate-string-to-width
                            title
-                           (max 10 (- cap (string-width state) 2 (+ 2 (string-width who))))
+                           (max 10 (- cap (string-width state) 2 (+ 3 (string-width who))))
                            nil nil "…")
                         title)
-                      "  " who))
+                      dot who))
      (funcall cut
               (concat (make-string (+ octocat-repo-vui--state-width 2) ?\s)
                       (if (string-empty-p chips) "" (concat chips "  "))
@@ -543,7 +546,7 @@ WIDTH.  ON-VISIT and HELP are as for `octocat-vui-row'."
   (octocat-vui-row
    (mapconcat #'identity
               (octocat-repo-vui--item-lines
-               state cells '(:ref :branch :ci :prs :comments) width)
+               state cells '(:branch :ci :prs :comments) width)
               "\n")
    on-visit help))
 
@@ -552,7 +555,7 @@ WIDTH.  ON-VISIT and HELP are as for `octocat-vui-row'."
 CURRENT-BRANCH and BG are as for `octocat-repo-vui--cells'."
   (octocat-repo-vui--item-row
    (octocat-repo-vui--state-label (gethash "state" pr) (gethash "isDraft" pr))
-   (octocat-repo-vui--cells pr current-branch repo bg)
+   (octocat-repo-vui--cells pr current-branch bg)
    width
    (lambda () (octocat-repo-vui--open-pr repo pr))
    "RET: view pull request"))
@@ -562,7 +565,7 @@ CURRENT-BRANCH and BG are as for `octocat-repo-vui--cells'."
 BG is as for `octocat-repo-vui--cells'."
   (octocat-repo-vui--item-row
    (octocat-repo-vui--state-label (gethash "state" issue))
-   (octocat-repo-vui--cells issue nil repo bg)
+   (octocat-repo-vui--cells issue nil bg)
    width
    (lambda () (octocat-repo-vui--open-issue repo issue))
    "RET: view issue"))
@@ -578,13 +581,13 @@ BG is as for `octocat-repo-vui--cells'."
 STATE is its coloured state text (see `octocat-repo-vui--state-label').
 The first row is the repo and number, as in every other view; RET on it
 opens the repo view.  Below it are the item's two list lines (see
-`octocat-repo-vui--item-lines'), uncut and less the repo reference
-above; the first is the `title' target of the page's edit command, and
-RET on either calls ON-EDIT-TITLE.  BG is as for
+`octocat-repo-vui--item-lines'), uncut; the first is the `title'
+target of the page's edit command, and RET on either calls
+ON-EDIT-TITLE.  BG is as for
 `octocat-repo-vui--cells'.  BRANCH, when non-nil, replaces the
 branch cell.  OMIT is a list of cell keys (see `octocat-repo-vui--cells')
 to leave out."
-  (let* ((cells (octocat-repo-vui--cells item nil repo bg))
+  (let* ((cells (octocat-repo-vui--cells item nil bg))
          (cells (if branch (plist-put cells :branch branch) cells))
          (lines (octocat-repo-vui--item-lines
                  state cells (seq-difference '(:branch :ci :prs :comments) omit))))
