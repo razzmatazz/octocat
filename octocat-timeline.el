@@ -356,7 +356,8 @@ The text lines up with the author's handle in the heading above it.")
   "Return the text of timeline ITEM, without a final newline.
 ITEM is as described in the Commentary.  RAW non-nil shows markdown
 bodies verbatim.  WIDTH is the columns markdown bodies fit, as for
-`octocat--markdown-string'.  The text carries ITEM's target in the
+`octocat--markdown-string'; a longer event line is broken to fit, hung
+under its actor.  The text carries ITEM's target in the
 `octocat-timeline-target' property."
   (let* ((line  (memq (plist-get item :kind) '(event commit)))
          (actor (propertize (plist-get item :actor) 'face 'octocat-pr-author))
@@ -366,8 +367,11 @@ bodies verbatim.  WIDTH is the columns markdown bodies fit, as for
                              'face (octocat-timeline--bullet-face (plist-get item :state))))
          (text
           (if line
-              (concat bullet " " actor (if (string-empty-p actor) "" " ")
-                      (plist-get item :text) "  " date (plist-get item :suffix))
+              (let ((s (concat bullet " " actor (if (string-empty-p actor) "" " ")
+                               (plist-get item :text) "  " date (plist-get item :suffix))))
+                (if (and width (> (string-width s) width))
+                    (string-join (octocat-markdown-wrap-hung s width 2) "\n")
+                  s))
             (let ((body   (plist-get item :body))
                   (empty  (plist-get item :empty))
                   (prefix octocat-timeline--body-prefix))

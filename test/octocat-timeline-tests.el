@@ -115,6 +115,17 @@
     (should (eq (get-text-property (1- (length entry)) 'octocat-timeline-target entry)
                 comment))))
 
+(ert-deftest octocat-timeline-test-event-line-wraps ()
+  "An event line wider than WIDTH breaks, hung under its actor."
+  (let ((entry (substring-no-properties
+                (octocat-timeline--entry-string
+                 (list :time "" :kind 'event :actor "@bob"
+                       :text "changed the title aaa bbb → ccc ddd")
+                 nil 20))))
+    (should (string-prefix-p "○ @bob changed the\n  title" entry))
+    (should (cl-every (lambda (l) (<= (string-width l) 20))
+                      (split-string entry "\n")))))
+
 (ert-deftest octocat-timeline-test-merged-pr ()
   "A merged PR shows its merge, not the close GitHub logs beside it."
   (let* ((pr (json-parse-string

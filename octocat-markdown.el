@@ -1195,6 +1195,16 @@ sections are easy to tell apart."
         (setq beg end)))
     (or (nreverse pieces) (list ""))))
 
+(defun octocat-markdown-wrap-hung (string width hang)
+  "Return STRING broken at spaces into lines of at most WIDTH columns.
+Its leading spaces are kept, and the lines after the first indented by
+HANG columns, as a `wrap-prefix' of HANG spaces would show them."
+  (let* ((lead  (- (length string) (length (string-trim-left string " +"))))
+         (lines (octocat-markdown--wrap (substring string lead)
+                                        (max 1 (- width (max lead hang))))))
+    (cons (concat (substring string 0 lead) (car lines))
+          (mapcar (lambda (l) (concat (make-string hang ?\s) l)) (cdr lines)))))
+
 (defun octocat-markdown--fill (rows width)
   "Return ROWS with those wider than WIDTH columns broken to fit it.
 Emacs would wrap them at the window's edge, past a capped page's column.
@@ -1222,12 +1232,8 @@ they can be.  A nil WIDTH leaves ROWS as they are."
                            (octocat-markdown--cut (substring s (length head))
                                                   (max 1 (- width hang 2)))))))
           (t
-           (let* ((lead  (- (length s) (length (string-trim-left s " +"))))
-                  (lines (octocat-markdown--wrap (substring s lead)
-                                                 (max 1 (- width (max lead hang))))))
-             (cons (cons (concat (substring s 0 lead) (car lines)) hang)
-                   (mapcar (lambda (l) (cons (concat (make-string hang ?\s) l) hang))
-                           (cdr lines))))))))
+           (mapcar (lambda (l) (cons l hang))
+                   (octocat-markdown-wrap-hung s width hang))))))
      rows)))
 
 (defun octocat-markdown--finish (rows indent)
