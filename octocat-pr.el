@@ -876,7 +876,7 @@ background."
 
 (defun octocat-pr-open (repo number)
   "Show pull request NUMBER of REPO in its own buffer."
-  (let ((buf (get-buffer-create (format "*%s#%d*" repo number))))
+  (let ((buf (get-buffer-create (format "*%s pr %d*" repo number))))
     (pop-to-buffer buf)
     (unless (derived-mode-p 'octocat-pr-mode)
       (octocat-pr-mode))
@@ -888,7 +888,7 @@ background."
 
 ;;;; PR list page
 ;;
-;; Opened by `M-x octocat-prs' (octocat.el).  vui.el-rendered like the PR
+;; Opened by `M-x octocat-pr-list' (octocat.el).  vui.el-rendered like the PR
 ;; detail buffer above; see "UI frameworks" in CONTRIBUTING.md.
 
 (vui-defcomponent octocat-pr--list-page (repo current-branch query)

@@ -370,7 +370,7 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
 
 (defun octocat-issue-open (repo number)
   "Show issue NUMBER of REPO in its own buffer."
-  (let ((buf (get-buffer-create (format "*%s#%d*" repo number))))
+  (let ((buf (get-buffer-create (format "*%s issue %d*" repo number))))
     (pop-to-buffer buf)
     (unless (derived-mode-p 'octocat-issue-mode)
       (octocat-issue-mode))
@@ -382,7 +382,7 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
 
 ;;;; Issue list page
 ;;
-;; Opened by `M-x octocat-issues' (octocat.el).  vui.el-rendered like the
+;; Opened by `M-x octocat-issue-list' (octocat.el).  vui.el-rendered like the
 ;; issue detail buffer above; see "UI frameworks" in CONTRIBUTING.md.
 
 (vui-defcomponent octocat-issue--list-page (repo query)

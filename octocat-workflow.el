@@ -299,7 +299,7 @@ the workflow and its runs in the background."
 (defun octocat-workflow-open (repo id name path)
   "Show workflow ID of REPO in its own buffer.
 NAME is its display name and PATH its file, or nil."
-  (let ((buf (get-buffer-create (format "*%s/%s*" repo name))))
+  (let ((buf (get-buffer-create (format "*%s workflow %s*" repo name))))
     (pop-to-buffer buf)
     (unless (derived-mode-p 'octocat-workflow-mode)
       (octocat-workflow-mode))

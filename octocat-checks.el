@@ -311,7 +311,7 @@ the check-runs in the background."
   "Show the CI results of commit SHA of REPO in their own buffer.
 REF is the branch the commit is the head of, or nil."
   (let ((buf (get-buffer-create
-              (format "*%s@%s checks*" repo
+              (format "*%s checks %s*" repo
                       (substring sha 0 (min 7 (length sha)))))))
     (pop-to-buffer buf)
     (unless (derived-mode-p 'octocat-checks-mode)

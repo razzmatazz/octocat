@@ -65,8 +65,8 @@
 (declare-function octocat-run-open                 "octocat-run"      (repo run-id))
 (declare-function octocat-tree-open                "octocat-tree"     ())
 (declare-function octocat-tree-find-file           "octocat-tree"     ())
-(declare-function octocat-issues                   "octocat"          ())
-(declare-function octocat-prs                      "octocat"          ())
+(declare-function octocat-issue-list               "octocat"          ())
+(declare-function octocat-pr-list                  "octocat"          ())
 (declare-function octocat-actions                  "octocat"          ())
 
 

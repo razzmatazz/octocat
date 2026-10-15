@@ -317,7 +317,7 @@ the commit, its checks and its comments in the background."
 (defun octocat-commit-open (repo sha)
   "Show commit SHA of REPO in its own buffer."
   (let ((buf (get-buffer-create
-              (format "*%s@%s*" repo
+              (format "*%s commit %s*" repo
                       (substring sha 0 (min 7 (length sha)))))))
     (pop-to-buffer buf)
     (unless (derived-mode-p 'octocat-commit-mode)

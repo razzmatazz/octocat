@@ -304,7 +304,7 @@ review comments independently."
 
 (defun octocat-pr-diff-open (repo number)
   "Show the diff of pull request NUMBER of REPO in its own buffer."
-  (let ((buf (get-buffer-create (format "*%s#%d diff*" repo number))))
+  (let ((buf (get-buffer-create (format "*%s pr %d diff*" repo number))))
     (pop-to-buffer buf)
     (unless (derived-mode-p 'octocat-pr-diff-mode)
       (octocat-pr-diff-mode))

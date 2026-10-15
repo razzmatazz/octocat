@@ -31,7 +31,7 @@
 ;; Entry points:
 ;;   M-x octocat      — GitHub account dashboard (recent repos, activity feed)
 ;;   M-x octocat-repo — Per-repository view (summary, Commits)
-;;   M-x octocat-prs / octocat-issues / octocat-actions — list pages
+;;   M-x octocat-pr-list / octocat-issue-list / octocat-actions — list pages
 
 ;;; Code:
 
@@ -597,18 +597,18 @@ the current git working tree."
     (funcall revert-buffer-function)))
 
 ;;;###autoload
-(defun octocat-prs (&optional repo)
+(defun octocat-pr-list (&optional repo)
   "Open the pull request list for the current GitHub repository.
 With REPO, an \"owner/name\" string, open it for that repository."
   (interactive)
-  (octocat--open-list #'octocat-pr-list-mode "prs" "pulls" repo))
+  (octocat--open-list #'octocat-pr-list-mode "pr-list" "pulls" repo))
 
 ;;;###autoload
-(defun octocat-issues (&optional repo)
+(defun octocat-issue-list (&optional repo)
   "Open the issue list for the current GitHub repository.
 With REPO, an \"owner/name\" string, open it for that repository."
   (interactive)
-  (octocat--open-list #'octocat-issue-list-mode "issues" "issues" repo))
+  (octocat--open-list #'octocat-issue-list-mode "issue-list" "issues" repo))
 
 ;;;###autoload
 (defun octocat-actions (&optional repo)
