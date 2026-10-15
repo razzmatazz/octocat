@@ -998,7 +998,7 @@ Everything but the commits comes from a single summary API call."
   (unless octocat-repo--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
   (message "Octocat: Opening %s in browser…" octocat-repo--repo)
-  (browse-url (format "https://github.com/%s" octocat-repo--repo)))
+  (octocat-browse-external (format "https://github.com/%s" octocat-repo--repo)))
 
 (defun octocat-repo-switch-branch ()
   "Show the commits of another branch, picked from the repository's."

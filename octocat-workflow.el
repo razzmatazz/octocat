@@ -52,7 +52,7 @@
   "The \"owner/repo\" this workflow buffer belongs to.")
 
 (defvar-local octocat--workflow-id nil
-  "The numeric workflow ID this buffer is displaying.")
+  "The workflow ID, or its file name, this buffer is displaying.")
 
 (defvar-local octocat--workflow-name nil
   "The display name of the workflow this buffer is displaying.")
@@ -91,7 +91,7 @@ cons \\=(error . MSG) on failure."
        "workflow-runs"
        (list "run" "list"
              "--repo"     repo
-             "--workflow" (number-to-string id)
+             "--workflow" (format "%s" id)
              "--limit"    (number-to-string limit)
              "--json"     "databaseId,displayTitle,status,conclusion,createdAt,headBranch")
        #'octocat--parse-json-list
@@ -255,8 +255,8 @@ by ON-MORE; LOADING is non-nil while that page is fetched."
   (unless (and octocat--workflow-repo octocat--workflow-id)
     (user-error "Octocat: Buffer is not associated with a workflow"))
   (message "Octocat: Opening workflow in browser…")
-  (browse-url (octocat-workflow--url octocat--workflow-repo octocat--workflow-id
-                                     octocat--workflow-path)))
+  (octocat-browse-external (octocat-workflow--url octocat--workflow-repo octocat--workflow-id
+                                                  octocat--workflow-path)))
 
 (defvar octocat-workflow-mode-map
   (let ((map (make-sparse-keymap)))

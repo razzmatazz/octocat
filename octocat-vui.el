@@ -632,8 +632,8 @@ each call, for the page's fetch keys (see `octocat-vui-use-cached')."
   (unless (and octocat-vui-list--repo octocat-vui-list--path)
     (user-error "Octocat: Buffer is not associated with a repository"))
   (message "Octocat: Opening %s in browser…" octocat-vui-list--repo)
-  (browse-url (format "https://github.com/%s/%s"
-                      octocat-vui-list--repo octocat-vui-list--path)))
+  (octocat-browse-external (format "https://github.com/%s/%s"
+                                   octocat-vui-list--repo octocat-vui-list--path)))
 
 (defvar octocat-vui-list-mode-map
   (let ((map (make-sparse-keymap)))

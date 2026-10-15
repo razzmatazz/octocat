@@ -264,8 +264,8 @@ RAW shows the review comments' markdown verbatim."
   (unless (and octocat--pr-diff-repo octocat--pr-diff-number)
     (user-error "Octocat: Buffer is not associated with a pull request diff"))
   (message "Octocat: Opening PR #%d diff in browser…" octocat--pr-diff-number)
-  (browse-url (format "https://github.com/%s/pull/%d/files"
-                      octocat--pr-diff-repo octocat--pr-diff-number)))
+  (octocat-browse-external (format "https://github.com/%s/pull/%d/files"
+                                   octocat--pr-diff-repo octocat--pr-diff-number)))
 
 (defvar octocat-pr-diff-mode-map
   (let ((map (make-sparse-keymap)))

@@ -208,7 +208,7 @@ On someone else\\='s comment: signal an error."
     (cond
      ((stringp url)
       (message "Octocat: Opening comment in browser…")
-      (browse-url url))
+      (octocat-browse-external url))
      (gh
       (message "Octocat: Opening PR #%d in browser…" octocat--pr-number)
       (start-process "octocat-browse" nil gh

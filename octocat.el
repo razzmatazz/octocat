@@ -86,9 +86,9 @@ Falls back to the user's GitHub page when point is not on a row."
   (let ((repo (get-text-property (point) 'octocat-dashboard-repo)))
     (if repo
         (progn (message "Octocat: Opening %s in browser…" repo)
-               (browse-url (format "https://github.com/%s" repo)))
+               (octocat-browse-external (format "https://github.com/%s" repo)))
       (message "Octocat: Opening GitHub in browser…")
-      (browse-url "https://github.com"))))
+      (octocat-browse-external "https://github.com"))))
 
 (defvar octocat-mode-map
   (let ((map (make-sparse-keymap)))

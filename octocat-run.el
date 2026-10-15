@@ -270,8 +270,8 @@ data replaces it."
   (unless (and octocat--run-repo octocat--run-id)
     (user-error "Octocat: Buffer is not associated with a workflow run"))
   (message "Octocat: Opening run #%s in browser…" octocat--run-id)
-  (browse-url (format "https://github.com/%s/actions/runs/%s"
-                      octocat--run-repo octocat--run-id)))
+  (octocat-browse-external (format "https://github.com/%s/actions/runs/%s"
+                                   octocat--run-repo octocat--run-id)))
 
 (defvar octocat-run-mode-map
   (let ((map (make-sparse-keymap)))

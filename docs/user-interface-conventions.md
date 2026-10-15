@@ -400,7 +400,34 @@ set when the buffer was opened.
 PRs and issues are opened via `gh pr view --web` / `gh issue view --web`
 rather than a hard-coded URL.  This ensures the correct GitHub host is used
 when `gh` is configured for GitHub Enterprise or an alternative host.  All
-other items are opened with `browse-url` using a constructed URL.
+other items are opened with `octocat-browse-external` using a constructed
+URL.
+
+### Following links vs. opening in the browser
+
+Octocat leans towards Emacs-native views: a link is opened in Emacs when
+some package can show it there, and in the browser only when none can,
+or when the user asks for the browser.
+
+- **Following a link** (RET on a link in markdown, a check that is not
+  an Actions run) calls `browse-url`.  It consults `browse-url-handlers`,
+  so github.com links open in octocat (see below) and links to any other
+  web app open in whatever Emacs package registered a handler for them.
+- **"Open in browser" commands** (`C-c C-o` and friends) call
+  `octocat-browse-external`, i.e. `browse-url-with-browser-kind
+  'external`.  It skips handlers marked `internal`, octocat's included,
+  so `C-c C-o` on a PR does not just reopen the PR page.
+
+Octocat's handler is `octocat-browse-url`, registered in
+`browse-url-handlers` with `octocat--github-url-target` as its
+predicate, while `octocat-open-github-urls` is non-nil (the default).
+The predicate maps a URL to a view and returns nil for pages octocat has
+no view for (blobs, wikis, releases, …), which then fall through to the
+browser.  A link names its own repository, so one to another owner's
+commit or run opens in that repository; `#123` and bare commit hashes
+are not links and still open in the buffer's repository.  When adding a
+view that has a github.com page, add its URL to
+`octocat--github-url-target` and `octocat-browse-url`.
 
 ---
 

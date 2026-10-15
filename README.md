@@ -210,6 +210,15 @@ owner/repo  src/foo.el  (7 commits)
 | `TAB` | Expand / collapse section at point |
 | `S-TAB` | Cycle visibility of all sections |
 
+### github.com links
+
+Following a github.com link anywhere in Emacs (`RET` on a link in a
+comment, `browse-url`, Org links, …) opens it in octocat when there is a
+view for it: users, repositories, PRs and their diffs, issues, commits,
+workflows, runs, jobs, and a repository's PR, issue, Actions and file
+tree pages.  Other links still open in the browser, and `C-c C-o` always
+does.  Set `octocat-open-github-urls` to nil to turn this off.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for code conventions and guidelines.

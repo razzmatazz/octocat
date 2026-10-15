@@ -159,5 +159,125 @@
     (should (eq (face #'octocat--search-make-issue-candidate "open") 'octocat-pr-state-open))
     (should (eq (face #'octocat--search-make-issue-candidate "closed") 'octocat-pr-state-closed))))
 
+;;; github.com links
+
+(ert-deftest octocat-core-test-github-url-target ()
+  "A github.com URL maps to the octocat view showing it, or nil for none."
+  (dolist (case '(("https://github.com/octocat"                    (user "octocat"))
+                  ("https://github.com/octo/cat"                   (repo "octo/cat"))
+                  ("http://www.github.com/octo/cat.git/"           (repo "octo/cat"))
+                  ("https://github.com/octo/cat?tab=readme-ov-file" (repo "octo/cat"))
+                  ("https://github.com/octo/cat/pull/12"           (pr "octo/cat" 12))
+                  ("https://github.com/octo/cat/pull/12#issuecomment-1" (pr "octo/cat" 12))
+                  ("https://github.com/octo/cat/pull/12/files"     (pr-diff "octo/cat" 12))
+                  ("https://github.com/octo/cat/pull/12/commits/abc1234"
+                   (commit "octo/cat" "abc1234"))
+                  ("https://github.com/octo/cat/issues/7"          (issue "octo/cat" 7))
+                  ("https://github.com/octo/cat/commit/deadbeef1"  (commit "octo/cat" "deadbeef1"))
+                  ("https://github.com/octo/cat/pulls"             (pr-list "octo/cat"))
+                  ("https://github.com/octo/cat/issues"            (issue-list "octo/cat"))
+                  ("https://github.com/octo/cat/actions"           (actions "octo/cat"))
+                  ("https://github.com/octo/cat/tree/main"         (tree "octo/cat"))
+                  ("https://github.com/octo/cat/actions/runs/42"   (run "octo/cat" 42))
+                  ("https://github.com/octo/cat/actions/runs/42/attempts/2" (run "octo/cat" 42))
+                  ("https://github.com/octo/cat/actions/runs/42/job/99" (job "octo/cat" 42 99))
+                  ("https://github.com/octo/cat/actions/workflows/ci.yml" (workflow "octo/cat" "ci.yml"))
+                  ;; Another owner's repository is opened as readily.
+                  ("https://github.com/torvalds/linux/commit/0123abc4567"
+                   (commit "torvalds/linux" "0123abc4567"))
+                  ("https://github.com/torvalds/linux/actions/runs/5" (run "torvalds/linux" 5))
+                  ;; No octocat view: left to the browser.
+                  ("https://github.com/octo/cat/blob/main/x.el"    nil)
+                  ("https://github.com/octo/cat/wiki"              nil)
+                  ("https://github.com/octo/cat/pull/abc"          nil)
+                  ("https://github.com/orgs/octo/teams/t"          nil)
+                  ("https://github.com/settings"                   nil)
+                  ("https://github.com"                            nil)
+                  ("https://gitlab.com/octo/cat"                   nil)
+                  ("https://example.com/github.com/octo/cat"       nil)))
+    (should (equal (list (car case) (octocat--github-url-target (car case)))
+                   case))))
+
+(ert-deftest octocat-core-test-browse-url-opens-views ()
+  "`octocat-browse-url' opens the view of each kind of link."
+  (let (opened)
+    (cl-letf (((symbol-function 'octocat-user-open)     (lambda (&rest a) (push (cons 'user a) opened)))
+              ((symbol-function 'octocat-visit-repo)    (lambda (&rest a) (push (cons 'repo a) opened)))
+              ((symbol-function 'octocat-pr-open)       (lambda (&rest a) (push (cons 'pr a) opened)))
+              ((symbol-function 'octocat-pr-diff-open)  (lambda (&rest a) (push (cons 'pr-diff a) opened)))
+              ((symbol-function 'octocat--markdown-open-ref) (lambda (&rest a) (push (cons 'ref a) opened)))
+              ((symbol-function 'octocat-commit-open)   (lambda (&rest a) (push (cons 'commit a) opened)))
+              ((symbol-function 'octocat-run-open)      (lambda (&rest a) (push (cons 'run a) opened)))
+              ((symbol-function 'octocat-job-open)      (lambda (&rest a) (push (cons 'job a) opened)))
+              ((symbol-function 'octocat-workflow-open) (lambda (&rest a) (push (cons 'workflow a) opened)))
+              ((symbol-function 'octocat-pr-list)       (lambda (&rest a) (push (cons 'pr-list a) opened)))
+              ((symbol-function 'octocat-issue-list)    (lambda (&rest a) (push (cons 'issue-list a) opened)))
+              ((symbol-function 'octocat-actions)       (lambda (&rest a) (push (cons 'actions a) opened)))
+              ((symbol-function 'octocat-tree-open)     (lambda (&rest a) (push (cons 'tree a) opened))))
+      (dolist (path '("octocat" "o/r" "o/r/pull/1" "o/r/pull/1/files" "o/r/issues/2"
+                      "o/r/commit/abc1234" "o/r/actions/runs/3" "o/r/actions/runs/3/job/4"
+                      "o/r/actions/workflows/ci.yml"
+                      "o/r/pulls" "o/r/issues" "o/r/actions" "o/r/tree/main"))
+        (octocat-browse-url (concat "https://github.com/" path))))
+    (should (equal (nreverse opened)
+                   '((user "octocat") (repo "o/r") (pr "o/r" 1) (pr-diff "o/r" 1)
+                     (ref issue "o/r" 2) (commit "o/r" "abc1234") (run "o/r" 3)
+                     (job "o/r" 3 4 nil)
+                     (workflow "o/r" "ci.yml" "ci.yml" ".github/workflows/ci.yml")
+                     (pr-list "o/r") (issue-list "o/r")
+                     (actions "o/r") (tree "o/r"))))))
+
+(ert-deftest octocat-core-test-browse-url-handler ()
+  "`browse-url' sends the github.com links octocat can show to it.
+Other links, and an explicit request for an external browser, skip it;
+`octocat-open-github-urls' turns it off."
+  (should (eq (browse-url-select-handler "https://github.com/o/r/pull/1")
+              #'octocat-browse-url))
+  (should-not (eq (browse-url-select-handler "https://github.com/o/r/blob/main/x")
+                  #'octocat-browse-url))
+  (should-not (eq (browse-url-select-handler "https://github.com/o/r/pull/1" 'external)
+                  #'octocat-browse-url))
+  (unwind-protect
+      (progn
+        (customize-set-variable 'octocat-open-github-urls nil)
+        (should-not (eq (browse-url-select-handler "https://github.com/o/r/pull/1")
+                        #'octocat-browse-url)))
+    (customize-set-variable 'octocat-open-github-urls t))
+  (should (= 1 (cl-count #'octocat-browse-url browse-url-handlers :key #'cdr))))
+
+(ert-deftest octocat-core-test-markdown-links-open-views ()
+  "RET on a github.com link in markdown opens its view, in the repo it names;
+#123 and commit references still open in the buffer's own repository."
+  (let ((out (octocat-markdown-render
+              "https://github.com/torvalds/linux/commit/0123abc4567 and #7 and abc1234" ""))
+        opened)
+    (cl-letf (((symbol-function 'octocat-commit-open)
+               (lambda (&rest a) (push (cons 'commit a) opened)))
+              ((symbol-function 'octocat--run-gh)
+               (lambda (_name _args parse callback) (funcall callback (funcall parse "false"))))
+              ((symbol-function 'octocat-issue-open)
+               (lambda (&rest a) (push (cons 'issue a) opened)))
+              ((symbol-function 'octocat--search-repo--current-repo) (lambda () "me/mine")))
+      (with-temp-buffer
+        (insert out)
+        (dolist (needle '("github.com" "#7" "abc1234"))
+          (goto-char (1+ (string-match (regexp-quote needle) out)))
+          (octocat-markdown-follow))))
+    (should (equal (nreverse opened)
+                   '((commit "torvalds/linux" "0123abc4567")
+                     (issue "me/mine" 7)
+                     (commit "me/mine" "abc1234"))))))
+
+(ert-deftest octocat-core-test-browse-commands-go-external ()
+  "\"Open in browser\" commands ask for an external browser, not octocat."
+  (let (kinds)
+    (cl-letf (((symbol-function 'browse-url-with-browser-kind)
+               (lambda (kind url &rest _) (push (list kind url) kinds))))
+      (with-temp-buffer
+        (insert (propertize "row" 'octocat-dashboard-repo "o/r"))
+        (goto-char (point-min))
+        (octocat-dashboard-browse)))
+    (should (equal kinds '((external "https://github.com/o/r"))))))
+
 (provide 'octocat-core-tests)
 ;;; octocat-core-tests.el ends here

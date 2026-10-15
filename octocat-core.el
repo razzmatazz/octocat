@@ -30,6 +30,7 @@
 (require 'color)
 (require 'json)
 (require 'eldoc)
+(require 'browse-url)
 (require 'octocat-markdown)
 (require 'consult)
 
@@ -989,6 +990,108 @@ is asked first and the matching view opened."
                 (t (octocat-issue-open repo id)))))))))
 
 (setq octocat-markdown-ref-function #'octocat--markdown-open-ref)
+
+;;;; github.com links
+;;
+;; github.com links octocat has a view for open in it, through
+;; `browse-url-handlers', so this works wherever Emacs follows a link.
+;; Following a link uses `browse-url', which lets any package's handler
+;; claim it; "open in browser" commands use `octocat-browse-external'.
+
+(declare-function octocat-pr-diff-open  "octocat-pr-diff"  (repo number))
+(declare-function octocat-run-open      "octocat-run"      (repo run-id))
+(declare-function octocat-job-open      "octocat-job"      (repo run-id job-id name))
+(declare-function octocat-workflow-open "octocat-workflow" (repo id name path))
+(declare-function octocat-user-open     "octocat-user"     (login))
+(declare-function octocat-tree-open     "octocat-tree"     (&optional repo))
+(declare-function octocat-issue-list    "octocat"          (&optional repo))
+(declare-function octocat-pr-list       "octocat"          (&optional repo))
+(declare-function octocat-actions       "octocat"          (&optional repo))
+
+(defconst octocat--github-reserved-paths
+  '("about" "account" "apps" "codespaces" "collections" "contact" "copilot"
+    "customer-stories" "dashboard" "enterprise" "events" "explore" "features"
+    "issues" "join" "login" "logout" "marketplace" "new" "notifications"
+    "organizations" "orgs" "pricing" "pulls" "search" "security" "settings"
+    "site" "sponsors" "stars" "team" "topics" "trending" "users" "watching")
+  "First path segments of github.com pages that are not a user or org.")
+
+(defun octocat--github-url-target (url)
+  "Return the octocat view of github.com URL as (KIND ARGS...), or nil.
+KIND is `user', `repo', `pr', `pr-diff', `issue', `commit', `run', `job',
+`workflow', `pr-list', `issue-list', `actions' or `tree'; nil means
+octocat has no view for URL."
+  (when (string-match "\\`https?://\\(?:www\\.\\)?github\\.com\\(/[^?#]*\\)?\\(?:[?#].*\\)?\\'"
+                      url)
+    (let* ((parts (split-string (or (match-string 1 url) "") "/" t))
+           (num   (lambda (s) (and (string-match-p "\\`[0-9]+\\'" s) (string-to-number s))))
+           (sha   (lambda (s) (and (string-match-p "\\`[0-9a-f]\\{7,40\\}\\'" s) s))))
+      (pcase parts
+        (`(,owner)
+         (and (not (member owner octocat--github-reserved-paths)) (list 'user owner)))
+        ((and `(,owner ,name . ,rest)
+              (guard (not (member owner octocat--github-reserved-paths))))
+         (let ((repo (concat owner "/" (string-remove-suffix ".git" name))))
+           (pcase rest
+             ('nil (list 'repo repo))
+             ('("pulls") (list 'pr-list repo))
+             ('("issues") (list 'issue-list repo))
+             ('("actions") (list 'actions repo))
+             (`("tree" . ,_) (list 'tree repo))
+             (`("pull" ,n "commits" ,s . ,_)
+              (and (funcall num n) (funcall sha s) (list 'commit repo s)))
+             (`("pull" ,n "files" . ,_)
+              (and (funcall num n) (list 'pr-diff repo (funcall num n))))
+             (`("pull" ,n . ,_) (and (funcall num n) (list 'pr repo (funcall num n))))
+             (`("issues" ,n . ,_) (and (funcall num n) (list 'issue repo (funcall num n))))
+             (`("commit" ,s . ,_) (and (funcall sha s) (list 'commit repo s)))
+             (`("actions" "runs" ,r "job" ,j . ,_)
+              (and (funcall num r) (funcall num j)
+                   (list 'job repo (funcall num r) (funcall num j))))
+             (`("actions" "runs" ,r . ,_) (and (funcall num r) (list 'run repo (funcall num r))))
+             (`("actions" "workflows" ,file) (list 'workflow repo file)))))))))
+
+(defun octocat-browse-url (url &rest _)
+  "Open github.com URL in the octocat view showing it.
+The handler `octocat-open-github-urls' adds to `browse-url-handlers'."
+  (pcase (octocat--github-url-target url)
+    (`(user ,login)        (octocat-user-open login))
+    (`(repo ,repo)         (octocat-visit-repo repo))
+    (`(pr ,repo ,n)        (octocat-pr-open repo n))
+    (`(pr-diff ,repo ,n)   (octocat-pr-diff-open repo n))
+    ;; github.com redirects /issues/N of a PR to it, so ask which it is.
+    (`(issue ,repo ,n)     (octocat--markdown-open-ref 'issue repo n))
+    (`(commit ,repo ,sha)  (octocat-commit-open repo sha))
+    (`(run ,repo ,id)      (octocat-run-open repo id))
+    (`(job ,repo ,run ,id) (octocat-job-open repo run id nil))
+    (`(workflow ,repo ,file)
+     (octocat-workflow-open repo file file (concat ".github/workflows/" file)))
+    (`(pr-list ,repo)      (octocat-pr-list repo))
+    (`(issue-list ,repo)   (octocat-issue-list repo))
+    (`(actions ,repo)      (octocat-actions repo))
+    (`(tree ,repo)         (octocat-tree-open repo))
+    (_ (user-error "Octocat: no view for %s" url))))
+
+;; So `browse-url-with-browser-kind' skips it when asked for a browser.
+(function-put 'octocat-browse-url 'browse-url-browser-kind 'internal)
+
+(defcustom octocat-open-github-urls t
+  "Non-nil means `browse-url' opens github.com links in octocat views.
+This covers every link Emacs follows, not only those in octocat buffers.
+Links octocat has no view for still go to the browser."
+  :type 'boolean
+  :group 'octocat
+  :set (lambda (symbol value)
+         (set-default symbol value)
+         (setq browse-url-handlers
+               (cl-remove #'octocat-browse-url browse-url-handlers :key #'cdr))
+         (when value
+           (push (cons #'octocat--github-url-target #'octocat-browse-url)
+                 browse-url-handlers))))
+
+(defun octocat-browse-external (url)
+  "Open URL in a browser, even one octocat or another Emacs package handles."
+  (browse-url-with-browser-kind 'external url))
 
 (defun octocat-toggle-markdown ()
   "Toggle between rendered and raw markdown display in the current buffer.

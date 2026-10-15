@@ -266,8 +266,8 @@ CHECKS is a list of REST check-runs."
   (unless (and octocat--checks-repo octocat--checks-sha)
     (user-error "Octocat: Buffer is not associated with a commit"))
   (message "Octocat: Opening checks in browser…")
-  (browse-url (format "https://github.com/%s/commit/%s/checks"
-                      octocat--checks-repo octocat--checks-sha)))
+  (octocat-browse-external (format "https://github.com/%s/commit/%s/checks"
+                                   octocat--checks-repo octocat--checks-sha)))
 
 (defvar octocat-checks-mode-map
   (let ((map (make-sparse-keymap)))

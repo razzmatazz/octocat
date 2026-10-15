@@ -881,16 +881,16 @@ all file paths via `completing-read', and opens the selected file in
        (let ((url (format "https://github.com/%s/blob/%s/%s"
                           repo branch path)))
          (message "Octocat: Opening %s in browser…" path)
-         (browse-url url)))
+         (octocat-browse-external url)))
       ('dir
        (let ((url (format "https://github.com/%s/tree/%s/%s"
                             repo branch path)))
          (message "Octocat: Opening %s/ in browser…" path)
-         (browse-url url)))
+         (octocat-browse-external url)))
       (_
        (let ((url (format "https://github.com/%s/tree/%s" repo branch)))
          (message "Octocat: Opening %s tree in browser…" repo)
-         (browse-url url))))))
+         (octocat-browse-external url))))))
 
 
 ;;;; Interactive commands — file mode
@@ -940,7 +940,7 @@ The blob is fixed by its SHA, so a cached copy is shown without a fetch."
                      octocat-tree--file-branch
                      octocat-tree--file-path)))
     (message "Octocat: Opening %s in browser…" octocat-tree--file-path)
-    (browse-url url)))
+    (octocat-browse-external url)))
 
 ;;;; API fetch helper — file commits
 
@@ -1106,13 +1106,13 @@ Away from a commit line, open the file's history page instead."
         (progn
           (message "Octocat: Opening commit %s in browser…"
                    (substring sha 0 (min 7 (length sha))))
-          (browse-url (format "https://github.com/%s/commit/%s"
-                              octocat-file-log--repo sha)))
+          (octocat-browse-external (format "https://github.com/%s/commit/%s"
+                                           octocat-file-log--repo sha)))
       (message "Octocat: Opening file history in browser…")
-      (browse-url (format "https://github.com/%s/commits/%s/%s"
-                          octocat-file-log--repo
-                          (or octocat-file-log--branch "HEAD")
-                          octocat-file-log--path)))))
+      (octocat-browse-external (format "https://github.com/%s/commits/%s/%s"
+                                       octocat-file-log--repo
+                                       (or octocat-file-log--branch "HEAD")
+                                       octocat-file-log--path)))))
 
 
 (provide 'octocat-tree)
