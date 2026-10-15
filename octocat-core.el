@@ -27,6 +27,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'seq)
 (require 'color)
 (require 'json)
 (require 'eldoc)
@@ -1251,13 +1252,54 @@ The selected repository is opened via `octocat-visit-repo', a selected
   "The repo tabs: (SYMBOL LABEL HELP-ECHO COMMAND).
 COMMAND takes the \"owner/name\" repo to open the tab's page for.")
 
+;;;; Windows
+;;
+;; As Magit (`magit-display-buffer-traditional', `magit-mode-quit-window'):
+;; RET on an octocat page opens the next one in the same window, and `q'
+;; steps back out, deleting the window once it was made for octocat and
+;; has nothing of octocat left to show.
+
+(defun octocat-buffer-p (&optional buffer)
+  "Return non-nil if BUFFER (default: the current one) is an octocat page."
+  (string-prefix-p "octocat-" (symbol-name (buffer-local-value
+                                             'major-mode (or buffer (current-buffer))))))
+
+(defun octocat-display-buffer (buffer)
+  "Show BUFFER and select its window, as Magit does.
+From an octocat page, in the selected window; from elsewhere, wherever
+`display-buffer' puts it.  `display-buffer-alist' overrides both."
+  (pop-to-buffer buffer (and (octocat-buffer-p) '(display-buffer-same-window)))
+  ;; A window with no earlier buffers was made for BUFFER: remember it
+  ;; for `octocat-quit-window', as `magit-maybe-set-dedicated' does.
+  (unless (window-prev-buffers)
+    (set-window-parameter nil 'octocat-dedicated t)))
+
+(defun octocat-quit-window (&optional kill)
+  "Quit the selected window and bury its buffer, or kill it with KILL.
+As `quit-window', which shows the window's previous buffer, but a window
+made for octocat is deleted once no other octocat page it showed is
+left."
+  (interactive "P")
+  (if (or (one-window-p)
+          (seq-find (pcase-lambda (`(,buffer))
+                      (and (not (eq buffer (current-buffer)))
+                           (buffer-live-p buffer)
+                           (or (not (window-parameter nil 'octocat-dedicated))
+                               (octocat-buffer-p buffer))))
+                    (window-prev-buffers)))
+      (quit-window kill)
+    (let ((window (selected-window)))
+      (quit-window kill)
+      (when (window-live-p window)
+        (delete-window window)))))
+
 (defun octocat-visit-repo (repo)
   "Open (or switch to) the *REPO* buffer.
 REPO is an \"owner/name\" string.  This is the shared implementation used
 by the repo-nav section in every detail view."
   (let* ((buf-name (format "*%s*" repo))
          (buf      (get-buffer-create buf-name)))
-    (pop-to-buffer buf)
+    (octocat-display-buffer buf)
     (unless (derived-mode-p 'octocat-repo-mode)
       (octocat-repo-mode))
     (setq octocat-repo--repo      repo

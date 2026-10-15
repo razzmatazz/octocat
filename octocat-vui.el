@@ -723,7 +723,7 @@ each call, for the page's fetch keys (see `octocat-vui-use-cached')."
     (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-vui-list-mode' and the list pages derived from it.")
-(define-key octocat-vui-list-mode-map (kbd "q") #'quit-window)
+(define-key octocat-vui-list-mode-map (kbd "q") #'octocat-quit-window)
 (define-key octocat-vui-list-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-vui-list-mode-map (kbd "C-c C-o") #'octocat-vui-list-browse)
 (define-key octocat-vui-list-mode-map (kbd "C-c C-r") #'octocat-switch-repo)

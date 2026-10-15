@@ -870,7 +870,7 @@ MERGING non-nil shows a merge under way."
     (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-pr-mode'.")
-(define-key octocat-pr-mode-map (kbd "q") #'quit-window)
+(define-key octocat-pr-mode-map (kbd "q") #'octocat-quit-window)
 (define-key octocat-pr-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-pr-mode-map (kbd "C-c C-o") #'octocat-pr-browse)
 (define-key octocat-pr-mode-map (kbd "C-c C-a") #'octocat-pr-add-comment)
@@ -920,7 +920,7 @@ background."
 (defun octocat-pr-open (repo number)
   "Show pull request NUMBER of REPO in its own buffer."
   (let ((buf (get-buffer-create (format "*%s pr %d*" repo number))))
-    (pop-to-buffer buf)
+    (octocat-display-buffer buf)
     (unless (derived-mode-p 'octocat-pr-mode)
       (octocat-pr-mode))
     (setq octocat--pr-repo   repo

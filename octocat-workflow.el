@@ -263,7 +263,7 @@ by ON-MORE; LOADING is non-nil while that page is fetched."
     (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-workflow-mode'.")
-(define-key octocat-workflow-mode-map (kbd "q") #'quit-window)
+(define-key octocat-workflow-mode-map (kbd "q") #'octocat-quit-window)
 (define-key octocat-workflow-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-workflow-mode-map (kbd "C-c C-o") #'octocat-workflow-browse)
 (define-key octocat-workflow-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
@@ -300,7 +300,7 @@ the workflow and its runs in the background."
   "Show workflow ID of REPO in its own buffer.
 NAME is its display name and PATH its file, or nil."
   (let ((buf (get-buffer-create (format "*%s workflow %s*" repo name))))
-    (pop-to-buffer buf)
+    (octocat-display-buffer buf)
     (unless (derived-mode-p 'octocat-workflow-mode)
       (octocat-workflow-mode))
     (setq octocat--workflow-repo repo

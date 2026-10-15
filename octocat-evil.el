@@ -127,7 +127,7 @@ insert a newline into it."
     ("gs"      . octocat-search-repo)
     ("gr"      . revert-buffer)
     ("F"       . octocat-vui-list-filter)
-    ("q"       . quit-window))
+    ("q"       . octocat-quit-window))
   "Normal-state bindings of the PR, issue and Actions list pages.")
 
 (defun octocat-evil--list-setup ()
@@ -180,7 +180,7 @@ Off an entry, such as on the header, move left."
     (kbd "C-c C-s") #'octocat-search-repo
     (kbd "gs")      #'octocat-search-repo
     (kbd "gr")      #'revert-buffer
-    (kbd "q")       #'quit-window)
+    (kbd "q")       #'octocat-quit-window)
 
   ;; ── octocat-repo-mode ─────────────────────────────────────────────────
   ;; Each row binds its own RET via a `keymap' text property, so only the
@@ -193,7 +193,7 @@ Off an entry, such as on the header, move left."
     (kbd "C-c C-s") #'octocat-search-repo
     (kbd "gs")      #'octocat-search-repo
     (kbd "gr")      #'revert-buffer
-    (kbd "q")       #'quit-window)
+    (kbd "q")       #'octocat-quit-window)
 
   ;; ── octocat-user-mode ─────────────────────────────────────────────────
   ;; vui.el-rendered like octocat-repo-mode: rows bind their own RET.
@@ -201,7 +201,7 @@ Off an entry, such as on the header, move left."
     (kbd "C-c C-o") #'octocat-user-browse
     (kbd "C-c C-r") #'octocat-switch-repo
     (kbd "gr")      #'revert-buffer
-    (kbd "q")       #'quit-window)
+    (kbd "q")       #'octocat-quit-window)
 
   ;; ── PR / issue list pages and the Actions page ──────────────────────────────────
   ;; Normal state is bound per buffer by `octocat-evil--list-setup'.
@@ -228,7 +228,7 @@ Off an entry, such as on the header, move left."
     (kbd "C-c C-s") #'octocat-search-repo
     (kbd "gs")      #'octocat-search-repo
     (kbd "gr")      #'octocat-pr-refresh
-    (kbd "q")       #'quit-window)
+    (kbd "q")       #'octocat-quit-window)
 
   ;; ── octocat-commit-mode ───────────────────────────────────────────────
   ;; vui.el-rendered like octocat-pr-diff-mode: row RET actions come from
@@ -240,7 +240,7 @@ Off an entry, such as on the header, move left."
     (kbd "C-c C-s") #'octocat-search-repo
     (kbd "gs")      #'octocat-search-repo
     (kbd "gr")      #'octocat-commit-refresh
-    (kbd "q")       #'quit-window)
+    (kbd "q")       #'octocat-quit-window)
 
   ;; ── octocat-checks-mode ───────────────────────────────────────────────
   (evil-define-key* 'normal octocat-checks-mode-map
@@ -249,7 +249,7 @@ Off an entry, such as on the header, move left."
     (kbd "C-c C-s") #'octocat-search-repo
     (kbd "gs")      #'octocat-search-repo
     (kbd "gr")      #'octocat-checks-refresh
-    (kbd "q")       #'quit-window)
+    (kbd "q")       #'octocat-quit-window)
 
   ;; ── octocat-pr-diff-mode ──────────────────────────────────────────────
   ;; vui.el-rendered like octocat-repo-mode, so only the global commands
@@ -262,7 +262,7 @@ Off an entry, such as on the header, move left."
     (kbd "C-c C-s") #'octocat-search-repo
     (kbd "gs")      #'octocat-search-repo
     (kbd "gr")      #'revert-buffer
-    (kbd "q")       #'quit-window)
+    (kbd "q")       #'octocat-quit-window)
 
   ;; ── octocat-issue-mode ────────────────────────────────────────────────
   ;; vui.el-rendered like octocat-repo-mode: row RET actions come from
@@ -276,7 +276,7 @@ Off an entry, such as on the header, move left."
     (kbd "C-c C-s") #'octocat-search-repo
     (kbd "gs")      #'octocat-search-repo
     (kbd "gr")      #'octocat-issue-refresh
-    (kbd "q")       #'quit-window)
+    (kbd "q")       #'octocat-quit-window)
 
   ;; ── octocat-workflow-mode ─────────────────────────────────────────────
   (evil-define-key* 'normal octocat-workflow-mode-map
@@ -285,7 +285,7 @@ Off an entry, such as on the header, move left."
     (kbd "C-c C-s") #'octocat-search-repo
     (kbd "gs")      #'octocat-search-repo
     (kbd "gr")      #'octocat-workflow-refresh
-    (kbd "q")       #'quit-window)
+    (kbd "q")       #'octocat-quit-window)
 
   ;; ── octocat-run-mode ──────────────────────────────────────────────────
   (evil-define-key* 'normal octocat-run-mode-map
@@ -294,7 +294,7 @@ Off an entry, such as on the header, move left."
     (kbd "C-c C-s") #'octocat-search-repo
     (kbd "gs")      #'octocat-search-repo
     (kbd "gr")      #'octocat-run-refresh
-    (kbd "q")       #'quit-window)
+    (kbd "q")       #'octocat-quit-window)
 
   ;; ── octocat-job-mode ──────────────────────────────────────────────────
   (evil-define-key* 'normal octocat-job-mode-map
@@ -303,7 +303,7 @@ Off an entry, such as on the header, move left."
     (kbd "C-c C-s") #'octocat-search-repo
     (kbd "gs")      #'octocat-search-repo
     (kbd "gr")      #'octocat-job-refresh
-    (kbd "q")       #'quit-window)
+    (kbd "q")       #'octocat-quit-window)
 
   ;; ── octocat-tree-mode ─────────────────────────────────────────────────
   ;; TAB is left to the buttons' own keymaps: it walks them, which
@@ -317,7 +317,7 @@ Off an entry, such as on the header, move left."
     (kbd "C-c C-o") #'octocat-tree-browse
     (kbd "C-c C-r") #'octocat-switch-repo
     (kbd "o")       #'octocat-tree-browse
-    (kbd "q")       #'quit-window
+    (kbd "q")       #'octocat-quit-window
     (kbd "gr")      #'octocat-tree-refresh)
   (evil-define-key* 'motion octocat-tree-mode-map
     (kbd "RET")     #'octocat-tree-visit)
@@ -329,7 +329,7 @@ Off an entry, such as on the header, move left."
     (kbd "C-c C-f") #'octocat-tree-find-file
     (kbd "C-c C-l") #'octocat-file-log-open
     (kbd "C-c C-r") #'octocat-switch-repo
-    (kbd "q")       #'quit-window
+    (kbd "q")       #'octocat-quit-window
     (kbd "gr")      #'octocat-file-refresh)
   (evil-define-key* 'motion octocat-file-mode-map
     (kbd "gr")      #'octocat-file-refresh)
@@ -342,7 +342,7 @@ Off an entry, such as on the header, move left."
     (kbd "C-c C-r") #'octocat-switch-repo
     (kbd "C-c C-s") #'octocat-search-repo
     (kbd "gs")      #'octocat-search-repo
-    (kbd "q")       #'quit-window
+    (kbd "q")       #'octocat-quit-window
     (kbd "gr")      #'octocat-file-log-refresh)
   (evil-define-key* 'motion octocat-file-log-mode-map
     (kbd "RET")     #'octocat-file-log-visit)

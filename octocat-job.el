@@ -586,7 +586,7 @@ unfolded, until the fresh data replaces it."
     (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-job-mode'.")
-(define-key octocat-job-mode-map (kbd "q") #'quit-window)
+(define-key octocat-job-mode-map (kbd "q") #'octocat-quit-window)
 (define-key octocat-job-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-job-mode-map (kbd "C-c C-o") #'octocat-job-browse)
 (define-key octocat-job-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
@@ -622,7 +622,7 @@ content up until the fresh data arrives, for following a running job."
 (defun octocat-job-open (repo run-id job-id name)
   "Show job JOB-ID of run RUN-ID of REPO in its own buffer; NAME is its name."
   (let ((buf (get-buffer-create (format "*%s job %d*" repo job-id))))
-    (pop-to-buffer buf)
+    (octocat-display-buffer buf)
     (unless (derived-mode-p 'octocat-job-mode)
       (octocat-job-mode))
     (setq octocat--job-repo   repo

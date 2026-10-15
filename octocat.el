@@ -95,7 +95,7 @@ Falls back to the user's GitHub page when point is not on a row."
     (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-mode' (GitHub account dashboard).")
-(define-key octocat-mode-map (kbd "q")       #'quit-window)
+(define-key octocat-mode-map (kbd "q")       #'octocat-quit-window)
 (define-key octocat-mode-map (kbd "g")       #'revert-buffer)
 (define-key octocat-mode-map (kbd "+")       #'octocat-feed-load-more)
 (define-key octocat-mode-map (kbd "C-c C-o") #'octocat-dashboard-browse)
@@ -521,7 +521,7 @@ re-runs `octocat-refresh'."
   "Open (or switch to) the octocat GitHub account dashboard."
   (interactive)
   (let ((buf (get-buffer-create "*octocat*")))
-    (switch-to-buffer buf)
+    (octocat-display-buffer buf)
     (unless (derived-mode-p 'octocat-mode)
       (octocat-mode))
     (octocat-refresh)))
@@ -540,7 +540,7 @@ mode with no local directory bound."
          (local-dir (locate-dominating-file default-directory ".git"))
          (buf-name (format "*%s*" repo))
          (buf      (get-buffer-create buf-name)))
-    (switch-to-buffer buf)
+    (octocat-display-buffer buf)
     (unless (derived-mode-p 'octocat-repo-mode)
       (octocat-repo-mode))
     (setq octocat-repo--repo      repo
@@ -588,7 +588,7 @@ the current git working tree."
                         octocat-repo--local-dir
                       (octocat-repo--local-dir-for repo)))
          (buf       (get-buffer-create (format "*%s %s*" repo name))))
-    (pop-to-buffer buf)
+    (octocat-display-buffer buf)
     (when local-dir
       (setq default-directory (file-name-as-directory local-dir)))
     (unless (derived-mode-p mode)

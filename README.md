@@ -206,9 +206,14 @@ owner/repo  src/foo.el  (7 commits)
 | `C-c C-f` | Open fuzzy file finder — `completing-read` over the full recursive file list; works from both the repo buffer and the file tree browser (list is cached after first fetch) |
 | `C-c C-l` | Open file commit log — shows the commit history for the file currently open in `octocat-file-mode` |
 | `g` / `gr` | Refresh current buffer |
-| `q` | Close buffer |
+| `q` | Back to the previous page, or out of octocat (see below) |
 | `TAB` | Expand / collapse section at point |
 | `S-TAB` | Cycle visibility of all sections |
+
+RET opens a page in the same window and `q` steps back, as in Magit (see
+[UI conventions](docs/user-interface-conventions.md#windows-opening-pages-and-q)).
+On Doom Emacs, let `q` reach octocat pages with
+`(add-hook 'doom-real-buffer-functions #'octocat-buffer-p)`.
 
 ### github.com links
 

@@ -274,7 +274,7 @@ CHECKS is a list of REST check-runs."
     (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-checks-mode'.")
-(define-key octocat-checks-mode-map (kbd "q") #'quit-window)
+(define-key octocat-checks-mode-map (kbd "q") #'octocat-quit-window)
 (define-key octocat-checks-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-checks-mode-map (kbd "C-c C-o") #'octocat-checks-browse)
 (define-key octocat-checks-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
@@ -313,7 +313,7 @@ REF is the branch the commit is the head of, or nil."
   (let ((buf (get-buffer-create
               (format "*%s checks %s*" repo
                       (substring sha 0 (min 7 (length sha)))))))
-    (pop-to-buffer buf)
+    (octocat-display-buffer buf)
     (unless (derived-mode-p 'octocat-checks-mode)
       (octocat-checks-mode))
     (setq octocat--checks-repo repo

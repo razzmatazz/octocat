@@ -1069,7 +1069,7 @@ Everything but the commits comes from a single summary API call."
     (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-repo-mode'.")
-(define-key octocat-repo-mode-map (kbd "q") #'quit-window)
+(define-key octocat-repo-mode-map (kbd "q") #'octocat-quit-window)
 (define-key octocat-repo-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-repo-mode-map (kbd "C-c C-t") #'octocat-tree-open)
 (define-key octocat-repo-mode-map (kbd "C-c C-f") #'octocat-tree-find-file)

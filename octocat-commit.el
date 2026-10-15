@@ -246,7 +246,7 @@ are fetched independently; each shows its cached copy until then."
     (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-commit-mode'.")
-(define-key octocat-commit-mode-map (kbd "q") #'quit-window)
+(define-key octocat-commit-mode-map (kbd "q") #'octocat-quit-window)
 (define-key octocat-commit-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-commit-mode-map (kbd "C-c C-o") #'octocat-commit-browse)
 (define-key octocat-commit-mode-map (kbd "C-c C-v") #'octocat-toggle-markdown)
@@ -288,7 +288,7 @@ the commit, its checks and its comments in the background."
   (let ((buf (get-buffer-create
               (format "*%s commit %s*" repo
                       (substring sha 0 (min 7 (length sha)))))))
-    (pop-to-buffer buf)
+    (octocat-display-buffer buf)
     (unless (derived-mode-p 'octocat-commit-mode)
       (octocat-commit-mode))
     (setq octocat--commit-repo repo

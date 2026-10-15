@@ -357,7 +357,7 @@ time the window's width changes."
     (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-user-mode'.")
-(define-key octocat-user-mode-map (kbd "q") #'quit-window)
+(define-key octocat-user-mode-map (kbd "q") #'octocat-quit-window)
 (define-key octocat-user-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-user-mode-map (kbd "C-c C-o") #'octocat-user-browse)
 (define-key octocat-user-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
@@ -386,7 +386,7 @@ time the window's width changes."
 A leading \"@\" is accepted."
   (let ((login (or (octocat-user--normalize login)
                    (user-error "Octocat: `%s' is not a GitHub login" login))))
-    (pop-to-buffer (get-buffer-create (format "*@%s*" login)))
+    (octocat-display-buffer (get-buffer-create (format "*@%s*" login)))
     (unless (derived-mode-p 'octocat-user-mode)
       (octocat-user-mode))
     (setq octocat-user--login login)

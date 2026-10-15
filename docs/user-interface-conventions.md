@@ -439,6 +439,37 @@ view that has a github.com page, add its URL to
 
 ---
 
+## Windows: opening pages and `q`
+
+Octocat follows Magit (`magit-display-buffer-traditional`,
+`magit-mode-quit-window`), so its windows behave as the rest of Emacs
+expects:
+
+- **Open every page with `octocat-display-buffer`**, never `pop-to-buffer`
+  or `switch-to-buffer`.  From an octocat page it shows the new page in the
+  selected window, so RET drills down in place; from any other buffer it
+  leaves the choice to `display-buffer`.  Both go through `display-buffer`,
+  so users can override them in `display-buffer-alist`.
+- **Bind `q` to `octocat-quit-window`.**  Like `quit-window`, it shows the
+  window's previous buffer, so `q` steps back out page by page.  A window
+  that octocat created (marked `octocat-dedicated` when it is first shown)
+  is deleted once no other octocat page it showed is left.
+
+`q` is not a history: it relies on the window's previous buffers, as in
+Magit.  A real back/forward (as `help-mode`'s `l`/`r`) could be added
+later, as an octocat history, if stacks get deep.
+
+`pop-to-buffer` alone avoids the selected window, so pages used to
+ping-pong between two windows and `q` restored the wrong one.
+
+Doom's workspaces (persp-mode) set a frame `buffer-predicate` that hides
+buffers outside the workspace from `quit-window`, and only Doom's "real"
+buffers join one, so `q` skips octocat pages.  Users fix it in their
+config (octocat must not call Doom):
+`(add-hook 'doom-real-buffer-functions #'octocat-buffer-p)`.
+
+---
+
 ## Navigating back to the parent repo view
 
 Every detail view belongs to a GitHub repository.  Its top line starts with

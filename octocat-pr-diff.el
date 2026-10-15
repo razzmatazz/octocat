@@ -290,7 +290,7 @@ shows a review being submitted in place of the submit button."
     (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-pr-diff-mode'.")
-(define-key octocat-pr-diff-mode-map (kbd "q") #'quit-window)
+(define-key octocat-pr-diff-mode-map (kbd "q") #'octocat-quit-window)
 (define-key octocat-pr-diff-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-pr-diff-mode-map (kbd "C-c C-a") #'octocat-pr-diff-review)
 (define-key octocat-pr-diff-mode-map (kbd "C-c C-o") #'octocat-pr-diff-browse)
@@ -332,7 +332,7 @@ review comments independently."
 (defun octocat-pr-diff-open (repo number)
   "Show the diff of pull request NUMBER of REPO in its own buffer."
   (let ((buf (get-buffer-create (format "*%s pr %d diff*" repo number))))
-    (pop-to-buffer buf)
+    (octocat-display-buffer buf)
     (unless (derived-mode-p 'octocat-pr-diff-mode)
       (octocat-pr-diff-mode))
     (setq octocat--pr-diff-repo   repo

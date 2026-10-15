@@ -320,7 +320,7 @@ BG is as for `octocat--label-face'."
     (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-issue-mode'.")
-(define-key octocat-issue-mode-map (kbd "q") #'quit-window)
+(define-key octocat-issue-mode-map (kbd "q") #'octocat-quit-window)
 (define-key octocat-issue-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-issue-mode-map (kbd "C-c C-o") #'octocat-issue-browse)
 (define-key octocat-issue-mode-map (kbd "C-c C-a") #'octocat-issue-add-comment)
@@ -361,7 +361,7 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
 (defun octocat-issue-open (repo number)
   "Show issue NUMBER of REPO in its own buffer."
   (let ((buf (get-buffer-create (format "*%s issue %d*" repo number))))
-    (pop-to-buffer buf)
+    (octocat-display-buffer buf)
     (unless (derived-mode-p 'octocat-issue-mode)
       (octocat-issue-mode))
     (setq octocat--issue-repo   repo

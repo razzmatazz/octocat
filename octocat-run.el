@@ -278,7 +278,7 @@ data replaces it."
     (set-keymap-parent map vui-mode-map)
     map)
   "Keymap for `octocat-run-mode'.")
-(define-key octocat-run-mode-map (kbd "q") #'quit-window)
+(define-key octocat-run-mode-map (kbd "q") #'octocat-quit-window)
 (define-key octocat-run-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-run-mode-map (kbd "C-c C-o") #'octocat-run-browse)
 (define-key octocat-run-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
@@ -311,7 +311,7 @@ content up until the fresh data arrives, for following a running job."
 (defun octocat-run-open (repo run-id)
   "Show workflow run RUN-ID of REPO in its own buffer."
   (let ((buf (get-buffer-create (format "*%s run %d*" repo run-id))))
-    (pop-to-buffer buf)
+    (octocat-display-buffer buf)
     (unless (derived-mode-p 'octocat-run-mode)
       (octocat-run-mode))
     (setq octocat--run-repo repo
