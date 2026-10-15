@@ -590,8 +590,10 @@ The size-change hook only exists while the component is mounted."
               (last (octocat-vui-window-width))
               (set  (vui-with-async-context
                       (vui-set-state :win-width (octocat-vui-window-width))))
+              ;; A hidden buffer has no width: its fallback is no resize,
+              ;; and re-rendering it would lose the point `q' returns to.
               (hook (lambda (_frame)
-                      (when (buffer-live-p buf)
+                      (when (and (buffer-live-p buf) (get-buffer-window buf t))
                         (let ((w (with-current-buffer buf
                                    (octocat-vui-window-width))))
                           (unless (eql w last)
