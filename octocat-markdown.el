@@ -31,11 +31,12 @@
 ;; Block level: ATX and setext headings, horizontal rules, fenced and
 ;; indented code (syntax-highlighted by language), block quotes
 ;; (including `> [!NOTE]' alerts), bullet, numbered and task lists with
-;; nesting, tables, footnotes and collapsible <details>.  Inline:
-;; `code', **bold**, *italic*, ~~strike~~, inline and reference-style
-;; links, images, autolinks, @mentions, #123 and commit references,
-;; :emoji: shortcodes and $math$.  HTML comments are dropped and other
-;; HTML tags are stripped, keeping their content.  Mermaid fences are
+;; nesting, tables, footnotes, collapsible <details> and <pre> (where,
+;; as on GitHub, only HTML is rendered).  Inline: `code', **bold**,
+;; *italic*, ~~strike~~, inline and reference-style links, images,
+;; autolinks, @mentions, #123 and commit references, :emoji: shortcodes
+;; and $math$.  HTML formatting tags and <a href> links are rendered too;
+;; comments are dropped and other tags stripped, keeping their content.  Mermaid fences are
 ;; drawn by `octocat-mermaid' to fit the width.
 ;;
 ;; Links, #123 and commit references and <details> summaries are
@@ -378,22 +379,41 @@ like \"defaced\" and numbers like 1234567 are not taken for hashes."
      (format "[image%s]" (if (string-empty-p (or alt "")) "" (concat ": " alt)))
      (or src ""))))
 
-(defvar octocat-markdown--inline-rules
-  `(;; Code spans bind tighter than anything else.
-    (,"``\\(.+?\\)``"
-     ,(lambda (m) (octocat-markdown--face (nth 1 m) 'octocat-markdown-code)))
-    (,"`\\([^`\n]+\\)`"
-     ,(lambda (m) (octocat-markdown--face (nth 1 m) 'octocat-markdown-code)))
-    (,"\\\\\\([][\\`*_{}()#+.!<>~|-]\\)"
-     ,(lambda (m) (nth 1 m)))
-    (,"<!--.*?-->" ,(lambda (_m) ""))
-    (,"<\\(https?://[^>[:space:]]+\\)>"
-     ,(lambda (m) (octocat-markdown--link (nth 1 m) (nth 1 m))))
+(defun octocat-markdown--tag-re (names)
+  "Return a regexp matching an HTML element NAMES (an alternation) on one line.
+Group 2 is its content."
+  (concat "<\\(" names "\\)\\b[^>]*>\\(.*?\\)</\\1 *>"))
+
+(defun octocat-markdown--html-script (text table)
+  "Return TEXT in the scripts of TABLE, or rendered as is if it has no form."
+  (if (cl-every (lambda (c) (assq c table)) text)
+      (octocat-markdown--script text table "")
+    (octocat-markdown--inline text)))
+
+(defvar octocat-markdown--html-rules
+  `((,"<!--.*?-->" ,(lambda (_m) ""))
     (,"<br */?>" ,(lambda (_m) " "))
     (,"<img\\b[^>]*>" ,(lambda (m) (octocat-markdown--img (nth 0 m))))
     (,"<kbd>\\(.*?\\)</kbd>"
      ,(lambda (m) (octocat-markdown--face (concat "[" (nth 1 m) "]")
                                            'octocat-markdown-code)))
+    (,"<a +[^>]*?href=[\"']\\([^\"']*\\)[\"'][^>]*>\\(.*?\\)</a *>"
+     ,(lambda (m) (octocat-markdown--link (octocat-markdown--inline (nth 2 m))
+                                           (nth 1 m))))
+    (,(octocat-markdown--tag-re "b\\|strong")
+     ,(lambda (m) (octocat-markdown--face (octocat-markdown--inline (nth 2 m)) 'bold)))
+    (,(octocat-markdown--tag-re "i\\|em")
+     ,(lambda (m) (octocat-markdown--face (octocat-markdown--inline (nth 2 m)) 'italic)))
+    (,(octocat-markdown--tag-re "s\\|del\\|strike")
+     ,(lambda (m) (octocat-markdown--face (octocat-markdown--inline (nth 2 m))
+                                           'octocat-markdown-strike)))
+    (,(octocat-markdown--tag-re "u\\|ins")
+     ,(lambda (m) (octocat-markdown--face (octocat-markdown--inline (nth 2 m))
+                                           'underline)))
+    (,(octocat-markdown--tag-re "sup")
+     ,(lambda (m) (octocat-markdown--html-script (nth 2 m) octocat-markdown--super)))
+    (,(octocat-markdown--tag-re "sub")
+     ,(lambda (m) (octocat-markdown--html-script (nth 2 m) octocat-markdown--sub)))
     (,"</?[a-zA-Z][^<>\n]*>" ,(lambda (_m) ""))
     (,"&\\(#?[a-zA-Z0-9]+\\);"
      ,(lambda (m)
@@ -402,7 +422,25 @@ like \"defaced\" and numbers like 1234567 are not taken for hashes."
                    (cdr (assoc name octocat-markdown--entities)))
                   ((string-match "\\`#\\([0-9]+\\)\\'" name)
                    (string (string-to-number (match-string 1 name))))
-                  (t whole)))))
+                  (t whole))))))
+  "Inline rules for HTML, as in `octocat-markdown--inline-rules'.
+They alone apply inside <pre>, where markdown is not rendered.")
+
+(defvar octocat-markdown--inline-rules
+  `(;; Code spans bind tighter than anything else.
+    (,"``\\(.+?\\)``"
+     ,(lambda (m) (octocat-markdown--face (nth 1 m) 'octocat-markdown-code)))
+    (,"`\\([^`\n]+\\)`"
+     ,(lambda (m) (octocat-markdown--face (nth 1 m) 'octocat-markdown-code)))
+    (,"\\\\\\([][\\`*_{}()#+.!<>~|-]\\)"
+     ,(lambda (m) (nth 1 m)))
+    (,"<\\(https?://[^>[:space:]]+\\)>"
+     ,(lambda (m) (octocat-markdown--link (nth 1 m) (nth 1 m))))
+    ;; Not among the HTML rules: inside <pre> it is already code.
+    (,(octocat-markdown--tag-re "code\\|tt")
+     ,(lambda (m) (octocat-markdown--face (octocat-markdown--inline (nth 2 m))
+                                           'octocat-markdown-code)))
+    ,@octocat-markdown--html-rules
     ;; Images show their alt text; links their label.
     (,"!\\[\\([^]\n]*\\)\\](\\([^)[:space:]]+\\)\\(?: +\"[^\"]*\"\\)?)"
      ,(lambda (m)
@@ -496,12 +534,40 @@ first) and returns the replacement string.  With GROUP, only that group
 of the match is replaced and the rest (a leading boundary character) is
 kept.")
 
+(defconst octocat-markdown--span-tags
+  '("a" "b" "strong" "i" "em" "s" "del" "strike" "u" "ins" "code" "tt"
+    "sup" "sub" "kbd")
+  "HTML elements that `octocat-markdown--balance' carries across lines.")
+
+(defun octocat-markdown--balance (line open &optional html)
+  "Return (LINE2 . OPEN2): LINE closing the elements left open in it.
+OPEN is the elements left open by the lines before, as (NAME . TAG),
+innermost first; LINE2 reopens them and OPEN2 is what LINE2 leaves open.
+The inline rules see one line at a time, so this lets an element span
+lines.  Tags in code spans are skipped unless HTML (inside <pre>)."
+  (let* ((line  (concat (mapconcat #'cdr (reverse open) "") line))
+         (scan  (if html line (replace-regexp-in-string "`[^`\n]+`" "" line)))
+         (pos   0))
+    (while (string-match "<\\(/?\\)\\([a-zA-Z]+\\)\\b[^<>]*>" scan pos)
+      (let ((name (downcase (match-string 2 scan))))
+        (when (member name octocat-markdown--span-tags)
+          (if (string-empty-p (match-string 1 scan))
+              (push (cons name (match-string 0 scan)) open)
+            (when-let* ((hit (assoc name open)))
+              (setq open (delq hit open))))))
+      (setq pos (match-end 0)))
+    (cons (concat line (mapconcat (lambda (o) (concat "</" (car o) ">")) open ""))
+          open)))
+
+(defvar octocat-markdown--rules nil
+  "Inline rules in force, or nil for `octocat-markdown--inline-rules'.")
+
 (defun octocat-markdown--inline (text)
   "Return TEXT (a single line) with inline markdown rendered."
   (let ((pos 0) (out nil) (len (length text)))
     (while (< pos len)
       (let (best)                       ; (BEG END DATA RULE)
-        (dolist (rule octocat-markdown--inline-rules)
+        (dolist (rule (or octocat-markdown--rules octocat-markdown--inline-rules))
           (when (string-match (car rule) text pos)
             (let ((group (or (nth 2 rule) 0)))
               (when (or (null best) (< (match-beginning group) (car best)))
@@ -532,6 +598,7 @@ kept.")
   "^ *|? *:?-+:? *\\(?:| *:?-+:? *\\)*|? *$")
 (defconst octocat-markdown--setext-re "^ \\{0,3\\}\\(=+\\|-+\\) *$")
 (defconst octocat-markdown--details-re "\\`[ \t]*<details\\b\\([^>]*\\)>")
+(defconst octocat-markdown--pre-re "\\` \\{0,3\\}<pre\\b[^>]*>")
 (defconst octocat-markdown--link-def-re
   (concat "^ \\{0,3\\}\\[\\([^]^][^]]*\\)\\]: *<?\\([^[:space:]>]+\\)>?"
           "\\(?: +\\(?:\"[^\"]*\"\\|'[^']*'\\|([^)]*)\\)\\)? *$")
@@ -800,7 +867,8 @@ draw it, the source is shown, labelled as such."
       (string-match-p octocat-markdown--hr-re line)
       (string-match-p octocat-markdown--quote-re line)
       (string-match-p "\\` \\{0,3\\}#\\{1,6\\}\\(?: \\|\\'\\)" line)
-      (string-match-p octocat-markdown--details-re line)))
+      (string-match-p octocat-markdown--details-re line)
+      (string-match-p octocat-markdown--pre-re line)))
 
 (defun octocat-markdown--lazy-p (prev next)
   "Return non-nil if NEXT continues, unindented, the list item line PREV."
@@ -886,12 +954,43 @@ and start collapsed unless the tag has `open'."
                     rows)))
          lines)))))
 
+(defun octocat-markdown--pre (line lines)
+  "Render the <pre> element opened on LINE, the rest of it in LINES.
+Return (ROWS . REST), REST being the lines after the closing tag.  As
+on GitHub, its whitespace is kept and only HTML inside it is rendered."
+  (string-match octocat-markdown--pre-re line)
+  (let ((l (substring line (match-end 0))) (close "</pre *>") body rest)
+    (while (and (not (string-match-p close l)) lines)
+      (push l body)
+      (setq l (pop lines)))
+    (if (not (string-match close l))
+        (push l body)
+      (push (substring l 0 (match-beginning 0)) body)
+      (setq rest (string-trim (substring l (match-end 0)))))
+    (setq body (nreverse body))
+    ;; HTML drops a newline straight after <pre>, and one before </pre>
+    ;; ends the last line rather than adding an empty one.
+    (when (and (cdr body) (string-empty-p (car body))) (pop body))
+    (when (and (cdr body) (string-empty-p (car (last body))))
+      (setq body (butlast body)))
+    (cons (octocat-markdown--code-block
+           (let ((octocat-markdown--rules octocat-markdown--html-rules)
+                 (open nil))
+             (mapcar (lambda (l)
+                       (pcase-let ((`(,l2 . ,o) (octocat-markdown--balance l open t)))
+                         (setq open o)
+                         (octocat-markdown--inline l2)))
+                     body)))
+          (if (member rest '(nil "")) lines (cons rest lines)))))
+
 (defun octocat-markdown--blocks (lines &optional depth)
   "Return the rendered rows of markdown LINES (a list of strings).
 DEPTH is the list nesting depth, which picks the bullet."
-  (let ((depth (or depth 0)) out)
+  (let ((depth (or depth 0)) out open)
     (while lines
-      (let ((line (pop lines)))
+      ;; OPEN carries HTML elements from one paragraph line to the next.
+      (let ((line (pop lines)) (carry open))
+        (setq open nil)
         (cond
          ((octocat-markdown--blank-p line)
           (push (cons "" 0) out))
@@ -899,6 +998,10 @@ DEPTH is the list nesting depth, which picks the bullet."
          ((string-match-p "\\`[ \t]*<!--" line)
           (while (and (not (string-match-p "-->" line)) lines)
             (setq line (pop lines))))
+         ((string-match-p octocat-markdown--pre-re line)
+          (pcase-let ((`(,rows . ,rest) (octocat-markdown--pre line lines)))
+            (dolist (r rows) (push r out))
+            (setq lines rest)))
          ((string-match octocat-markdown--fence-re line)
           (let ((fence (match-string 1 line))
                 (lang  (string-trim (match-string 2 line)))
@@ -1020,7 +1123,9 @@ DEPTH is the list nesting depth, which picks the bullet."
           (let ((level (if (string-prefix-p "=" (string-trim-left (pop lines))) 1 2)))
             (push (octocat-markdown--heading-row (string-trim line) level) out)))
          (t
-          (push (cons (octocat-markdown--inline (string-trim line)) 0) out)))))
+          (pcase-let ((`(,l . ,o) (octocat-markdown--balance (string-trim line) carry)))
+            (setq open o)
+            (push (cons (octocat-markdown--inline l) 0) out))))))
     (nreverse out)))
 
 (defun octocat-markdown--standout (row)

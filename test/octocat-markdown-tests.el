@@ -84,6 +84,98 @@ the window's point; mid-render that scrambled the page."
     (should (equal (get-text-property 0 'octocat-markdown-url out) "http://x/y.png")))
   (should (equal (octocat-markdown-tests--md "press <kbd>Ctrl</kbd>") "press [Ctrl]\n")))
 
+(ert-deftest octocat-markdown-test-inline-html ()
+  "Inline HTML formatting tags become faces and <a href> a link."
+  (let ((out (octocat-markdown-render
+              (concat "<b>b</b> <strong>s</strong> <i>i</i> <em>e</em> "
+                      "<code>c</code> <del>d</del> <s>x</s> <ins>u</ins>")
+              "")))
+    (should (equal (substring-no-properties out) "b s i e c d x u\n"))
+    (should (memq 'bold (ensure-list (octocat-markdown-tests--prop out "b" 'face))))
+    (should (memq 'bold (ensure-list (octocat-markdown-tests--prop out "s" 'face))))
+    (should (memq 'italic (ensure-list (octocat-markdown-tests--prop out "i" 'face))))
+    (should (memq 'italic (ensure-list (octocat-markdown-tests--prop out "e" 'face))))
+    (should (memq 'octocat-markdown-code
+                  (ensure-list (octocat-markdown-tests--prop out "c" 'face))))
+    (should (memq 'octocat-markdown-strike
+                  (ensure-list (octocat-markdown-tests--prop out "d" 'face))))
+    (should (memq 'octocat-markdown-strike
+                  (ensure-list (octocat-markdown-tests--prop out "x" 'face))))
+    (should (memq 'underline (ensure-list (octocat-markdown-tests--prop out "u" 'face)))))
+  ;; Markdown inside the tags is still rendered.
+  (let ((out (octocat-markdown-render "<b>a *it*</b>" "")))
+    (should (equal (substring-no-properties out) "a it\n"))
+    (should (equal (sort (copy-sequence (ensure-list (octocat-markdown-tests--prop out "it" 'face)))
+                         #'string<)
+                   '(bold italic))))
+  (let ((out (octocat-markdown-render
+              "see <a href=\"https://x.org/a\" title=\"t\">the <b>site</b></a> or <a name=\"n\">here</a>"
+              "")))
+    (should (equal (substring-no-properties out) "see the site or here\n"))
+    (should (equal (octocat-markdown-tests--prop out "the" 'octocat-markdown-url)
+                   "https://x.org/a"))
+    (should (equal (octocat-markdown-tests--prop out "site" 'octocat-markdown-url)
+                   "https://x.org/a"))
+    (should (memq 'bold (ensure-list (octocat-markdown-tests--prop out "site" 'face))))
+    (should-not (octocat-markdown-tests--prop out "here" 'octocat-markdown-url)))
+  ;; <sup> and <sub> use script digits when they can, else the plain text.
+  (should (equal (octocat-markdown-tests--md "x<sup>2</sup> H<sub>2</sub>O <sub>small print</sub>")
+                 "x² H₂O small print\n")))
+
+(ert-deftest octocat-markdown-test-pre ()
+  "<pre> keeps its whitespace as a code block, rendering only HTML inside."
+  (let* ((out (octocat-markdown-render
+               (concat "<pre>\n"
+                       "  a  *b*  &lt;c&gt;\n"
+                       "<a href=\"https://x.org\">link</a> <b>bold</b> <code>kode</code>\n"
+                       "</pre>\nafter")
+               ""))
+         (plain (substring-no-properties out)))
+    (should (equal plain (concat "   a  *b*  <c>  \n"
+                                 " link bold kode \n"
+                                 "after\n")))
+    (should (equal (octocat-markdown-tests--prop out "link" 'octocat-markdown-url)
+                   "https://x.org"))
+    (should (memq 'bold (ensure-list (octocat-markdown-tests--prop out "bold" 'face))))
+    (should (memq 'octocat-markdown-code-block
+                  (ensure-list (octocat-markdown-tests--prop out "bold" 'face))))
+    (should-not (memq 'octocat-markdown-code
+                      (ensure-list (octocat-markdown-tests--prop out "kode" 'face)))))
+  ;; Content on the tag lines, and a one-line <pre>.
+  (should (equal (octocat-markdown-tests--md "<pre lang=\"x\">one\ntwo</pre>")
+                 " one \n two \n"))
+  (should (equal (octocat-markdown-tests--md "<pre>x  y</pre>") " x  y \n"))
+  ;; A blank line inside does not end it.
+  (should (equal (octocat-markdown-tests--md "<pre>\na\n\nb\n</pre>") " a \n   \n b \n")))
+
+(ert-deftest octocat-markdown-test-html-across-lines ()
+  "An HTML element spanning lines formats every line of it, up to a blank line."
+  (let ((out (octocat-markdown-render "<b>one\ntwo</b> three" "")))
+    (should (equal (substring-no-properties out) "one\ntwo three\n"))
+    (should (memq 'bold (ensure-list (octocat-markdown-tests--prop out "one" 'face))))
+    (should (memq 'bold (ensure-list (octocat-markdown-tests--prop out "two" 'face))))
+    (should-not (memq 'bold (ensure-list (octocat-markdown-tests--prop out "three" 'face)))))
+  (let ((out (octocat-markdown-render "<a href=\"https://x.org\">one\n<i>two</i></a>" "")))
+    (should (equal (substring-no-properties out) "one\ntwo\n"))
+    (should (equal (octocat-markdown-tests--prop out "one" 'octocat-markdown-url) "https://x.org"))
+    (should (equal (octocat-markdown-tests--prop out "two" 'octocat-markdown-url) "https://x.org"))
+    (should (memq 'italic (ensure-list (octocat-markdown-tests--prop out "two" 'face)))))
+  (let ((out (octocat-markdown-render "<b>one\n\ntwo" "")))
+    (should (equal (substring-no-properties out) "one\n\ntwo\n"))
+    (should-not (memq 'bold (ensure-list (octocat-markdown-tests--prop out "two" 'face)))))
+  ;; A tag in a code span opens nothing.
+  (let ((out (octocat-markdown-render "`<b>` one\ntwo" "")))
+    (should (equal (substring-no-properties out) "<b> one\ntwo\n"))
+    (should-not (memq 'bold (ensure-list (octocat-markdown-tests--prop out "two" 'face)))))
+  (let ((out (octocat-markdown-render "> <i>one\n> two</i>" "")))
+    (should (equal (substring-no-properties out) "│ one\n│ two\n"))
+    (should (memq 'italic (ensure-list (octocat-markdown-tests--prop out "two" 'face)))))
+  (let ((out (octocat-markdown-render "<pre><b>one\ntwo</b> x</pre>" "")))
+    (should (equal (substring-no-properties out) " one   \n two x \n"))
+    (should (memq 'bold (ensure-list (octocat-markdown-tests--prop out "one" 'face))))
+    (should (memq 'bold (ensure-list (octocat-markdown-tests--prop out "two" 'face))))
+    (should-not (memq 'bold (ensure-list (octocat-markdown-tests--prop out "x " 'face))))))
+
 (ert-deftest octocat-markdown-test-reference-links ()
   "Reference-style links resolve through their definitions, else stay literal."
   (let ((out (octocat-markdown-render
