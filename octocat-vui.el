@@ -743,6 +743,91 @@ for pulls) from one API call, or nil for no counts."
                   :face 'octocat-dimmed)
         (vui-newline))))))
 
+(vui-defcomponent octocat-vui-search-list (repo kind query row-fn)
+  "List page of the KIND items of REPO, `issues' or `pulls', matching QUERY.
+ROW-FN returns the row of an item, given it and the window width.
+The first page is cached on disk and painted while it is refetched;
+\"load more\" fetches only the page after the last, by its cursor."
+  ;; MORE is (:items LIST :cursor C): the items of the pages after the
+  ;; first, and the cursor after the last of them.
+  :state ((more nil) (fetching nil) (win-width nil))
+  :render
+  (let* ((width  (octocat-vui-use-window-width))
+         (type   (if (eq kind 'pulls) "prs" "issues"))
+         (noun   (if (eq kind 'pulls) "pull requests" "issues"))
+         (id     (octocat--query-cache-id query))
+         (cached (vui-use-memo (repo id) (octocat--items-cache-load repo type id)))
+         (first  (vui-use-async (list kind repo query)
+                   (lambda (resolve reject)
+                     (octocat--list-items
+                      kind repo
+                      (lambda (r)
+                        (if (eq (car-safe r) 'error)
+                            (funcall reject (cdr r))
+                          (funcall resolve r)))
+                      query))))
+         (fresh  (and (eq (plist-get first :status) 'ready)
+                      (plist-get first :data)))
+         (page   (octocat-vui-with-stale
+                  first (and cached (list :items (plist-get cached :items)))))
+         (items  (append (plist-get (plist-get page :data) :items)
+                         (plist-get more :items)))
+         (cursor (if more (plist-get more :cursor) (plist-get fresh :cursor)))
+         (loading (and (or (eq (plist-get page :status) 'pending)
+                           (plist-get page :refreshing)
+                           fetching)
+                       t)))
+    (vui-use-effect (fresh)
+      (when fresh
+        (octocat--items-cache-save repo type id (plist-get fresh :items)))
+      nil)
+    (octocat-vui-use-mode-line-loading loading)
+    (vui-vstack
+     (vui-component 'octocat-vui-list-header :repo repo :tab kind :kind kind)
+     (octocat-vui-list-filter-bar query)
+     (pcase (plist-get page :status)
+       ('pending (vui-text (octocat-vui-list-skeleton width)))
+       ('error   (vui-text (format "%s\n" (plist-get page :error)) :face 'octocat-dimmed))
+       ('ready
+        (vui-fragment
+         (if (null items)
+             (vui-text (format (if (octocat-vui-list-filter-active-p query)
+                                   "(no %s match the filters)\n"
+                                 "(no %s)\n")
+                               noun)
+                       :face 'octocat-dimmed)
+           (octocat-vui-reveal-list
+            items
+            (lambda (item) (funcall row-fn item width))
+            (lambda (item) (gethash "number" item))))
+         ;; The cached first page has no cursor: its button waits for
+         ;; the fresh one.
+         (when (and items
+                    (or cursor
+                        (and (plist-get page :refreshing)
+                             (>= (length items) octocat-list-page-size))))
+           (octocat-vui-load-more-button
+            (intern (format "load-more-%s" type)) octocat-list-page-size
+            (format "RET: load more %s" noun)
+            (lambda ()
+              (if (not cursor)
+                  (message "Octocat: Still loading the first page")
+                (vui-set-state :fetching t)
+                (octocat--list-items
+                 kind repo
+                 (vui-async-callback (r)
+                   (vui-set-state :fetching nil)
+                   (if (eq (car-safe r) 'error)
+                       (message "Octocat: %s" (cdr r))
+                     (vui-set-state
+                      :more (lambda (m)
+                              (list :items  (append (plist-get m :items)
+                                                    (plist-get r :items))
+                                    :cursor (plist-get r :cursor))))))
+                 query cursor)))
+            fetching 0
+            (octocat-vui-list-skeleton width)))))))))
+
 
 ;;;; List filters
 ;;

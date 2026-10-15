@@ -580,20 +580,6 @@ is the confirmation."
 
 ;;;; Data fetching
 
-(defun octocat--list-prs (repo limit callback &optional query)
-  "Fetch up to LIMIT PRs for REPO asynchronously and call CALLBACK.
-QUERY is a GitHub search query (see `octocat--filter-args'); by default
-only open PRs are listed.
-CALLBACK is called with a list of PR hash-tables, or a cons \\=(error . MSG)."
-  (octocat--run-gh "prs"
-                   (append (list "pr" "list"
-                                 "--repo" repo)
-                           (octocat--filter-args query)
-                           (list "--limit" (number-to-string limit)
-                                 "--json" "number,title,author,state,isDraft,statusCheckRollup,headRefName,labels,createdAt,comments"))
-                   #'octocat--parse-json-list
-                   callback))
-
 (defun octocat--fetch-pr (repo number callback)
   "Fetch detail for pull request NUMBER in REPO asynchronously.
 Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
@@ -888,67 +874,8 @@ background."
 
 ;;;; PR list page
 ;;
-;; Opened by `M-x octocat-pr-list' (octocat.el).  vui.el-rendered like the PR
-;; detail buffer above; see "UI frameworks" in CONTRIBUTING.md.
-
-(vui-defcomponent octocat-pr--list-page (repo current-branch query)
-  "Pull request list page for REPO, narrowed by the search QUERY."
-  :state ((limit octocat-list-page-size) (win-width nil))
-  :render
-  (let* ((width  (octocat-vui-use-window-width))
-         (id     (octocat--query-cache-id query))
-         (cached (vui-use-memo (repo id) (octocat--items-cache-load repo "prs" id)))
-         ;; Only the first page is cached; it shows until the fetch lands.
-         (stale  (and (= limit octocat-list-page-size) (plist-get cached :items)))
-         (sticky (octocat-vui-use-async-sticky (list 'prs repo limit query)
-                   (lambda (resolve reject)
-                     (octocat--list-prs
-                      repo limit
-                      (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))
-                      query))))
-         (fresh  (and (eq (plist-get sticky :status) 'ready)
-                      (not (plist-get sticky :refreshing))
-                      (plist-get sticky :data)))
-         (result (octocat-vui-with-stale sticky stale))
-         (loading (and (or (eq (plist-get result :status) 'pending)
-                           (plist-get result :refreshing))
-                       t)))
-    (vui-use-effect (fresh)
-      (when (and fresh (= limit octocat-list-page-size))
-        (octocat--items-cache-save repo "prs" id fresh))
-      nil)
-    (octocat-vui-use-mode-line-loading loading)
-    (vui-vstack
-     (vui-component 'octocat-vui-list-header :repo repo :tab 'pulls :kind 'pulls)
-     (octocat-vui-list-filter-bar query)
-     (pcase (plist-get result :status)
-       ('pending (vui-text (octocat-vui-list-skeleton width)))
-       ('error   (vui-text (format "%s\n" (plist-get result :error)) :face 'octocat-dimmed))
-       ('ready
-        (let ((prs (plist-get result :data)))
-          (vui-fragment
-           (if (null prs)
-               (vui-text (if (octocat-vui-list-filter-active-p query)
-                             "(no pull requests match the filters)\n"
-                           "(no pull requests)\n")
-                         :face 'octocat-dimmed)
-             (octocat-vui-reveal-list
-              prs
-              (lambda (pr)
-                (octocat-repo-vui--pr-row repo pr current-branch width))
-              (lambda (pr) (gethash "number" pr))))
-           (when (and prs
-                      (or (>= (length prs) limit)
-                          ;; Keep the button in place while a further page
-                          ;; loads, but not for the first, cached paint.
-                          (and (plist-get result :refreshing)
-                               (> limit octocat-list-page-size))))
-             (octocat-vui-load-more-button
-              'load-more-prs octocat-list-page-size
-              "RET: load more pull requests"
-              (lambda () (vui-set-state :limit (+ limit octocat-list-page-size)))
-              (and (plist-get result :refreshing) (< (length prs) limit)) 0
-              (octocat-vui-list-skeleton width))))))))))
+;; Opened by `M-x octocat-pr-list' (octocat.el); the page is
+;; `octocat-vui-search-list'.
 
 (defun octocat-pr-list-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current PR list buffer."
@@ -956,11 +883,15 @@ background."
   (unless octocat-vui-list--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
   (octocat-vui-preserving-view
-    (vui-mount (vui-component 'octocat-pr--list-page
-                              :repo octocat-vui-list--repo
-                              :current-branch (plist-get (octocat--head-info) :branch)
-                              :query (octocat-vui-list-query))
-               (buffer-name))))
+    (let ((repo   octocat-vui-list--repo)
+          (branch (plist-get (octocat--head-info) :branch)))
+      (vui-mount (vui-component 'octocat-vui-search-list
+                                :repo repo
+                                :kind 'pulls
+                                :query (octocat-vui-list-query)
+                                :row-fn (lambda (pr width)
+                                          (octocat-repo-vui--pr-row repo pr branch width)))
+                 (buffer-name)))))
 
 (define-derived-mode octocat-pr-list-mode octocat-vui-list-mode "Octocat-PRs"
   "Major mode for the pull request list of a repository.

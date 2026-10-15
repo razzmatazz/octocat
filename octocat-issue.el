@@ -227,20 +227,6 @@ On someone else\\='s comment: signal an error."
 
 ;;;; Data fetching
 
-(defun octocat--list-issues (repo limit callback &optional query)
-  "Fetch up to LIMIT issues for REPO asynchronously and call CALLBACK.
-QUERY is a GitHub search query (see `octocat--filter-args'); by default
-only open issues are listed.
-CALLBACK is called with a list of issue hash-tables, or a cons \\=(error . MSG)."
-  (octocat--run-gh "issues"
-                   (append (list "issue" "list"
-                                 "--repo" repo)
-                           (octocat--filter-args query)
-                           (list "--limit" (number-to-string limit)
-                                 "--json" "number,title,author,state,labels,createdAt,comments,closedByPullRequestsReferences"))
-                   #'octocat--parse-json-list
-                   callback))
-
 (defun octocat--fetch-issue (repo number callback)
   "Fetch detail for issue NUMBER in REPO asynchronously.
 Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG)."
@@ -382,67 +368,8 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
 
 ;;;; Issue list page
 ;;
-;; Opened by `M-x octocat-issue-list' (octocat.el).  vui.el-rendered like the
-;; issue detail buffer above; see "UI frameworks" in CONTRIBUTING.md.
-
-(vui-defcomponent octocat-issue--list-page (repo query)
-  "Issue list page for REPO, narrowed by the search QUERY."
-  :state ((limit octocat-list-page-size) (win-width nil))
-  :render
-  (let* ((width  (octocat-vui-use-window-width))
-         (id     (octocat--query-cache-id query))
-         (cached (vui-use-memo (repo id) (octocat--items-cache-load repo "issues" id)))
-         ;; Only the first page is cached; it shows until the fetch lands.
-         (stale  (and (= limit octocat-list-page-size) (plist-get cached :items)))
-         (sticky (octocat-vui-use-async-sticky (list 'issues repo limit query)
-                   (lambda (resolve reject)
-                     (octocat--list-issues
-                      repo limit
-                      (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))
-                      query))))
-         (fresh  (and (eq (plist-get sticky :status) 'ready)
-                      (not (plist-get sticky :refreshing))
-                      (plist-get sticky :data)))
-         (result (octocat-vui-with-stale sticky stale))
-         (loading (and (or (eq (plist-get result :status) 'pending)
-                           (plist-get result :refreshing))
-                       t)))
-    (vui-use-effect (fresh)
-      (when (and fresh (= limit octocat-list-page-size))
-        (octocat--items-cache-save repo "issues" id fresh))
-      nil)
-    (octocat-vui-use-mode-line-loading loading)
-    (vui-vstack
-     (vui-component 'octocat-vui-list-header :repo repo :tab 'issues :kind 'issues)
-     (octocat-vui-list-filter-bar query)
-     (pcase (plist-get result :status)
-       ('pending (vui-text (octocat-vui-list-skeleton width)))
-       ('error   (vui-text (format "%s\n" (plist-get result :error)) :face 'octocat-dimmed))
-       ('ready
-        (let ((issues (plist-get result :data)))
-          (vui-fragment
-           (if (null issues)
-               (vui-text (if (octocat-vui-list-filter-active-p query)
-                             "(no issues match the filters)\n"
-                           "(no issues)\n")
-                         :face 'octocat-dimmed)
-             (octocat-vui-reveal-list
-              issues
-              (lambda (issue)
-                (octocat-repo-vui--issue-row repo issue width))
-              (lambda (issue) (gethash "number" issue))))
-           (when (and issues
-                      (or (>= (length issues) limit)
-                          ;; Keep the button in place while a further page
-                          ;; loads, but not for the first, cached paint.
-                          (and (plist-get result :refreshing)
-                               (> limit octocat-list-page-size))))
-             (octocat-vui-load-more-button
-              'load-more-issues octocat-list-page-size
-              "RET: load more issues"
-              (lambda () (vui-set-state :limit (+ limit octocat-list-page-size)))
-              (and (plist-get result :refreshing) (< (length issues) limit)) 0
-              (octocat-vui-list-skeleton width))))))))))
+;; Opened by `M-x octocat-issue-list' (octocat.el); the page is
+;; `octocat-vui-search-list'.
 
 (defun octocat-issue-list-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current issue list buffer."
@@ -450,10 +377,14 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
   (unless octocat-vui-list--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
   (octocat-vui-preserving-view
-    (vui-mount (vui-component 'octocat-issue--list-page
-                              :repo octocat-vui-list--repo
-                              :query (octocat-vui-list-query))
-               (buffer-name))))
+    (let ((repo octocat-vui-list--repo))
+      (vui-mount (vui-component 'octocat-vui-search-list
+                                :repo repo
+                                :kind 'issues
+                                :query (octocat-vui-list-query)
+                                :row-fn (lambda (issue width)
+                                          (octocat-repo-vui--issue-row repo issue width)))
+                 (buffer-name)))))
 
 (define-derived-mode octocat-issue-list-mode octocat-vui-list-mode "Octocat-Issues"
   "Major mode for the issue list of a repository.

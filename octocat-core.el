@@ -545,28 +545,35 @@ either timestamp is unavailable."
 
 (defun octocat--ci-status (pr)
   "Return a one-character CI-status indicator for PR hash-table PR.
-Returns \"✓\" (success), \"✗\" (failure), or \"●\" (pending/unknown)."
-  (octocat--checks-ci-status (gethash "statusCheckRollup" pr)))
+Returns \"✓\" (success), \"✗\" (failure), or \"●\" (pending/unknown).
+A list row's PR carries GitHub's rolled-up \"ciState\" instead of the
+checks themselves (see `octocat--flatten-list-item')."
+  (if-let* ((state (octocat--nonempty (gethash "ciState" pr))))
+      (octocat--outcomes-ci-status (list state))
+    (octocat--checks-ci-status (gethash "statusCheckRollup" pr))))
 
 (defun octocat--checks-ci-status (checks)
   "Return a CI-status indicator, as `octocat--ci-status' does.
 The status is that of CHECKS, a `statusCheckRollup' sequence, or nil or
 :null.  A check's outcome is its conclusion (a check-run) or its state
 \(a commit status); one with neither is still running."
-  (let ((outcomes
-         (and checks (not (eq checks :null))
-              (mapcar (lambda (c)
-                        (upcase (or (octocat--nonempty (gethash "conclusion" c))
-                                    (octocat--nonempty (gethash "state" c))
-                                    "PENDING")))
-                      checks))))
-    (cond
-     ((cl-some (lambda (s) (member s '("FAILURE" "ERROR" "TIMED_OUT"))) outcomes)
-      (propertize "✗" 'face 'octocat-ci-failure))
-     ((cl-every (lambda (s) (member s '("SUCCESS" "NEUTRAL" "SKIPPED"))) outcomes)
-      (propertize "✓" 'face 'octocat-ci-success))
-     (t
-      (propertize "●" 'face 'octocat-ci-pending)))))
+  (octocat--outcomes-ci-status
+   (and checks (not (eq checks :null))
+        (mapcar (lambda (c)
+                  (upcase (or (octocat--nonempty (gethash "conclusion" c))
+                              (octocat--nonempty (gethash "state" c))
+                              "PENDING")))
+                checks))))
+
+(defun octocat--outcomes-ci-status (outcomes)
+  "Return the CI-status indicator of OUTCOMES, a list of upcased states."
+  (cond
+   ((cl-some (lambda (s) (member s '("FAILURE" "ERROR" "TIMED_OUT"))) outcomes)
+    (propertize "✗" 'face 'octocat-ci-failure))
+   ((cl-every (lambda (s) (member s '("SUCCESS" "NEUTRAL" "SKIPPED"))) outcomes)
+    (propertize "✓" 'face 'octocat-ci-success))
+   (t
+    (propertize "●" 'face 'octocat-ci-pending))))
 
 (defun octocat--ci-label (pr)
   "Return a short labelled CI-status string for PR hash-table PR.
@@ -1158,14 +1165,76 @@ back to parsing the git origin remote via `octocat-repo--current-repo'."
 (defconst octocat--default-list-query "is:open"
   "Query a PR or issue list starts with.")
 
-(defun octocat--filter-args (query)
-  "Return the `gh pr/issue list' flags that apply the search QUERY.
-A nil QUERY means `octocat--default-list-query'.  gh's own --state is
-always \"all\" so that it cannot contradict a state token in QUERY."
-  (let ((query (string-trim (or query octocat--default-list-query))))
-    (append (list "--state" "all")
-            (unless (string-empty-p query)
-              (list "--search" query)))))
+(defun octocat--search-query (repo kind query)
+  "Return the GitHub search string for the KIND items of REPO matching QUERY.
+KIND is `issues' or `pulls'.  A nil QUERY means
+`octocat--default-list-query'.  QUERY is parenthesised, as gh does, so an
+OR in it cannot escape the repo scope."
+  (let ((query (string-trim (or query octocat--default-list-query)))
+        (scope (format "repo:%s type:%s" repo (if (eq kind 'pulls) "pr" "issue"))))
+    (if (string-empty-p query)
+        scope
+      (format "( %s ) %s" query scope))))
+
+(defconst octocat--list-item-fields
+  '((pulls  . "...on PullRequest{number title state isDraft createdAt headRefName author{login} labels(first:20){nodes{name color}} comments{totalCount} commits(last:1){nodes{commit{statusCheckRollup{state}}}}}")
+    (issues . "...on Issue{number title state createdAt author{login} labels(first:20){nodes{name color}} comments{totalCount} closedByPullRequestsReferences(first:5){nodes{number}}}"))
+  "The GraphQL fields of a list row, by KIND.
+Only what the row shows: `gh pr/issue list --json' would fetch every
+comment's body and every check run, many times the size and the API cost.")
+
+(defun octocat--list-items-query (kind)
+  "Return the GraphQL search query for a page of KIND list items."
+  (format "query($q:String!,$limit:Int!,$after:String){search(query:$q,type:ISSUE_ADVANCED,first:$limit,after:$after){nodes{%s}pageInfo{hasNextPage endCursor}}}"
+          (alist-get kind octocat--list-item-fields)))
+
+(defun octocat--flatten-list-item (item)
+  "Flatten the connections of the search result ITEM in place; return it.
+\"labels\" and \"closedByPullRequestsReferences\" become vectors of their
+nodes, as gh's JSON has them; the comments become their count,
+\"commentCount\"; and the head commit's checks become GitHub's rolled-up
+state, \"ciState\", absent without checks."
+  (dolist (key '("labels" "closedByPullRequestsReferences"))
+    (let ((conn (gethash key item)))
+      (when (hash-table-p conn)
+        (puthash key (gethash "nodes" conn) item))))
+  (let ((comments (gethash "comments" item)))
+    (when (hash-table-p comments)
+      (puthash "commentCount" (gethash "totalCount" comments) item)
+      (remhash "comments" item)))
+  (let* ((commits (gethash "commits" item))
+         (node    (and (hash-table-p commits) (seq-first (gethash "nodes" commits))))
+         (rollup  (and node (gethash "statusCheckRollup" (gethash "commit" node)))))
+    (when (hash-table-p rollup)
+      (puthash "ciState" (gethash "state" rollup) item))
+    (remhash "commits" item))
+  item)
+
+(defun octocat--parse-list-items (json-string)
+  "Parse the list search response JSON-STRING into (:items LIST :cursor C).
+The items are flattened by `octocat--flatten-list-item'.  C is the cursor
+to pass for the next page, or nil on the last."
+  (let* ((search (gethash "search" (gethash "data" (json-parse-string json-string))))
+         (info   (gethash "pageInfo" search)))
+    (list :items  (mapcar #'octocat--flatten-list-item (gethash "nodes" search))
+          :cursor (and (eq (gethash "hasNextPage" info) t)
+                       (octocat--nonempty (gethash "endCursor" info))))))
+
+(defun octocat--list-items (kind repo callback &optional query after)
+  "Fetch a page of the KIND items of REPO matching the search QUERY.
+KIND is `issues' or `pulls'.  AFTER, a cursor from an earlier page,
+fetches the page after it; a page is `octocat-list-page-size' items.
+CALLBACK is called with the plist from `octocat--parse-list-items', or a
+cons \\=(error . MSG).  One API call."
+  (octocat--run-gh
+   (symbol-name kind)
+   (append (list "api" "graphql"
+                 "-f" (concat "query=" (octocat--list-items-query kind))
+                 "-f" (concat "q=" (octocat--search-query repo kind query))
+                 "-F" (format "limit=%d" octocat-list-page-size))
+           (and after (list "-f" (concat "after=" after))))
+   #'octocat--parse-list-items
+   callback))
 
 (defun octocat--counts-query (kind)
   "Return the GraphQL query counting items of KIND (`issues' or `pulls')."

@@ -33,19 +33,31 @@
     (should (equal (octocat--format-labels :null) ""))
     (should (equal (octocat--format-labels []) ""))))
 
-(ert-deftest octocat-core-test-filter-args-default ()
-  "No query lists open items via the default query."
-  (should (equal (octocat--filter-args nil)
-                 '("--state" "all" "--search" "is:open"))))
+(ert-deftest octocat-core-test-search-query ()
+  "The query is scoped to the repo and kind; nil means open items."
+  (should (equal (octocat--search-query "o/r" 'pulls nil)
+                 "( is:open ) repo:o/r type:pr"))
+  (should (equal (octocat--search-query "o/r" 'issues "is:closed OR label:x")
+                 "( is:closed OR label:x ) repo:o/r type:issue"))
+  (should (equal (octocat--search-query "o/r" 'issues "  ")
+                 "repo:o/r type:issue")))
 
-(ert-deftest octocat-core-test-filter-args-query ()
-  "The query goes to --search unchanged; gh's own state never competes."
-  (should (equal (octocat--filter-args "is:closed author:@me -label:wip")
-                 '("--state" "all" "--search" "is:closed author:@me -label:wip"))))
-
-(ert-deftest octocat-core-test-filter-args-empty-query ()
-  "An empty query lists everything, with no --search."
-  (should (equal (octocat--filter-args "  ") '("--state" "all"))))
+(ert-deftest octocat-core-test-parse-list-items ()
+  "Connections flatten to what the rows read; the cursor ends with the pages."
+  (let* ((json "{\"data\":{\"search\":{\"nodes\":[{\"number\":5,\"labels\":{\"nodes\":[{\"name\":\"bug\",\"color\":\"d73a4a\"}]},\"comments\":{\"totalCount\":3},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"state\":\"FAILURE\"}}}]}},{\"number\":6,\"labels\":{\"nodes\":[]},\"comments\":{\"totalCount\":0},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":null}}]}}],\"pageInfo\":{\"hasNextPage\":true,\"endCursor\":\"Y3I\"}}}}")
+         (page  (octocat--parse-list-items json))
+         (pr    (car (plist-get page :items)))
+         (bare  (cadr (plist-get page :items))))
+    (should (equal (plist-get page :cursor) "Y3I"))
+    (should (equal (gethash "name" (aref (gethash "labels" pr) 0)) "bug"))
+    (should (= (gethash "commentCount" pr) 3))
+    (should (equal (gethash "ciState" pr) "FAILURE"))
+    (should (equal (substring-no-properties (octocat--ci-status pr)) "✗"))
+    (should-not (gethash "ciState" bare))
+    (should-not (gethash "commits" bare)))
+  (should-not (plist-get (octocat--parse-list-items
+                          "{\"data\":{\"search\":{\"nodes\":[],\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":null}}}}")
+                         :cursor)))
 
 (defmacro octocat-core-tests--with-cache-dir (&rest body)
   "Evaluate BODY with `octocat-cache-directory' pointing at a temp directory."

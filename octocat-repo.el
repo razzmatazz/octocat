@@ -432,7 +432,10 @@ highlighted with `octocat-branch-current'."
   (let* ((branch   (octocat--nonempty (gethash "headRefName" item)))
          (checks   (gethash "statusCheckRollup" item))
          (closers  (gethash "closedByPullRequestsReferences" item))
-         (comments (gethash "comments" item)))
+         ;; A list row's item has the count; a page's, the comments.
+         (comments (or (gethash "commentCount" item)
+                       (let ((c (gethash "comments" item)))
+                         (if (vectorp c) (length c) 0)))))
     (list :title  (or (gethash "title" item) "")
           :ref    (propertize (format "%s#%d" repo (gethash "number" item))
                               'face 'octocat-dimmed)
@@ -444,8 +447,8 @@ highlighted with `octocat-branch-current'."
                         (mapconcat (lambda (pr) (format "#%d" (gethash "number" pr)))
                                    closers " ")
                         'face 'octocat-pr-number))
-          :comments (and (vectorp comments) (> (length comments) 0)
-                         (propertize (format "✉ %d" (length comments))
+          :comments (and (> comments 0)
+                         (propertize (format "✉ %d" comments)
                                      'face 'octocat-dimmed))
           :chips  (octocat--format-labels (gethash "labels" item))
           :branch (and branch
@@ -453,7 +456,8 @@ highlighted with `octocat-branch-current'."
                                    (if (equal branch current-branch)
                                        'octocat-branch-current
                                      'octocat-branch)))
-          :ci     (and checks (not (eq checks :null)) (> (length checks) 0)
+          :ci     (and (or (octocat--nonempty (gethash "ciState" item))
+                           (and checks (not (eq checks :null)) (> (length checks) 0)))
                        (octocat--ci-label item))
           :author (propertize (octocat--author-login item)
                               'face 'octocat-pr-author))))
