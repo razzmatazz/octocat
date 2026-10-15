@@ -49,6 +49,8 @@
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
 (declare-function octocat-repo-vui--logins "octocat-repo" (users))
 (declare-function octocat-repo-vui--numbers "octocat-repo" (repo refs open))
+(declare-function octocat-repo-vui--login-link "octocat-repo" (login))
+(declare-function octocat-repo-vui--separate "octocat-repo" (items sep))
 (declare-function octocat-issue-open "octocat-issue" (repo number))
 (declare-function octocat-repo-vui--milestone "octocat-repo" (item))
 (declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
@@ -782,26 +784,33 @@ render, like any hook; shared by the conversation and the diff page."
     (octocat-vui-with-stale async cached)))
 
 (defun octocat-pr--reviewers (pr)
-  "Return the reviewers of PR as one string, or nil when there are none.
+  "Return the reviewers of PR as a list of vnodes, or nil when there are none.
 Each is \"@login (state)\": the state of their latest review, or
-\"pending\" for a requested review not yet given."
+\"pending\" for a requested review not yet given; the login opens the
+user's page."
   (let* ((reviews  (octocat-timeline--get pr "latestReviews"))
          (requests (octocat-timeline--get pr "reviewRequests"))
+         (reviewer (lambda (login name state)
+                     (list (if (octocat--nonempty login)
+                               (octocat-repo-vui--login-link login)
+                             (vui-text (concat "@" (or name ""))))
+                           (vui-text (format " (%s)" state)))))
          (parts
           (append
            (and (vectorp reviews)
                 (mapcar (lambda (r)
-                          (format "%s (%s)"
-                                  (octocat--author-login r)
-                                  (downcase (replace-regexp-in-string
-                                             "_" " " (or (gethash "state" r) "")))))
+                          (funcall reviewer
+                                   (string-remove-prefix "@" (octocat--author-login r))
+                                   nil
+                                   (downcase (replace-regexp-in-string
+                                              "_" " " (or (gethash "state" r) "")))))
                         reviews))
            (and (vectorp requests)
                 (mapcar (lambda (u)
-                          (format "@%s (pending)"
-                                  (or (gethash "login" u) (gethash "name" u) "")))
+                          (funcall reviewer (gethash "login" u) (gethash "name" u)
+                                   "pending"))
                         requests)))))
-    (and parts (mapconcat #'identity parts ", "))))
+    (and parts (octocat-repo-vui--separate parts ", "))))
 
 (vui-defcomponent octocat-pr--page (repo number raw merging)
   "Pull request NUMBER of REPO as a timeline; RAW shows markdown verbatim.

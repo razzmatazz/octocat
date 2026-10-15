@@ -505,6 +505,13 @@ a cell that ITEM does not have is nil or empty.  BG is as for
           :author (propertize (octocat--author-login item)
                               'face 'octocat-pr-author))))
 
+(defun octocat-repo-vui--join-cells (cells keys)
+  "Return the non-empty CELLS under KEYS, joined by a dimmed dot."
+  (mapconcat #'identity
+             (seq-remove (lambda (s) (or (null s) (string-empty-p s)))
+                         (mapcar (lambda (key) (plist-get cells key)) keys))
+             (propertize " · " 'face 'octocat-dimmed)))
+
 (defun octocat-repo-vui--item-lines (state cells keys &optional width)
   "Return the two lines of an item with STATE text, as a list of strings.
 The first is the state, title and label chips; the second the number,
@@ -514,11 +521,7 @@ shortening the title to make room for the chips.  Shared by the list
 rows and the page headers so the two read alike."
   (let* ((cap   (and width (max 10 (1- width))))
          (dot   (propertize " · " 'face 'octocat-dimmed))
-         (join  (lambda (keys)
-                  (mapconcat #'identity
-                             (seq-remove (lambda (s) (or (null s) (string-empty-p s)))
-                                         (mapcar (lambda (key) (plist-get cells key)) keys))
-                             dot)))
+         (join  (lambda (keys) (octocat-repo-vui--join-cells cells keys)))
          (who   (concat (plist-get cells :number)
                         (propertize " by " 'face 'octocat-dimmed)
                         (funcall join '(:author :date))))
@@ -605,64 +608,105 @@ to leave out."
       (propertize (car lines) 'octocat-timeline-target 'title)
       on-edit-title
       "RET: edit title")
-     (octocat-vui-row (cadr lines) on-edit-title "RET: edit title"))))
+     (octocat-repo-vui--detail-who item cells omit on-edit-title))))
+
+(defun octocat-repo-vui--detail-who (item cells omit on-edit-title)
+  "Return the header row under the title: ITEM's number, author, date and cells.
+As the second of `octocat-repo-vui--item-lines', but the number and the
+author are TAB-able links.  CELLS, OMIT and ON-EDIT-TITLE are as for
+`octocat-repo-vui--detail-header'."
+  (let* ((url    (gethash "url" item))
+         (author (plist-get cells :author))
+         (rest   (octocat-repo-vui--join-cells
+                  cells (cons :date (seq-difference '(:review :branch :ci :prs :comments)
+                                                    omit)))))
+    (octocat-vui-row
+     (list (make-string (+ octocat-repo-vui--state-width 2) ?\s)
+           (if (octocat--nonempty url)
+               (octocat-repo-vui--link (plist-get cells :number) 'octocat-pr-number
+                                       (lambda () (browse-url url))
+                                       "RET: open on GitHub")
+             (plist-get cells :number))
+           (propertize " by " 'face 'octocat-dimmed)
+           (if (string-empty-p author)
+               ""
+             (octocat-repo-vui--login-link (substring author 1)))
+           (if (or (string-empty-p author) (string-empty-p rest))
+               rest
+             (concat (propertize " · " 'face 'octocat-dimmed) rest)))
+     on-edit-title
+     "RET: edit title")))
 
 (defun octocat-repo-vui--detail-fields (fields)
   "Return a vnode listing FIELDS under the title, or nil when none has a value.
-FIELDS is a list of (LABEL . VALUE); a nil or empty VALUE is skipped.  The
-line is dimmed and lined up with the title column."
+FIELDS is a list of (LABEL . VALUE), VALUE a string or a list of vnodes;
+a nil or empty VALUE is skipped.  The line is lined up with the title
+column."
   (let ((parts (delq nil
                      (mapcar (lambda (f)
                                (and (cdr f) (not (equal (cdr f) ""))
-                                    (concat (propertize (car f) 'face 'octocat-dimmed)
-                                            " " (cdr f))))
+                                    (cons (vui-text (concat (car f) " ") :face 'octocat-dimmed)
+                                          (if (stringp (cdr f))
+                                              (list (vui-text (cdr f)))
+                                            (cdr f)))))
                              fields))))
     (and parts
-         (vui-text (concat (make-string (+ octocat-repo-vui--state-width 2) ?\s)
-                           (mapconcat #'identity parts
-                                      (propertize " · " 'face 'octocat-dimmed)))))))
+         (vui-hstack :spacing 0
+           (vui-text (make-string (+ octocat-repo-vui--state-width 2) ?\s))
+           (octocat-repo-vui--separate parts (propertize " · " 'face 'octocat-dimmed))))))
 
-(defun octocat-repo-vui--link (label face action)
-  "Return LABEL in FACE, opening its page with ACTION on RET or a click.
-A `keymap' text property, so it works within a line of plain text, as
-the links of rendered markdown do."
-  (let ((map (make-sparse-keymap))
-        (cmd (lambda () (interactive) (funcall action))))
-    (define-key map (kbd "RET") cmd)
-    (define-key map [mouse-1] cmd)
-    (propertize label 'face face 'mouse-face 'highlight
-                'help-echo (concat "RET: open " label) 'keymap map)))
+(defun octocat-repo-vui--separate (items sep)
+  "Return ITEMS (vnodes or lists of them) with a `vui-text' of SEP between."
+  (cdr (mapcan (lambda (item) (list (vui-text sep) item)) items)))
+
+(defun octocat-repo-vui--link (label face action &optional help)
+  "Return an unbracketed `vui-button' showing LABEL in FACE: a TAB stop.
+ACTION is called on RET or a click; HELP is its hover text, by default
+\"RET: open LABEL\"."
+  (vui-button label
+    :no-decoration t
+    :face face
+    :help-echo (or help (concat "RET: open " label))
+    :on-click action))
+
+(defun octocat-repo-vui--login-link (login)
+  "Return \"@LOGIN\" as a link to the page of the user LOGIN."
+  (octocat-repo-vui--link (concat "@" login) 'octocat-pr-author
+                          (lambda () (octocat-user-open login))))
 
 (defun octocat-repo-vui--logins (users)
-  "Return the \"@login\" names of USERS (a vector of user objects) joined, or nil.
-Each opens the page of its user."
+  "Return the \"@login\" names of USERS (a vector of user objects), or nil.
+A list of vnodes, comma-separated; each opens the page of its user."
   (and (vectorp users) (> (length users) 0)
-       (mapconcat (lambda (u)
-                    (let ((login (gethash "login" u)))
-                      (if (octocat--nonempty login)
-                          (octocat-repo-vui--link (concat "@" login) 'octocat-pr-author
-                                                  (lambda () (octocat-user-open login)))
-                        (propertize (concat "@" (or (gethash "name" u) ""))
-                                    'face 'octocat-pr-author))))
-                  users ", ")))
+       (octocat-repo-vui--separate
+        (mapcar (lambda (u)
+                  (let ((login (gethash "login" u)))
+                    (if (octocat--nonempty login)
+                        (octocat-repo-vui--login-link login)
+                      (vui-text (concat "@" (or (gethash "name" u) ""))
+                                :face 'octocat-pr-author))))
+                users)
+        ", ")))
 
 (defun octocat-repo-vui--numbers (repo refs open)
-  "Return the \"#N\" numbers of REFS (a vector of issue/PR objects) joined, or nil.
-Each calls OPEN with its repository, REPO unless it names another, and
-number."
+  "Return the \"#N\" numbers of REFS (a vector of issue/PR objects), or nil.
+A list of vnodes, space-separated; each calls OPEN with its repository,
+REPO unless it names another, and number."
   (and (vectorp refs) (> (length refs) 0)
-       (mapconcat (lambda (r)
-                    (let* ((n     (gethash "number" r))
-                           (other (gethash "repository" r))
-                           (owner (and (hash-table-p other) (gethash "owner" other)))
-                           (where (if (and (hash-table-p owner) (gethash "login" owner))
-                                      (format "%s/%s" (gethash "login" owner)
-                                              (gethash "name" other))
-                                    repo)))
-                      (octocat-repo-vui--link
-                       (if (equal where repo) (format "#%d" n) (format "%s#%d" where n))
-                       'octocat-pr-number (lambda () (funcall open where n)))))
-                  refs " ")))
+       (octocat-repo-vui--separate
+        (mapcar (lambda (r)
+                  (let* ((n     (gethash "number" r))
+                         (other (gethash "repository" r))
+                         (owner (and (hash-table-p other) (gethash "owner" other)))
+                         (where (if (and (hash-table-p owner) (gethash "login" owner))
+                                    (format "%s/%s" (gethash "login" owner)
+                                            (gethash "name" other))
+                                  repo)))
+                    (octocat-repo-vui--link
+                     (if (equal where repo) (format "#%d" n) (format "%s#%d" where n))
+                     'octocat-pr-number (lambda () (funcall open where n)))))
+                refs)
+        " ")))
 
 (defun octocat-repo-vui--milestone (item)
   "Return the milestone title of ITEM, or nil."

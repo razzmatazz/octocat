@@ -177,11 +177,10 @@
   "Each number opens its own issue, in its repository when another."
   (let* ((refs (json-parse-string
                 "[{\"number\":3},{\"number\":4,\"repository\":{\"name\":\"x\",\"owner\":{\"login\":\"o\"}}}]"))
-         (s (octocat-repo-vui--numbers "a/b" refs (lambda (r n) (list r n)))))
-    (should (equal (substring-no-properties s) "#3 o/x#4"))
-    (should (get-text-property 0 'keymap s))
-    (should (equal (funcall (lookup-key (get-text-property 4 'keymap s) (kbd "RET")))
-                   '("o/x" 4)))))
+         (links (seq-filter #'vui-vnode-button-p
+                            (octocat-repo-vui--numbers "a/b" refs (lambda (r n) (list r n))))))
+    (should (equal (mapcar #'vui-vnode-button-label links) '("#3" "o/x#4")))
+    (should (equal (funcall (vui-vnode-button-on-click (cadr links))) '("o/x" 4)))))
 
 (provide 'octocat-repo-tests)
 ;;; octocat-repo-tests.el ends here

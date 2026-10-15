@@ -62,6 +62,8 @@
 
 (defun octocat-vui-row (line on-visit &optional help-echo)
   "Build a RET-able row vnode from already-propertized LINE.
+LINE may instead be a list of strings and vnodes, laid out on one line:
+its vnodes, such as buttons, keep their own RET and are TAB stops.
 ON-VISIT is a zero-argument function invoked when RET is pressed on the
 row.  HELP-ECHO defaults to a generic hint.
 
@@ -86,9 +88,19 @@ own, so a segment such as a relative date keeps its own hover text
                (define-key m (kbd "RET") (lambda () (interactive) (funcall on-visit)))
                m)))
     (vui-region :keymap map
-      (vui-text (octocat-vui--default-help-echo
-                 line (or help-echo "RET: view details"))
-                'mouse-face 'highlight))))
+      (if (stringp line)
+          (octocat-vui-row--text line help-echo)
+        (vui-hstack :spacing 0
+          (mapcar (lambda (part)
+                    (if (stringp part)
+                        (octocat-vui-row--text part help-echo)
+                      part))
+                  line))))))
+
+(defun octocat-vui-row--text (string help-echo)
+  "Return a `vui-text' of STRING highlighted as part of a row with HELP-ECHO."
+  (vui-text (octocat-vui--default-help-echo string (or help-echo "RET: view details"))
+            'mouse-face 'highlight))
 
 (defun octocat-vui--default-help-echo (string help-echo)
   "Return a copy of STRING with HELP-ECHO on the parts lacking a `help-echo'."
