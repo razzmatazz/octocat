@@ -20,32 +20,22 @@ frame is reported once instead of on every tick.  A callback that sets
 state to the value it already has does not re-render, so a timer that
 only stopped on a re-render would run forever: return nil instead.
 
-## Remounting a page from a button or field handler
+## Update a page in place; don't remount it
 
-A command that remounts its own buffer's page (`vui-mount`) must not do so
-synchronously when it runs as the `:on-click` of a `vui-button`, or the
-`:on-submit` of a `vui-field`.  Defer the remount with
-`octocat-vui-refresh-later`:
+To change what a page shows (the list's query, the repo page's branch),
+re-render it with new props, `octocat-vui-update-page` or
+`octocat-vui-refresh-page`, not `vui-mount`.  A part that must start
+afresh takes the new prop as its `:key` (the list's results, keyed by
+the query).
 
-```elisp
-(defun octocat-repo-reset-branch ()
-  (interactive)
-  (setq octocat-repo--branch nil)
-  (octocat-vui-refresh-later #'octocat-repo-refresh))
-```
+- **Cost.**  A remount rebuilds every component: memos recompute, every
+  `vui-use-async` refetches, folds and "load more" are lost.
+- **vui.el bug.**  vui runs handlers (`:on-click`, `:on-submit`, ...)
+  inside `(let ((vui--root-instance captured-root)) ...)`, so a
+  `vui-mount` in a handler is undone as it returns.  The new page is
+  never unmounted and its effects keep running: its window-width hook
+  repainted a PR list's old filter over the current one on `C-x 3`.  See
+  the vui.el item in TODO.md.
 
-Why: vui runs those handlers inside
-`(let ((vui--root-instance captured-root)) ...)`.  The `vui-mount` in the
-handler sets the buffer's root to the new page, and the `let` restores
-the old, already unmounted one as the handler returns.  The next mount
-tears down that dead root instead of the page on screen, which stays
-alive with its effects installed.  Its `octocat-vui-use-window-width`
-hook then repaints it, with its old props, over the buffer on every
-window resize: on a PR list, `C-x 3` brought back an earlier filter and
-its results.
-
-Deferring is harmless when the command runs from a key instead, so the
-commands defer unconditionally.  A re-render (`vui-set-state`,
-`vui-update-props`) is unaffected; only a remount is.
-
-Remove this once vui.el is fixed (see TODO.md).
+Remount only to start over (`gr`, opening a page).  A handler that must
+remount defers it, e.g. `(run-at-time 0 nil ...)`.

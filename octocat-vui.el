@@ -560,15 +560,18 @@ holds as the page is repainted from the disk cache before it refetches."
      (prog1 (progn ,@body)
        (octocat-vui--restore-view view))))
 
-(defun octocat-vui-refresh-later (fn)
-  "Call FN in the current buffer after the running command is done.
-For a command that remounts its own page and is also a vui button's or
-field's handler: a `vui-mount' inside the handler is undone when it
-returns, leaking the new page.  See docs/using-vui.md."
-  (let ((buf (current-buffer)))
-    (run-at-time 0 nil (lambda ()
-                         (when (buffer-live-p buf)
-                           (with-current-buffer buf (funcall fn)))))))
+(defun octocat-vui-update-page (&rest props)
+  "Re-render the current buffer's page with PROPS changed, in place.
+PROPS is a plist of the props to change.  Unlike a remount, the page
+keeps its state, and this is safe in a vui handler (see
+docs/using-vui.md); a part that must start afresh for the new props takes
+them as its :key.  Return nil when the buffer has no page."
+  (when-let* ((root (vui-get-instance)))
+    (let ((new (copy-sequence (vui-instance-props root))))
+      (while props
+        (setq new (plist-put new (pop props) (pop props))))
+      (vui-update-props root new)
+      t)))
 
 (defvar-local octocat-vui--page nil
   "The page `octocat-vui-refresh-page' mounted here: (COMPONENT ID INSTANCE).")
@@ -756,6 +759,17 @@ for pulls) from one API call, or nil for no counts."
 (vui-defcomponent octocat-vui-search-list (repo kind query row-fn)
   "List page of the KIND items of REPO, `issues' or `pulls', matching QUERY.
 ROW-FN returns the row of an item, given it and the window width.
+A new QUERY re-renders in place: the header keeps its counts, and the
+results start afresh."
+  :render
+  (vui-vstack
+   (vui-component 'octocat-vui-list-header :repo repo :tab kind :kind kind)
+   (octocat-vui-list-filter-bar query)
+   (vui-component 'octocat-vui--search-results
+                  :key query :repo repo :kind kind :query query :row-fn row-fn)))
+
+(vui-defcomponent octocat-vui--search-results (repo kind query row-fn)
+  "The KIND items of REPO matching QUERY, as for `octocat-vui-search-list'.
 The first page is cached on disk and painted while it is refetched;
 \"load more\" fetches only the page after the last, by its cursor."
   ;; MORE is (:items LIST :cursor C): the items of the pages after the
@@ -792,51 +806,48 @@ The first page is cached on disk and painted while it is refetched;
         (octocat--items-cache-save repo type id (plist-get fresh :items)))
       nil)
     (octocat-vui-use-mode-line-loading loading)
-    (vui-vstack
-     (vui-component 'octocat-vui-list-header :repo repo :tab kind :kind kind)
-     (octocat-vui-list-filter-bar query)
-     (pcase (plist-get page :status)
-       ('pending (vui-text (octocat-vui-list-skeleton width)))
-       ('error   (vui-text (format "%s\n" (plist-get page :error)) :face 'octocat-dimmed))
-       ('ready
-        (vui-fragment
-         (if (null items)
-             (vui-text (format (if (octocat-vui-list-filter-active-p query)
-                                   "(no %s match the filters)\n"
-                                 "(no %s)\n")
-                               noun)
-                       :face 'octocat-dimmed)
-           (octocat-vui-reveal-list
-            items
-            (lambda (item) (funcall row-fn item width))
-            (lambda (item) (gethash "number" item))))
-         ;; The cached first page has no cursor: its button waits for
-         ;; the fresh one.
-         (when (and items
-                    (or cursor
-                        (and (plist-get page :refreshing)
-                             (>= (length items) octocat-list-page-size))))
-           (octocat-vui-load-more-button
-            (intern (format "load-more-%s" type)) octocat-list-page-size
-            (format "RET: load more %s" noun)
-            (lambda ()
-              (if (not cursor)
-                  (message "Octocat: Still loading the first page")
-                (vui-set-state :fetching t)
-                (octocat--list-items
-                 kind repo
-                 (vui-async-callback (r)
-                   (vui-set-state :fetching nil)
-                   (if (eq (car-safe r) 'error)
-                       (message "Octocat: %s" (cdr r))
-                     (vui-set-state
-                      :more (lambda (m)
-                              (list :items  (append (plist-get m :items)
-                                                    (plist-get r :items))
-                                    :cursor (plist-get r :cursor))))))
-                 query cursor)))
-            fetching 0
-            (octocat-vui-list-skeleton width)))))))))
+    (pcase (plist-get page :status)
+      ('pending (vui-text (octocat-vui-list-skeleton width)))
+      ('error   (vui-text (format "%s\n" (plist-get page :error)) :face 'octocat-dimmed))
+      ('ready
+       (vui-fragment
+        (if (null items)
+            (vui-text (format (if (octocat-vui-list-filter-active-p query)
+                                  "(no %s match the filters)\n"
+                                "(no %s)\n")
+                              noun)
+                      :face 'octocat-dimmed)
+          (octocat-vui-reveal-list
+           items
+           (lambda (item) (funcall row-fn item width))
+           (lambda (item) (gethash "number" item))))
+        ;; The cached first page has no cursor: its button waits for
+        ;; the fresh one.
+        (when (and items
+                   (or cursor
+                       (and (plist-get page :refreshing)
+                            (>= (length items) octocat-list-page-size))))
+          (octocat-vui-load-more-button
+           (intern (format "load-more-%s" type)) octocat-list-page-size
+           (format "RET: load more %s" noun)
+           (lambda ()
+             (if (not cursor)
+                 (message "Octocat: Still loading the first page")
+               (vui-set-state :fetching t)
+               (octocat--list-items
+                kind repo
+                (vui-async-callback (r)
+                  (vui-set-state :fetching nil)
+                  (if (eq (car-safe r) 'error)
+                      (message "Octocat: %s" (cdr r))
+                    (vui-set-state
+                     :more (lambda (m)
+                             (list :items  (append (plist-get m :items)
+                                                   (plist-get r :items))
+                                   :cursor (plist-get r :cursor))))))
+                query cursor)))
+           fetching 0
+           (octocat-vui-list-skeleton width))))))))
 
 
 ;;;; List filters
@@ -968,7 +979,8 @@ given as initial input so RET alone keeps them."
 (defun octocat-vui-list--apply (query)
   "Make QUERY the current query and refresh the buffer."
   (setq octocat-vui-list--query (string-trim query))
-  (octocat-vui-refresh-later (lambda () (revert-buffer nil t))))
+  (or (octocat-vui-update-page :query (octocat-vui-list-query))
+      (revert-buffer nil t)))
 
 (defvar octocat-vui-list-query-submit-hook nil
   "Hook run in a list buffer when its query field is submitted.")

@@ -3,7 +3,7 @@
 ## Report to vui.el: a handler's remount is undone, leaking the new page
 
 File at https://github.com/d12frosted/vui.el/issues: title and body below.
-Once fixed upstream, drop `octocat-vui-refresh-later` and its section in
+Once fixed upstream, trim the "Why not remount" part of
 docs/using-vui.md.
 
 **Title:** A `vui-mount` inside an event handler is undone when the handler returns, leaking the new tree

@@ -103,7 +103,7 @@ knowledge.
 
 vui.el gotchas, and the workarounds for them, are in
 [docs/using-vui.md](docs/using-vui.md).  Read it before adding a vui button
-or field whose handler rebuilds the page.
+or field whose handler changes what the page shows.
 
 ### Functional core
 

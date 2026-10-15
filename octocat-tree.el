@@ -519,7 +519,15 @@ PARENT is the containing directory's full path (\"\" at the root)."
           repo branch path sha))))))
 
 (vui-defcomponent octocat-tree--root (repo branch tick)
-  "Root component of the tree buffer: header, then the root directory.
+  "Root component of the tree buffer: the tree of BRANCH of REPO.
+Another BRANCH starts the tree afresh, folded and painted from its own
+cache; a new TICK refetches it in place."
+  :render
+  (vui-component 'octocat-tree--branch
+                 :key (or branch 'default) :repo repo :branch branch :tick tick))
+
+(vui-defcomponent octocat-tree--branch (repo branch tick)
+  "The tree of BRANCH of REPO: header, then the root directory.
 The root SHA of BRANCH is painted from the disk cache and refetched; a
 new TICK refetches it again."
   :render
@@ -662,7 +670,7 @@ instead; this is how the tab strip of the other repo pages gets here."
                                 (plist-get (octocat--head-info) :branch)
                                 octocat-tree--branch)
         octocat-tree--root-sha nil)
-  (octocat-vui-refresh-later #'octocat-tree-refresh))
+  (octocat-tree-refresh))
 
 (defun octocat-tree-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the tree buffer from the GitHub API.
@@ -672,7 +680,7 @@ until it arrives."
   (unless octocat-tree--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
   (octocat-vui-refresh-page 'octocat-tree--root
-                            (list octocat-tree--repo octocat-tree--branch)
+                            octocat-tree--repo
                             (list :repo octocat-tree--repo
                                   :branch octocat-tree--branch)))
 

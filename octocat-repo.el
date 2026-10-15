@@ -948,6 +948,7 @@ Everything but the commits comes from a single summary API call."
      (when unpushed
        (octocat-repo-vui--unpushed-section unpushed))
      (vui-component 'octocat-repo-vui--commits-section
+                    :key (or branch 'default)
                     :repo repo :branch branch :default-branch default-branch
                     :current-branch current-branch :head-info head-info))))
 
@@ -972,13 +973,15 @@ Everything but the commits comes from a single summary API call."
                    octocat-repo--repo default (plist-get (octocat--head-info) :branch)
                    (or octocat-repo--branch default))))
     (setq octocat-repo--branch (unless (equal picked default) picked))
-    (octocat-vui-refresh-later #'octocat-repo-refresh)))
+    (or (octocat-vui-update-page :branch octocat-repo--branch)
+        (octocat-repo-refresh))))
 
 (defun octocat-repo-reset-branch ()
   "Show the commits of the default branch again."
   (interactive)
   (setq octocat-repo--branch nil)
-  (octocat-vui-refresh-later #'octocat-repo-refresh))
+  (or (octocat-vui-update-page :branch nil)
+      (octocat-repo-refresh)))
 
 (defvar octocat-repo-mode-map
   (let ((map (make-sparse-keymap)))
