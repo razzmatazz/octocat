@@ -25,8 +25,7 @@
 ;; per file, its patch in the diff faces, with the inline comments boxed
 ;; after the lines they are on.  The files start folded unless the whole
 ;; diff fits in the window.  Commit comments and PR review comments have
-;; the same shape, so both pass theirs in.  An unfolded patch wider than
-;; the page's centred column widens it (`octocat--page-width').
+;; the same shape, so both pass theirs in.
 
 ;;; Code:
 
@@ -166,24 +165,6 @@ tracking the right-side line number (from the `@@' headers) and the
 
 ;;;; Components
 
-(defvar-local octocat-diff--open-widths nil
-  "Alist of the unfolded files of the page, by name, to their patch's width.")
-
-(defun octocat-diff--patch-width (patch)
-  "Return the columns the widest line of PATCH takes."
-  (seq-reduce (lambda (w line) (max w (string-width line)))
-              (split-string patch "\n") 0))
-
-(defun octocat-diff--note-open (filename width)
-  "Record that FILENAME is unfolded with a patch WIDTH wide, or folded if nil.
-The page's column widens to the widest unfolded patch, see
-`octocat--page-width'."
-  (setf (alist-get filename octocat-diff--open-widths nil t #'equal) width)
-  (let ((page (seq-reduce #'max (mapcar #'cdr octocat-diff--open-widths) 0)))
-    (unless (eql page octocat--page-width)
-      (setq octocat--page-width page)
-      (mapc #'octocat--fit-window (get-buffer-window-list nil nil t)))))
-
 (defun octocat-diff--file (file comments bulk raw width)
   "Return one changed FILE (a files-endpoint hash-table) with its inline COMMENTS.
 It is folded unless BULK, as for `octocat-vui-fold', says otherwise; a
@@ -210,9 +191,6 @@ its heading.  RAW and WIDTH are as for `octocat-diff--comment-lines'."
                  (octocat-vui-fold-header "" open toggle title
                                           '("RET: show diff" . "RET: hide diff")))
        :deps (list patch comments raw width)
-       :on-open (lambda (open)
-                  (octocat-diff--note-open
-                   filename (and open (octocat-diff--patch-width patch))))
        :prepare (lambda ()
                   (octocat-vui-text-body
                    (octocat-diff--patch-text

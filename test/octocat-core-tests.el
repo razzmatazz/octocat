@@ -135,12 +135,16 @@
                  '(:open 2 :closed 5))))
 
 
-(ert-deftest octocat-core-test-centered-margins ()
-  "Margins centre MAX columns in a wider window, and vanish otherwise."
-  (should (equal (octocat--centered-margins 120 nil) '(0 . 0)))
-  (should (equal (octocat--centered-margins 80 100) '(0 . 0)))
-  (should (equal (octocat--centered-margins 140 100) '(20 . 20)))
-  (should (equal (octocat--centered-margins 141 100) '(20 . 21))))
+(ert-deftest octocat-core-test-cap-width ()
+  "Only a capped page keeps to `octocat-max-width'."
+  (with-temp-buffer
+    (let ((octocat-max-width 100))
+      (should (= (octocat--cap-width 140) 140))
+      (octocat--max-width-setup)
+      (should (= (octocat--cap-width 140) 100))
+      (should (= (octocat--cap-width 80) 80))
+      (let ((octocat-max-width nil))
+        (should (= (octocat--cap-width 140) 140))))))
 
 (ert-deftest octocat-search-test-state-face ()
   "`gh search' gives lower-case states: open is green, closed is red."

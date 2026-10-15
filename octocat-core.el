@@ -89,9 +89,9 @@ to disable caching."
 
 (defcustom octocat-max-width 112
   "Most columns the text of an issue or pull request page takes, or nil.
-A wider window gets margins that centre the page, as GitHub bounds its
-conversation column.  A page with wider content, such as an unfolded
-diff, widens the column to fit it, see `octocat--page-width'."
+The page keeps to the left of a wider window, as GitHub bounds its
+conversation column; what does not fit the column, such as a diff's long
+lines, runs on past it."
   :type '(choice (const :tag "No limit" nil) integer)
   :group 'octocat)
 
@@ -938,56 +938,25 @@ a window without fringes), so a full line does not wrap.
 `window-max-chars-per-line' selects the window, which resets the buffer's
 point to the window's point; mid-render that scrambles the page, so
 point is saved around it."
-  (save-excursion
-    (window-max-chars-per-line (or (get-buffer-window (current-buffer) t)
-                                   (selected-window)))))
+  (octocat--cap-width
+   (save-excursion
+     (window-max-chars-per-line (or (get-buffer-window (current-buffer) t)
+                                    (selected-window))))))
 
 ;;;; Width cap
 
-(defvar-local octocat--page-width nil
-  "Columns the content of the page takes, when more than `octocat-max-width'.
-Its column widens to fit, still centred, up to the window's width.")
-
-(defun octocat--centered-margins (full max)
-  "Return (LEFT . RIGHT) margins centring MAX columns in FULL.
-A nil MAX, or one at least FULL, gives no margins."
-  (let ((extra (if max (max 0 (- full max)) 0)))
-    (cons (/ extra 2) (- extra (/ extra 2)))))
-
-(defun octocat--fit-window (win)
-  "Give WIN margins capping its text at `octocat-max-width' columns.
-Wider by the `octocat--page-width' of its buffer.  Margins are only set
-when they change, since setting them is itself a size change that runs
-this again."
-  (let* ((old  (window-margins win))
-         (full (+ (window-body-width win) (or (car old) 0) (or (cdr old) 0)))
-         (page (buffer-local-value 'octocat--page-width (window-buffer win)))
-         (new  (octocat--centered-margins
-                full (and octocat-max-width (max octocat-max-width (or page 0))))))
-    (set-window-parameter win 'octocat--fitted t)
-    (unless (equal (cons (or (car old) 0) (or (cdr old) 0)) new)
-      (set-window-margins win (car new) (cdr new)))))
-
-(defun octocat--unfit-windows (frame)
-  "Restore the margins of FRAME's fitted windows now showing other buffers.
-Switching buffers keeps a window's margins, so they would carry over."
-  (dolist (win (window-list frame 'nomini))
-    (when (and (window-parameter win 'octocat--fitted)
-               (not (memq #'octocat--fit-window
-                          (buffer-local-value 'window-size-change-functions
-                                              (window-buffer win)))))
-      (set-window-parameter win 'octocat--fitted nil)
-      (with-current-buffer (window-buffer win)
-        (set-window-margins win left-margin-width right-margin-width)))))
+(defvar-local octocat--capped nil
+  "Non-nil when the page's text is capped at `octocat-max-width' columns.")
 
 (defun octocat--max-width-setup ()
-  "Cap the current buffer's windows at `octocat-max-width' columns.
-The hooks are buffer-local, so they run for this buffer's windows only,
-and before vui's global size hook measures the width to re-render."
-  (add-hook 'window-size-change-functions #'octocat--fit-window nil t)
-  (add-hook 'window-buffer-change-functions #'octocat--fit-window nil t)
-  (add-hook 'window-buffer-change-functions #'octocat--unfit-windows)
-  (mapc #'octocat--fit-window (get-buffer-window-list nil nil t)))
+  "Cap the current buffer's page at `octocat-max-width' columns."
+  (setq-local octocat--capped t))
+
+(defun octocat--cap-width (width)
+  "Return WIDTH, no more than `octocat-max-width' on a capped page."
+  (if (and octocat--capped octocat-max-width)
+      (min width octocat-max-width)
+    width))
 
 (defun octocat--insert-markdown (text &optional indent)
   "Insert TEXT rendered by `octocat--markdown-string' into the current buffer.

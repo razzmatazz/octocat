@@ -308,7 +308,7 @@ The timer exists only while items are being revealed."
           (< (aref v 0) all)))
       (funcall render (seq-take items visible)))))
 
-(vui-defcomponent octocat-vui-fold (header prepare deps bulk on-open)
+(vui-defcomponent octocat-vui-fold (header prepare deps bulk)
   "A header row and a folded body that unfolds and folds back animated.
 HEADER is a function of whether the body is open and of a command that
 toggles it, returning the header vnode; typically an `octocat-vui-row'
@@ -319,9 +319,7 @@ returning a list of vnodes.  Unfolding and folding start fast and ease
 out, as `octocat-timeline-fold' does.  Lines added while open, say by a refresh, unfold too.
 BULK, from an \"Expand all\" button (see `octocat-vui-expand-all-button'),
 is nil or (GENERATION . OPEN): each new value unfolds or folds it.  A
-fold that mounts while BULK says open starts open, without animating.
-ON-OPEN, if given, is called with t once the fold opens and with nil
-once it closes or unmounts."
+fold that mounts while BULK says open starts open, without animating."
   :state ((open (cdr bulk)) (shown (if (cdr bulk) most-positive-fixnum 0)))
   :render
   (let* ((active (or open (> shown 0)))
@@ -332,10 +330,6 @@ once it closes or unmounts."
     (vui-use-effect (bulk)
       (when bulk (funcall set-open (cdr bulk)))
       nil)
-    (vui-use-effect (open)
-      (when (and on-open open)
-        (funcall on-open t)
-        (lambda () (funcall on-open nil))))
     (let ((now (octocat-vui-use-unfold shown open total)))
       (apply #'vui-vstack
              (funcall header open toggle)
@@ -497,9 +491,11 @@ indicator while any of them is loading."
     (if win (window-body-height win) 40)))
 
 (defun octocat-vui-window-width ()
-  "Return the body width of the window showing the current buffer, or 80."
+  "Return the body width of the window showing the current buffer, or 80.
+It is at most `octocat-max-width' on a capped page, see
+`octocat--cap-width'."
   (let ((win (get-buffer-window (current-buffer) t)))
-    (if win (window-body-width win) 80)))
+    (octocat--cap-width (if win (window-body-width win) 80))))
 
 (defmacro octocat-vui-use-window-width ()
   "Return the width of the buffer's window; a resize re-renders.
