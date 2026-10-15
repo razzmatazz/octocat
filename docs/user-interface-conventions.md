@@ -476,8 +476,8 @@ in place, not with a remount (see docs/using-vui.md).  While it is set,
 hide the buttons that would start the action again, and make their
 commands refuse with a `user-error`.
 
-The merge dialog (`octocat-pr--submit-merge`, `octocat-pr--merging`)
-is the reference implementation.
+The merge and review dialogs follow it (`octocat-pr--submit-merge`,
+`octocat-pr-diff--submit-review`); copy them.
 
 ---
 
