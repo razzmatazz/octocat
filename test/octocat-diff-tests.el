@@ -31,5 +31,28 @@
   (should (equal (plist-get (octocat-pr-diff--review-data "Request changes") :flag)
                  "--request-changes")))
 
+(ert-deftest octocat-diff-test-patch-width ()
+  "A patch is as wide as its widest line."
+  (should (= (octocat-diff--patch-width "@@ -1 +1 @@\n-a\n+abcdef") 11))
+  (should (= (octocat-diff--patch-width "+日本") 5)))
+
+(ert-deftest octocat-diff-test-note-open ()
+  "The page widens to the widest unfolded patch, and back when it folds."
+  (with-temp-buffer
+    (octocat-diff--note-open "a" 120)
+    (octocat-diff--note-open "b" 90)
+    (should (= octocat--page-width 120))
+    (octocat-diff--note-open "a" nil)
+    (should (= octocat--page-width 90))
+    (octocat-diff--note-open "b" nil)
+    (should (= octocat--page-width 0))))
+
+(ert-deftest octocat-diff-test-comment-markdown ()
+  "An inline comment's body is rendered markdown, unless raw."
+  (let ((c (json-parse-string
+            "{\"user\":{\"login\":\"me\"},\"body\":\"**hi**\",\"created_at\":\"\"}")))
+    (should (equal (nth 1 (octocat-diff--comment-lines c nil 80)) "  │ hi"))
+    (should (equal (nth 1 (octocat-diff--comment-lines c t 80)) "  │ **hi**"))))
+
 (provide 'octocat-diff-tests)
 ;;; octocat-diff-tests.el ends here

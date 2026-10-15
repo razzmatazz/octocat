@@ -257,7 +257,7 @@ are fetched independently; each shows its cached copy until then."
                              (octocat-commit--checks repo sha checks)
                              (vui-newline)
                              (octocat-diff-files-section
-                              (or (gethash "files" data) []) by-path)
+                              (or (gethash "files" data) []) by-path raw md-width)
                              (vui-newline)
                              (octocat-commit--comments comments raw md-width)))))))))
 
@@ -295,6 +295,7 @@ are fetched independently; each shows its cached copy until then."
   (setq-local truncate-lines nil)
   (setq-local revert-buffer-function #'octocat-commit-refresh)
   (setq-local octocat--refresh-fn #'octocat-commit-refresh)
+  (octocat-markdown--ensure-invisibility)
   (octocat--ts-eldoc-setup))
 
 

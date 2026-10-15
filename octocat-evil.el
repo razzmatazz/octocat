@@ -257,6 +257,7 @@ Off an entry, such as on the header, move left."
   (evil-define-key* 'normal octocat-pr-diff-mode-map
     (kbd "C-c C-a") #'octocat-pr-diff-review
     (kbd "C-c C-o") #'octocat-pr-diff-browse
+    (kbd "C-c C-v") #'octocat-toggle-markdown
     (kbd "C-c C-r") #'octocat-switch-repo
     (kbd "C-c C-s") #'octocat-search-repo
     (kbd "gs")      #'octocat-search-repo

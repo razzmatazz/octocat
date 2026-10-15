@@ -209,8 +209,9 @@ COMMENTS is the `vui-use-async' result for the review comments."
                               n (if (= n 1) "" "s")))
                     :face 'octocat-dimmed))))))
 
-(vui-defcomponent octocat-pr-diff--page (repo number)
-  "The diff of pull request NUMBER of REPO, under the PR page's header."
+(vui-defcomponent octocat-pr-diff--page (repo number raw)
+  "The diff of pull request NUMBER of REPO, under the PR page's header.
+RAW shows the review comments' markdown verbatim."
   :render
   (let* ((pr       (octocat-pr--use-data repo number))
          (files    (octocat-repo-vui-use-cached
@@ -245,7 +246,8 @@ COMMENTS is the `vui-use-async' result for the review comments."
      (pcase (plist-get files :status)
        ('pending (vui-text (octocat-vui-skeleton '(("  " 40) ("  " 28) ("  " 34)))))
        ('error   (vui-text (format "  Error: %s" (plist-get files :error)) :face 'error))
-       (_ (octocat-diff-files-section (plist-get files :data) by-path)))
+       (_ (octocat-diff-files-section (plist-get files :data) by-path
+                                      raw (octocat--markdown-width))))
      (vui-newline)
      (octocat-pr-diff--comments-section comments)
      (apply #'vui-vstack
@@ -274,6 +276,7 @@ COMMENTS is the `vui-use-async' result for the review comments."
 (define-key octocat-pr-diff-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-pr-diff-mode-map (kbd "C-c C-a") #'octocat-pr-diff-review)
 (define-key octocat-pr-diff-mode-map (kbd "C-c C-o") #'octocat-pr-diff-browse)
+(define-key octocat-pr-diff-mode-map (kbd "C-c C-v") #'octocat-toggle-markdown)
 (define-key octocat-pr-diff-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
 (define-key octocat-pr-diff-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 
@@ -285,7 +288,10 @@ COMMENTS is the `vui-use-async' result for the review comments."
   (setq-local buffer-read-only t)
   (setq-local truncate-lines nil)
   (setq-local revert-buffer-function #'octocat-pr-diff-refresh)
-  (octocat--ts-eldoc-setup))
+  (setq-local octocat--refresh-fn #'octocat-pr-diff-refresh)
+  (octocat-markdown--ensure-invisibility)
+  (octocat--ts-eldoc-setup)
+  (octocat--max-width-setup))
 
 
 ;;;; Refresh
@@ -300,7 +306,8 @@ review comments independently."
   (octocat-vui-preserving-view
     (vui-mount (vui-component 'octocat-pr-diff--page
                               :repo octocat--pr-diff-repo
-                              :number octocat--pr-diff-number)
+                              :number octocat--pr-diff-number
+                              :raw octocat--markdown-raw)
                (buffer-name))))
 
 (defun octocat-pr-diff-open (repo number)

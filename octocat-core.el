@@ -90,7 +90,8 @@ to disable caching."
 (defcustom octocat-max-width 100
   "Most columns the text of an issue or pull request page takes, or nil.
 A wider window gets margins that centre the page, as GitHub bounds its
-conversation column."
+conversation column.  A page with wider content, such as an unfolded
+diff, widens the column to fit it, see `octocat--page-width'."
   :type '(choice (const :tag "No limit" nil) integer)
   :group 'octocat)
 
@@ -932,6 +933,10 @@ point is saved around it."
 
 ;;;; Width cap
 
+(defvar-local octocat--page-width nil
+  "Columns the content of the page takes, when more than `octocat-max-width'.
+Its column widens to fit, still centred, up to the window's width.")
+
 (defun octocat--centered-margins (full max)
   "Return (LEFT . RIGHT) margins centring MAX columns in FULL.
 A nil MAX, or one at least FULL, gives no margins."
@@ -940,11 +945,14 @@ A nil MAX, or one at least FULL, gives no margins."
 
 (defun octocat--fit-window (win)
   "Give WIN margins capping its text at `octocat-max-width' columns.
-Margins are only set when they change, since setting them is itself a
-size change that runs this again."
+Wider by the `octocat--page-width' of its buffer.  Margins are only set
+when they change, since setting them is itself a size change that runs
+this again."
   (let* ((old  (window-margins win))
          (full (+ (window-body-width win) (or (car old) 0) (or (cdr old) 0)))
-         (new  (octocat--centered-margins full octocat-max-width)))
+         (page (buffer-local-value 'octocat--page-width (window-buffer win)))
+         (new  (octocat--centered-margins
+                full (and octocat-max-width (max octocat-max-width (or page 0))))))
     (set-window-parameter win 'octocat--fitted t)
     (unless (equal (cons (or (car old) 0) (or (cdr old) 0)) new)
       (set-window-margins win (car new) (cdr new)))))

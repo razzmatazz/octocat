@@ -25,11 +25,13 @@
 ;; per file, its patch in the diff faces, with the inline comments boxed
 ;; after the lines they are on.  The files start folded unless the whole
 ;; diff fits in the window.  Commit comments and PR review comments have
-;; the same shape, so both pass theirs in.
+;; the same shape, so both pass theirs in.  An unfolded patch wider than
+;; the page's centred column widens it (`octocat--page-width').
 
 ;;; Code:
 
 (require 'cl-lib)
+(require 'seq)
 (require 'octocat-core)
 (require 'octocat-vui)
 (require 'vui)
@@ -84,8 +86,9 @@
 ;; The patch of a file is built as one string: the diff lines in the diff
 ;; faces, each inline review comment boxed right after the line it is on.
 
-(defun octocat-diff--comment-lines (comment)
-  "Return the lines of the boxed inline review COMMENT, without newlines."
+(defun octocat-diff--comment-lines (comment raw width)
+  "Return the lines of the boxed inline review COMMENT, without newlines.
+Its body is markdown, rendered unless RAW, to fit WIDTH columns."
   (let* ((user   (gethash "user" comment))
          (login  (or (and (hash-table-p user)
                           (octocat--nonempty (gethash "login" user)))
@@ -101,7 +104,8 @@
                    (propertize (concat "  " date) 'face 'octocat-dimmed)))
      (if (string-empty-p body)
          (list (concat bar (propertize "(empty)" 'face 'octocat-dimmed)))
-       (mapcar (lambda (line) (concat bar line)) (split-string body "\n")))
+       (list (string-remove-suffix
+              "\n" (octocat--markdown-string body bar raw width))))
      (list (propertize "  └─" 'face 'octocat-dimmed)))))
 
 (defun octocat-diff--index (comments)
@@ -118,9 +122,10 @@ comments there, in order."
     (cons (mapcar (lambda (e) (cons (car e) (reverse (cdr e)))) by-line)
           (mapcar (lambda (e) (cons (car e) (reverse (cdr e)))) by-pos))))
 
-(defun octocat-diff--patch-text (patch index)
+(defun octocat-diff--patch-text (patch index raw width)
   "Return the unified diff PATCH as a propertized string, without final newline.
-INDEX is the comment index of the file, see `octocat-diff--index'.
+INDEX is the comment index of the file, see `octocat-diff--index'.  RAW
+and WIDTH are as for `octocat-diff--comment-lines'.
 Each comment is placed right after the diff line it is on, found by
 tracking the right-side line number (from the `@@' headers) and the
 1-based position in the diff."
@@ -137,7 +142,7 @@ tracking the right-side line number (from the `@@' headers) and the
                 (push (if face (propertize text 'face face) text) out))
               (comments (key table)
                 (dolist (c (cdr (assq key table)))
-                  (dolist (l (octocat-diff--comment-lines c))
+                  (dolist (l (octocat-diff--comment-lines c raw width))
                     (push l out)))))
       (dolist (raw lines)
         (cl-incf pos)
@@ -161,11 +166,29 @@ tracking the right-side line number (from the `@@' headers) and the
 
 ;;;; Components
 
-(defun octocat-diff--file (file comments bulk)
+(defvar-local octocat-diff--open-widths nil
+  "Alist of the unfolded files of the page, by name, to their patch's width.")
+
+(defun octocat-diff--patch-width (patch)
+  "Return the columns the widest line of PATCH takes."
+  (seq-reduce (lambda (w line) (max w (string-width line)))
+              (split-string patch "\n") 0))
+
+(defun octocat-diff--note-open (filename width)
+  "Record that FILENAME is unfolded with a patch WIDTH wide, or folded if nil.
+The page's column widens to the widest unfolded patch, see
+`octocat--page-width'."
+  (setf (alist-get filename octocat-diff--open-widths nil t #'equal) width)
+  (let ((page (seq-reduce #'max (mapcar #'cdr octocat-diff--open-widths) 0)))
+    (unless (eql page octocat--page-width)
+      (setq octocat--page-width page)
+      (mapc #'octocat--fit-window (get-buffer-window-list nil nil t)))))
+
+(defun octocat-diff--file (file comments bulk raw width)
   "Return one changed FILE (a files-endpoint hash-table) with its inline COMMENTS.
 It is folded unless BULK, as for `octocat-vui-fold', says otherwise; a
 file without a patch (binary, or too large for GitHub to show) is just
-its heading."
+its heading.  RAW and WIDTH are as for `octocat-diff--comment-lines'."
   (let* ((filename (or (gethash "filename" file) ""))
          (status   (or (gethash "status" file) "modified"))
          (patch    (let ((p (gethash "patch" file)))
@@ -186,10 +209,14 @@ its heading."
        :header (lambda (open toggle)
                  (octocat-vui-fold-header "" open toggle title
                                           '("RET: show diff" . "RET: hide diff")))
-       :deps (cons patch comments)
+       :deps (list patch comments raw width)
+       :on-open (lambda (open)
+                  (octocat-diff--note-open
+                   filename (and open (octocat-diff--patch-width patch))))
        :prepare (lambda ()
                   (octocat-vui-text-body
-                   (octocat-diff--patch-text patch (octocat-diff--index comments))))))))
+                   (octocat-diff--patch-text
+                    patch (octocat-diff--index comments) raw width)))))))
 
 (defun octocat-diff--line-count (files)
   "Return how many lines FILES take with every patch shown."
@@ -205,9 +232,10 @@ its heading."
         (push c (alist-get path table nil nil #'equal))))
     (mapcar (lambda (e) (cons (car e) (reverse (cdr e)))) table)))
 
-(vui-defcomponent octocat-diff--files (files by-path fits)
+(vui-defcomponent octocat-diff--files (files by-path fits raw width)
   "The Files section: FILES with the review comments BY-PATH, folded.
 They start unfolded when FITS, the whole diff fitting in the window.
+RAW and WIDTH are as for `octocat-diff--comment-lines'.
 The heading's \"Expand all\" button unfolds or folds every file."
   :state ((bulk (and fits (cons 0 t))))
   :render
@@ -224,16 +252,20 @@ The heading's \"Expand all\" button unfolds or folds every file."
          (vui-text "  (no files changed)" :face 'octocat-dimmed)
        (vui-list (append files nil)
                  (lambda (f)
-                   (octocat-diff--file f (cdr (assoc (gethash "filename" f) by-path)) bulk))
+                   (octocat-diff--file f (cdr (assoc (gethash "filename" f) by-path))
+                                      bulk raw width))
                  (lambda (f) (gethash "filename" f)))))))
 
-(defun octocat-diff-files-section (files by-path)
+(defun octocat-diff-files-section (files by-path raw width)
   "Return the vnode of the Files section: the heading and one entry per file.
 FILES is the files vector and BY-PATH the review comments by file path.
-Files start folded, unless the whole diff fits in the window."
+Files start folded, unless the whole diff fits in the window.  The
+comments are markdown, rendered unless RAW, to fit WIDTH columns."
   (vui-component 'octocat-diff--files
                  :files files
                  :by-path by-path
+                 :raw raw
+                 :width width
                  :fits (<= (octocat-diff--line-count files) (octocat-vui-window-height))))
 
 (provide 'octocat-diff)

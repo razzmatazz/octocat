@@ -308,7 +308,7 @@ The timer exists only while items are being revealed."
           (< (aref v 0) all)))
       (funcall render (seq-take items visible)))))
 
-(vui-defcomponent octocat-vui-fold (header prepare deps bulk)
+(vui-defcomponent octocat-vui-fold (header prepare deps bulk on-open)
   "A header row and a folded body that unfolds and folds back animated.
 HEADER is a function of whether the body is open and of a command that
 toggles it, returning the header vnode; typically an `octocat-vui-row'
@@ -319,7 +319,9 @@ returning a list of vnodes.  Unfolding and folding start fast and ease
 out, as `octocat-timeline-fold' does.  Lines added while open, say by a refresh, unfold too.
 BULK, from an \"Expand all\" button (see `octocat-vui-expand-all-button'),
 is nil or (GENERATION . OPEN): each new value unfolds or folds it.  A
-fold that mounts while BULK says open starts open, without animating."
+fold that mounts while BULK says open starts open, without animating.
+ON-OPEN, if given, is called with t once the fold opens and with nil
+once it closes or unmounts."
   :state ((open (cdr bulk)) (shown (if (cdr bulk) most-positive-fixnum 0)))
   :render
   (let* ((active (or open (> shown 0)))
@@ -330,6 +332,10 @@ fold that mounts while BULK says open starts open, without animating."
     (vui-use-effect (bulk)
       (when bulk (funcall set-open (cdr bulk)))
       nil)
+    (vui-use-effect (open)
+      (when (and on-open open)
+        (funcall on-open t)
+        (lambda () (funcall on-open nil))))
     (let ((now (octocat-vui-use-unfold shown open total)))
       (apply #'vui-vstack
              (funcall header open toggle)
