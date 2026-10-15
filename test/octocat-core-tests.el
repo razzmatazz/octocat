@@ -141,5 +141,18 @@
   (should (equal (octocat--centered-margins 140 100) '(20 . 20)))
   (should (equal (octocat--centered-margins 141 100) '(20 . 21))))
 
+(ert-deftest octocat-search-test-state-face ()
+  "`gh search' gives lower-case states: open is green, closed is red."
+  (cl-flet ((face (fn state)
+              (let ((c (funcall fn (json-parse-string
+                                    (format "{\"number\":1,\"title\":\"t\",\"state\":\"%s\"}"
+                                            state))
+                                "o/r")))
+                (get-text-property (string-search "(" c) 'face c))))
+    (should (eq (face #'octocat--search-make-pr-candidate "closed") 'octocat-pr-state-closed))
+    (should (eq (face #'octocat--search-make-pr-candidate "open") 'octocat-pr-state-open))
+    (should (eq (face #'octocat--search-make-issue-candidate "open") 'octocat-pr-state-open))
+    (should (eq (face #'octocat--search-make-issue-candidate "closed") 'octocat-pr-state-closed))))
+
 (provide 'octocat-core-tests)
 ;;; octocat-core-tests.el ends here

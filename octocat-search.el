@@ -53,7 +53,8 @@
          (title  (or (octocat--nonempty (gethash "title" pr)) ""))
          (state  (or (octocat--nonempty (gethash "state" pr)) "OPEN"))
          (author (octocat--author-login pr))
-         (state-face (pcase state
+         ;; `gh search' gives the state in lower case.
+         (state-face (pcase (upcase state)
                        ("MERGED" 'octocat-pr-state-merged)
                        ("CLOSED" 'octocat-pr-state-closed)
                        (_        'octocat-pr-state-open)))
@@ -77,7 +78,7 @@
          (title  (or (octocat--nonempty (gethash "title" issue)) ""))
          (state  (or (octocat--nonempty (gethash "state" issue)) "OPEN"))
          (author (octocat--author-login issue))
-         (state-face (if (equal state "OPEN")
+         (state-face (if (equal (upcase state) "OPEN")
                          'octocat-pr-state-open
                        'octocat-pr-state-closed))
          (display
