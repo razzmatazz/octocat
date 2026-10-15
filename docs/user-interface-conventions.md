@@ -511,7 +511,7 @@ page.
   the rows (`octocat-vui-list-skeleton`, `octocat-vui-line-skeleton`).
   The skeleton unfolds above the button, then folds away as the rows
   unfold: nothing → skeleton → rows, never a jump.
-- Folded text uses the same constants through `octocat-timeline-fold`;
+- Folded text uses the same constants through `octocat-vui-fold-rest`;
   tune the pace in `octocat-vui.el` and both follow.
 
 ---

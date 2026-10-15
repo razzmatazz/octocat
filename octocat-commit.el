@@ -35,6 +35,7 @@
 (require 'octocat-core)
 (require 'octocat-checks)
 (require 'octocat-diff)
+(defvar octocat-timeline-body-lines) ; defcustom in octocat-timeline.el
 (require 'octocat-vui)
 (require 'vui)
 
@@ -135,16 +136,19 @@ author and SHA rows, then a few changed files."
 
 (defun octocat-commit--body (commit raw width)
   "Return the Message section of COMMIT: the message below its subject.
-Nil when the message is the subject alone.  RAW and WIDTH are as for
-`octocat--markdown-string'."
+Nil when the message is the subject alone.  A long one is folded as an
+opening post is (see `octocat-timeline-body-lines').  RAW and WIDTH are
+as for `octocat--markdown-string'."
   (let* ((c    (gethash "commit" commit))
          (msg  (or (and c (gethash "message" c)) ""))
          (body (string-trim (mapconcat #'identity (cdr (split-string msg "\n")) "\n"))))
     (unless (string-empty-p body)
-      (vui-vstack
-       (vui-text (propertize "Message" 'face 'octocat-section-heading))
-       (vui-text (string-remove-suffix
-                  "\n" (octocat--markdown-string body nil raw width)))))))
+      (let ((text (string-remove-suffix
+                   "\n" (octocat--markdown-string body nil raw width))))
+        (vui-vstack
+         (vui-text (propertize "Message" 'face 'octocat-section-heading))
+         (octocat-vui-fold-lines text (octocat-vui-line-ends text)
+                                      octocat-timeline-body-lines 'message-fold ""))))))
 
 (defun octocat-commit--async-status (result empty)
   "Return a dimmed vnode for RESULT if it failed or is empty, else nil.
@@ -164,16 +168,18 @@ while it is pending."
                         'face 'octocat-section-heading)))
 
 (defun octocat-commit--checks (repo sha checks)
-  "Return the CI section of commit SHA of REPO.
+  "Return the CI section of commit SHA of REPO, or nil when it has none.
 Its check-runs are in CHECKS, a `vui-use-async' result."
-  (or (and (eq (plist-get checks :status) 'pending)
-           (octocat-commit--heading "Checks" checks))
-      (when-let* ((status (octocat-commit--async-status checks "(no checks)")))
-        (vui-vstack (octocat-commit--heading "Checks" checks) status))
-      (apply #'vui-vstack
-             (octocat-checks-block
-              (vconcat (mapcar #'octocat-checks-from-rest (plist-get checks :data)))
-              (lambda () (octocat-checks-open repo sha nil))))))
+  (unless (and (eq (plist-get checks :status) 'ready)
+               (zerop (length (plist-get checks :data))))
+    (or (and (eq (plist-get checks :status) 'pending)
+             (octocat-commit--heading "Checks" checks))
+        (when-let* ((status (octocat-commit--async-status checks "(no checks)")))
+          (vui-vstack (octocat-commit--heading "Checks" checks) status))
+        (apply #'vui-vstack
+               (octocat-checks-block
+                (vconcat (mapcar #'octocat-checks-from-rest (plist-get checks :data)))
+                (lambda () (octocat-checks-open repo sha nil)))))))
 
 
 ;;;; Page
@@ -215,8 +221,8 @@ are fetched independently; each shows its cached copy until then."
                        (list (and body (vui-newline))
                              body
                              (vui-newline)
-                             (octocat-commit--checks repo sha checks)
-                             (vui-newline)
+                             (when-let* ((section (octocat-commit--checks repo sha checks)))
+                               (vui-fragment section (vui-newline)))
                              (octocat-diff-files-section
                               (or (gethash "files" data) []) by-path raw md-width)
                              (vui-newline)

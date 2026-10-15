@@ -403,68 +403,11 @@ See `octocat-timeline-body-lines'."
   :type '(choice (const :tag "Never fold" nil) integer)
   :group 'octocat)
 
-(defconst octocat-timeline--expand-interval octocat-vui-unfold-interval
-  "Seconds between the frames of the unfolding animation.
-Shared with the \"Load more\" lists, see `octocat-vui-reveal'.")
-
 (defun octocat-timeline--line-limit (item)
   "Return how many body lines of ITEM show while folded, or nil."
   (if (eq (plist-get item :kind) 'post)
       octocat-timeline-body-lines
     octocat-timeline-comment-lines))
-
-(vui-defcomponent octocat-timeline-fold (total limit render prefix noun key)
-  "Show the first LIMIT of TOTAL things, the rest folded behind a marker row.
-RENDER is a function of the number of things to show, returning a vnode.
-PREFIX starts the marker row and NOUN (\"lines\", \"checks\") names the
-things in it.  KEY names the marker button, so point stays on it when
-the view re-renders.  With LIMIT nil, or TOTAL not above it, nothing
-folds.  RET on the marker unfolds the rest, easing out, and then
-folds it back."
-  :state ((shown nil) (open nil) (closing nil))
-  :render
-  (let* ((folds   (and limit (> total limit)))
-         (visible (if folds (min total (or shown limit)) total))
-         (done    (>= visible total))
-         (unfolding (and open (not done) (not closing))))
-    ;; Unfold progressively: a timer adds more things each frame (see
-    ;; `octocat-vui-unfold-step') until all show.  It exists only while
-    ;; that is going on.
-    (let ((now visible))
-      (octocat-vui-use-timer (unfolding) octocat-timeline--expand-interval unfolding
-        (setq now (octocat-vui-unfold-step now limit total))
-        (vui-set-state :shown now)
-        (< now total)))
-    ;; Fold back the same way, in reverse.
-    (let ((now visible))
-      (octocat-vui-use-timer (closing) octocat-timeline--expand-interval closing
-        (setq now (octocat-vui-unfold-step now total limit))
-        (if (> now limit)
-            (vui-set-state :shown now)
-          (vui-set-state :shown nil)
-          (vui-set-state :open nil)
-          (vui-set-state :closing nil))
-        (> now limit)))
-    (vui-fragment
-     (funcall render visible)
-     (when folds
-       (vui-fragment
-        (vui-newline)
-        ;; A real button, so TAB / S-TAB stop on it like on the buttons
-        ;; at the bottom of the buffer.
-        (vui-text prefix)
-        (vui-button (cond ((not open) (format "▸ %d more %s  (RET to expand)"
-                                              (- total visible) noun))
-                          ((or done closing) "▴ show less")
-                          (t          (format "▾ %d more %s…" (- total visible) noun)))
-                    :no-decoration t
-                    :face 'octocat-dimmed
-                    :key key
-                    :help-echo (if open "RET: fold this back" "RET: show the rest")
-                    :on-click (vui-with-async-context
-                                (cond (closing nil)
-                                      ((and open done) (vui-set-state :closing t))
-                                      (t (vui-set-state :open t))))))))))
 
 (vui-defcomponent octocat-timeline--entry (item raw width limit index)
   "One timeline ITEM; fold its body to LIMIT lines (nil: never).
@@ -473,29 +416,13 @@ RAW and WIDTH are as for `octocat-timeline--entry-string'."
   (let* ((cut (vui-use-memo (item raw width)
                 ;; Cut the text by position, not by splitting and joining
                 ;; it, so a folded <details> row keeps its invisible newline.
-                (let ((string (octocat-timeline--entry-string item raw width))
-                      (start 0) ends)
-                  (while (string-match "\n" string start)
-                    (push (match-beginning 0) ends)
-                    (setq start (match-end 0)))
-                  (cons string (nreverse ends)))))
-         (full  (car cut))
-         (ends  (cdr cut))
+                (let ((string (octocat-timeline--entry-string item raw width)))
+                  (cons string (octocat-vui-line-ends string)))))
          (visit (plist-get item :on-visit)))
-    (vui-component
-     'octocat-timeline-fold
-     :total (length ends)
-     :limit limit
-     :noun "lines"
-     :key (intern (format "fold-%d" index))
-     :prefix octocat-timeline--body-prefix
-     :render (lambda (shown)
-               (let ((text (substring full 0 (if (< shown (length ends))
-                                                 (nth shown ends)
-                                               (length full)))))
-                 (if visit
-                     (octocat-vui-row text visit (plist-get item :help))
-                   (vui-text text)))))))
+    (octocat-vui-fold-lines
+     (car cut) (cdr cut) limit (intern (format "fold-%d" index))
+     octocat-timeline--body-prefix
+     (and visit (lambda (text) (octocat-vui-row text visit (plist-get item :help)))))))
 
 (defun octocat-timeline-entries (items raw width)
   "Return the vnodes of timeline ITEMS, rail lines included.

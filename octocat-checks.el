@@ -179,7 +179,7 @@ ROLLUP is a `statusCheckRollup' vector, as a PR has (see
 called by RET on a check.  INDENT starts each row, two spaces if nil."
   (let ((widths (octocat-checks--widths rollup))) ; Of all, so unfolding shifts no column.
     (vui-component
-     'octocat-timeline-fold
+     'octocat-vui-fold-rest
      :total (length rollup)
      :limit octocat-checks-shown
      :noun "checks"

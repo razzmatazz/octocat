@@ -284,12 +284,83 @@ Starts fast and eases out, see `octocat-vui-unfold-growth'."
                            (ceiling (* octocat-vui-unfold-growth (abs (- to now))))))))
     (if (< from to) (min to (+ now step)) (max to (- now step)))))
 
+(vui-defcomponent octocat-vui-fold-rest (total limit render prefix noun key)
+  "Show the first LIMIT of TOTAL things, the rest folded behind a marker row.
+RENDER is a function of the number of things to show, returning a vnode.
+PREFIX starts the marker row and NOUN (\"lines\", \"checks\") names the
+things in it.  KEY names the marker button, so point stays on it when
+the view re-renders.  With LIMIT nil, or TOTAL not above it, nothing
+folds.  RET on the marker unfolds the rest, easing out, and then
+folds it back."
+  :state ((shown nil) (open nil) (closing nil))
+  :render
+  (let* ((folds   (and limit (> total limit)))
+         (visible (if folds (min total (or shown limit)) total))
+         (done    (>= visible total))
+         (unfolding (and open (not done) (not closing))))
+    ;; Unfold progressively: a timer adds more things each frame (see
+    ;; `octocat-vui-unfold-step') until all show.  It exists only while
+    ;; that is going on.
+    (let ((now visible))
+      (octocat-vui-use-timer (unfolding) octocat-vui-unfold-interval unfolding
+        (setq now (octocat-vui-unfold-step now limit total))
+        (vui-set-state :shown now)
+        (< now total)))
+    ;; Fold back the same way, in reverse.
+    (let ((now visible))
+      (octocat-vui-use-timer (closing) octocat-vui-unfold-interval closing
+        (setq now (octocat-vui-unfold-step now total limit))
+        (if (> now limit)
+            (vui-set-state :shown now)
+          (vui-set-state :shown nil)
+          (vui-set-state :open nil)
+          (vui-set-state :closing nil))
+        (> now limit)))
+    (vui-fragment
+     (funcall render visible)
+     (when folds
+       (vui-fragment
+        (vui-newline)
+        ;; A real button, so TAB / S-TAB stop on it like on the buttons
+        ;; at the bottom of the buffer.
+        (vui-text prefix)
+        (vui-button (cond ((not open) (format "▸ %d more %s  (RET to expand)"
+                                              (- total visible) noun))
+                          ((or done closing) "▴ show less")
+                          (t          (format "▾ %d more %s…" (- total visible) noun)))
+                    :no-decoration t
+                    :face 'octocat-dimmed
+                    :key key
+                    :help-echo (if open "RET: fold this back" "RET: show the rest")
+                    :on-click (vui-with-async-context
+                                (cond (closing nil)
+                                      ((and open done) (vui-set-state :closing t))
+                                      (t (vui-set-state :open t))))))))))
+
+(defun octocat-vui-fold-lines (string ends limit key prefix &optional wrap)
+  "Return STRING folded to its first LIMIT lines, the rest behind a marker.
+ENDS are its newlines, from `octocat-vui-line-ends'.  KEY and PREFIX
+are as for `octocat-vui-fold-rest'.  WRAP turns the shown text into a
+vnode, `vui-text' by default."
+  (vui-component
+   'octocat-vui-fold-rest
+   :total (length ends)
+   :limit limit
+   :noun "lines"
+   :key key
+   :prefix prefix
+   :render (lambda (shown)
+             (funcall (or wrap #'vui-text)
+                      (substring string 0 (if (< shown (length ends))
+                                              (nth shown ends)
+                                            (length string)))))))
+
 (vui-defcomponent octocat-vui-reveal (items render)
   "Call RENDER with ITEMS, revealing items added later one frame at a time.
 RENDER is a function of the list of items to show, returning a vnode.
 The first render shows every item at once.  When ITEMS then grows (a
 \"Load more\" page arrived), the new items unfold, easing out, like
-the rest of a long comment (see `octocat-timeline-fold'), instead of
+the rest of a long comment (see `octocat-vui-fold-rest'), instead of
 all appearing in one jump.  A list that shrinks just shows what is left.
 The timer exists only while items are being revealed."
   :state ((tick 0))
@@ -328,7 +399,7 @@ with the toggle as its RET.  PREPARE builds the body, only once it is
 first unfolded and again when DEPS change: it returns (TOTAL . RENDER),
 the body's number of lines and a function of how many of them to show
 returning a list of vnodes.  Unfolding and folding start fast and ease
-out, as `octocat-timeline-fold' does.  Lines added while open, say by a refresh, unfold too.
+out, as `octocat-vui-fold-rest' does.  Lines added while open, say by a refresh, unfold too.
 BULK, from an \"Expand all\" button (see `octocat-vui-expand-all-button'),
 is nil or (GENERATION . OPEN): each new value unfolds or folds it.  A
 fold that mounts while BULK says open starts open, without animating."
