@@ -103,16 +103,9 @@ while the first fetch is outstanding.  Must be called during render."
 
 ;;;; Model
 
-(defun octocat-timeline--get (obj &rest keys)
-  "Return the value under KEYS in the nested hash-table OBJ, or nil.
-Missing keys, non-table intermediates and JSON null all give nil."
-  (while (and keys (hash-table-p obj))
-    (setq obj (gethash (pop keys) obj)))
-  (and (null keys) (not (eq obj :null)) obj))
-
 (defun octocat-timeline--actor (event)
   "Return \"@LOGIN\" for the actor of timeline EVENT, or \"\"."
-  (let ((login (octocat-timeline--get event "actor" "login")))
+  (let ((login (octocat--get event "actor" "login")))
     (if (stringp login) (concat "@" login) "")))
 
 (defun octocat-timeline--rename-text (from to)
@@ -125,13 +118,13 @@ Missing keys, non-table intermediates and JSON null all give nil."
   "Return what timeline EVENT did as a short string, or nil to skip it.
 The actor is not included; see `octocat-timeline--actor'.  BG is as
 for `octocat--label-face'."
-  (let ((label (octocat-timeline--get event "label"))
-        (actor (octocat-timeline--get event "actor" "login"))
-        (who   (octocat-timeline--get event "assignee" "login"))
-        (asked (let ((login (octocat-timeline--get event "requested_reviewer" "login")))
+  (let ((label (octocat--get event "label"))
+        (actor (octocat--get event "actor" "login"))
+        (who   (octocat--get event "assignee" "login"))
+        (asked (let ((login (octocat--get event "requested_reviewer" "login")))
                  (if login
                      (concat "@" login)
-                   (octocat-timeline--get event "requested_team" "name")))))
+                   (octocat--get event "requested_team" "name")))))
     (pcase (gethash "event" event)
       ("labeled"   (and label (format "added the %s label" (octocat--format-label label bg))))
       ("unlabeled" (and label (format "removed the %s label" (octocat--format-label label bg))))
@@ -141,19 +134,19 @@ for `octocat--label-face'."
       ("unassigned" (and who (if (equal who actor)
                                  "removed their assignment"
                                (format "unassigned @%s" who))))
-      ("closed"   (pcase (octocat-timeline--get event "state_reason")
+      ("closed"   (pcase (octocat--get event "state_reason")
                     ("not_planned" "closed this as not planned")
                     ("completed"   "closed this as completed")
                     (_             "closed this")))
       ("reopened" "reopened this")
       ("merged"   "merged this")
       ("renamed"  (octocat-timeline--rename-text
-                   (octocat-timeline--get event "rename" "from")
-                   (octocat-timeline--get event "rename" "to")))
+                   (octocat--get event "rename" "from")
+                   (octocat--get event "rename" "to")))
       ("milestoned"   (format "added this to the %s milestone"
-                              (octocat-timeline--get event "milestone" "title")))
+                              (octocat--get event "milestone" "title")))
       ("demilestoned" (format "removed this from the %s milestone"
-                              (octocat-timeline--get event "milestone" "title")))
+                              (octocat--get event "milestone" "title")))
       ("locked"   "locked this conversation")
       ("unlocked" "unlocked this conversation")
       ("review_requested"
@@ -167,11 +160,11 @@ for `octocat--label-face'."
       ("head_ref_force_pushed" "force-pushed the head branch")
       ("base_ref_changed" "changed the base branch")
       ("cross-referenced"
-       (let ((num (octocat-timeline--get event "source" "issue" "number")))
+       (let ((num (octocat--get event "source" "issue" "number")))
          (and num (format "mentioned this in #%d %s" num
-                          (or (octocat-timeline--get event "source" "issue" "title") "")))))
+                          (or (octocat--get event "source" "issue" "title") "")))))
       ("referenced"
-       (let ((sha (octocat-timeline--get event "commit_id")))
+       (let ((sha (octocat--get event "commit_id")))
          (and (stringp sha)
               (format "referenced this in commit %s"
                       (propertize (substring sha 0 (min 7 (length sha)))
@@ -182,8 +175,8 @@ for `octocat--label-face'."
   "Return a one-item list for how OBJ ended, from its own fields, or nil.
 OBJ is an issue or PR hash-table.  Used until the timeline events are
 known, so a merge or close still shows up, without who did it."
-  (let* ((merged (octocat-timeline--get obj "mergedAt"))
-         (closed (octocat-timeline--get obj "closedAt"))
+  (let* ((merged (octocat--get obj "mergedAt"))
+         (closed (octocat--get obj "closedAt"))
          (time   (if (and (stringp merged) (not (string-empty-p merged))) merged closed)))
     (and (stringp time) (not (string-empty-p time))
          (list (list :time time :kind 'event :actor ""
@@ -198,14 +191,14 @@ POST-VERB, \"opened this issue\") and the comments.  EVENTS is a vector of
 timeline events or nil while they are not known.  BG colours the labels,
 see `octocat--label-face'.  EXTRA is a list of further items, such as a
 PR's reviews and commits."
-  (let* ((merged (octocat-timeline--get obj "mergedAt"))
+  (let* ((merged (octocat--get obj "mergedAt"))
          (items
           (append
-           (list (list :time (or (octocat-timeline--get obj "createdAt") "")
+           (list (list :time (or (octocat--get obj "createdAt") "")
                        :kind 'post
                        :actor (octocat--author-login obj)
                        :verb post-verb
-                       :body (or (octocat-timeline--get obj "body") "")
+                       :body (or (octocat--get obj "body") "")
                        :empty "(no description)"
                        :target 'body))
            (mapcar (lambda (comment)
@@ -216,7 +209,7 @@ PR's reviews and commits."
                            :body (or (gethash "body" comment) "")
                            :empty "(empty)"
                            :target comment))
-                   (octocat-timeline--get obj "comments"))
+                   (octocat--get obj "comments"))
            extra
            (if events
                (delq nil
@@ -226,14 +219,14 @@ PR's reviews and commits."
                                  ;; GitHub logs a close next to every merge.
                                  (and text
                                       (not (and merged (equal name "closed")))
-                                      (list :time (or (octocat-timeline--get event "created_at") "")
+                                      (list :time (or (octocat--get event "created_at") "")
                                             :kind 'event
                                             :actor (octocat-timeline--actor event)
                                             :text text
-                                            :label (octocat-timeline--get event "label")
+                                            :label (octocat--get event "label")
                                             :rename (and (equal name "renamed")
-                                                         (cons (octocat-timeline--get event "rename" "from")
-                                                               (octocat-timeline--get event "rename" "to")))
+                                                         (cons (octocat--get event "rename" "from")
+                                                               (octocat--get event "rename" "to")))
                                             :state name))))
                              events))
              (octocat-timeline--state-fallback obj)))))

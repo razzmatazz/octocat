@@ -38,7 +38,6 @@
 (require 'cl-lib)
 (require 'seq)
 (require 'octocat-core)
-(require 'octocat-timeline)
 (require 'octocat-vui)
 (require 'vui)
 
@@ -106,7 +105,7 @@ uppercase ones `gh pr view' gives; the app name stands in for the
 workflow name, which the REST check-run does not carry."
   (let ((entry (make-hash-table :test #'equal)))
     (dolist (field `(("name"         . ,(gethash "name" check))
-                     ("workflowName" . ,(octocat-timeline--get check "app" "name"))
+                     ("workflowName" . ,(octocat--get check "app" "name"))
                      ("status"       . ,(octocat--nonempty (gethash "status" check)))
                      ("conclusion"   . ,(octocat--nonempty (gethash "conclusion" check)))
                      ("startedAt"    . ,(octocat--nonempty (gethash "started_at" check)))
@@ -126,10 +125,10 @@ workflow name, which the REST check-run does not carry."
   "Return the text columns of status CHECK (a hash-table).
 That is a list (NAME WORKFLOW DURATION STARTED); STARTED is the age,
 with the exact time on hover (see `octocat--format-ts-relative')."
-  (let ((started (octocat-timeline--get check "startedAt")))
+  (let ((started (octocat--get check "startedAt")))
     (list (or (gethash "name" check) "")
           (or (gethash "workflowName" check) "")
-          (or (octocat--run-duration started (octocat-timeline--get check "completedAt")) "")
+          (or (octocat--run-duration started (octocat--get check "completedAt")) "")
           (octocat--format-ts-relative started))))
 
 (defun octocat-checks--widths (checks)
@@ -159,7 +158,7 @@ RET, described by HELP-ECHO.  INDENT starts the row, two spaces if nil."
      (string-trim-right
       (concat (or indent "  ")
               (octocat--run-icon (or (gethash "status" check) "")
-                                 (octocat-timeline--get check "conclusion"))
+                                 (octocat--get check "conclusion"))
               " "
               (mapconcat #'identity (delq nil cells) "  ")))
      on-visit

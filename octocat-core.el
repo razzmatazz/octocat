@@ -541,6 +541,13 @@ The ID is parsed from the comment's \\\"url\\\" field, which ends in
                (string-match "#issuecomment-\\([0-9]+\\)\\'" url))
       (match-string 1 url))))
 
+(defun octocat--get (obj &rest keys)
+  "Return the value under KEYS in the nested hash-table OBJ, or nil.
+Missing keys, non-table intermediates and JSON null all give nil."
+  (while (and keys (hash-table-p obj))
+    (setq obj (gethash (pop keys) obj)))
+  (and (null keys) (not (eq obj :null)) obj))
+
 (defun octocat--nonempty (value)
   "Return VALUE if it is a non-empty, non-null string, otherwise nil.
 Treats the JSON null sentinel `:null' and empty strings as absent values."

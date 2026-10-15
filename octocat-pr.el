@@ -258,12 +258,12 @@ The first line is the subject; a rebase keeps the commits, so has none."
     (pcase method
       ("Merge"
        (format "Merge pull request #%d from %s/%s\n\n%s" number
-               (or (octocat-timeline--get pr "headRepositoryOwner" "login") "")
+               (or (octocat--get pr "headRepositoryOwner" "login") "")
                (or (gethash "headRefName" pr) "")
                title))
       ("Squash"
        (concat (format "%s (#%d)" title number)
-               (let ((commits (append (octocat-timeline--get pr "commits") nil)))
+               (let ((commits (append (octocat--get pr "commits") nil)))
                  (and commits
                       (concat "\n\n"
                               (mapconcat (lambda (c)
@@ -313,13 +313,13 @@ ROLLUP is a `statusCheckRollup' vector; outcomes are as in
 Each is (KIND TITLE SUBTITLE CHECKS), KIND as for `octocat-pr--merge-icon'
 and SUBTITLE nil or a line under TITLE; CHECKS marks the row of the
 checks, under which they are listed."
-  (let* ((checks  (or (octocat-timeline--get pr "statusCheckRollup") []))
+  (let* ((checks  (or (octocat--get pr "statusCheckRollup") []))
          (counts  (octocat-pr--check-counts checks))
          (approvals (seq-count (lambda (r) (equal (gethash "state" r) "APPROVED"))
-                               (or (octocat-timeline--get pr "latestReviews") []))))
+                               (or (octocat--get pr "latestReviews") []))))
     (delq nil
      (list
-      (pcase (octocat-timeline--get pr "reviewDecision")
+      (pcase (octocat--get pr "reviewDecision")
         ("APPROVED"
          (list 'ok "Changes approved"
                (format "%d approving review%s" approvals (if (= approvals 1) "" "s"))))
@@ -346,18 +346,18 @@ checks, under which they are listed."
        ((octocat-pr--conflicts-p pr)
         (list 'fail "This branch has conflicts that must be resolved"
               "Use the web editor or the command line to resolve conflicts."))
-       ((equal (octocat-timeline--get pr "mergeStateStatus") "BEHIND")
+       ((equal (octocat--get pr "mergeStateStatus") "BEHIND")
         (list 'wait "This branch is out-of-date with the base branch"
               (format "Merge the latest changes from %s into this branch."
                       (or (gethash "baseRefName" pr) "the base branch"))))
-       ((equal (octocat-timeline--get pr "mergeable") "MERGEABLE")
+       ((equal (octocat--get pr "mergeable") "MERGEABLE")
         (list 'ok "No conflicts with base branch"))
        (t (list 'wait "Checking for the ability to merge automatically…")))))))
 
 (defun octocat-pr--conflicts-p (pr)
   "Return non-nil when PR conflicts with its base branch."
-  (or (equal (octocat-timeline--get pr "mergeable") "CONFLICTING")
-      (equal (octocat-timeline--get pr "mergeStateStatus") "DIRTY")))
+  (or (equal (octocat--get pr "mergeable") "CONFLICTING")
+      (equal (octocat--get pr "mergeStateStatus") "DIRTY")))
 
 (defun octocat-pr--merge-refusal (pr)
   "Return why PR cannot be merged at all, or nil.
@@ -373,7 +373,7 @@ ON-VISIT-CHECK is called by RET on a check.  MERGING non-nil shows a
 merge under way in place of the buttons."
   (when (equal (gethash "state" pr) "OPEN")
     (let ((draft  (eq (gethash "isDraft" pr) t))
-          (checks (or (octocat-timeline--get pr "statusCheckRollup") [])))
+          (checks (or (octocat--get pr "statusCheckRollup") [])))
       (append
        (list (vui-text "Merge" :face 'octocat-section-heading))
        (mapcan (lambda (row)
@@ -402,7 +402,7 @@ merge under way in place of the buttons."
          (append
           (unless (octocat-pr--conflicts-p pr)
             (list
-             (if (equal (octocat-timeline--get pr "mergeStateStatus") "BLOCKED")
+             (if (equal (octocat--get pr "mergeStateStatus") "BLOCKED")
                  (vui-text "  Merging is blocked" :face 'octocat-ci-failure)
                (vui-text "  Merging can be performed automatically."
                          :face 'octocat-merge-ready))))
@@ -649,15 +649,15 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
   "Return a timeline item for each commit of PR (a hash-table) in REPO.
 Each is a RET-able line opening the commit; the newest commit also shows
 the CI status."
-  (let* ((commits  (or (octocat-timeline--get pr "commits") []))
+  (let* ((commits  (or (octocat--get pr "commits") []))
          (head-oid (and (> (length commits) 0)
                         (gethash "oid" (aref commits (1- (length commits)))))))
     (mapcar
      (lambda (commit)
        (let* ((oid     (or (gethash "oid" commit) ""))
-              (writers (octocat-timeline--get commit "authors"))
+              (writers (octocat--get commit "authors"))
               (login   (and writers (> (length writers) 0)
-                            (octocat-timeline--get (aref writers 0) "login"))))
+                            (octocat--get (aref writers 0) "login"))))
          (list :time (or (gethash "committedDate" commit) "")
                :kind 'commit
                :actor (if login (concat "@" login) "")
@@ -675,7 +675,7 @@ the CI status."
   (mapcar
    (lambda (review)
      (let ((state (or (gethash "state" review) "")))
-       (list :time (or (octocat-timeline--get review "submittedAt") "")
+       (list :time (or (octocat--get review "submittedAt") "")
              :kind 'review
              :actor (octocat--author-login review)
              :verb (pcase state
@@ -683,9 +683,9 @@ the CI status."
                      ("CHANGES_REQUESTED" "requested changes")
                      ("DISMISSED"         "had a review dismissed")
                      (_                   "reviewed"))
-             :body (or (octocat-timeline--get review "body") "")
+             :body (or (octocat--get review "body") "")
              :state (downcase state))))
-   (or (octocat-timeline--get pr "reviews") [])))
+   (or (octocat--get pr "reviews") [])))
 
 (defun octocat-pr--items (repo pr events bg)
   "Return the timeline items of PR in REPO, with its EVENTS (or nil).
@@ -696,7 +696,7 @@ BG is as for `octocat--label-face'."
 
 (defun octocat-pr--head-sha (pr)
   "Return the SHA of the newest commit of PR (a hash-table), or nil."
-  (let ((commits (octocat-timeline--get pr "commits")))
+  (let ((commits (octocat--get pr "commits")))
     (and commits (> (length commits) 0)
          (gethash "oid" (aref commits (1- (length commits)))))))
 
@@ -788,8 +788,8 @@ render, like any hook; shared by the conversation and the diff page."
 Each is \"@login (state)\": the state of their latest review, or
 \"pending\" for a requested review not yet given; the login opens the
 user's page."
-  (let* ((reviews  (octocat-timeline--get pr "latestReviews"))
-         (requests (octocat-timeline--get pr "reviewRequests"))
+  (let* ((reviews  (octocat--get pr "latestReviews"))
+         (requests (octocat--get pr "reviewRequests"))
          (reviewer (lambda (login name state)
                      (list (if (octocat--nonempty login)
                                (octocat-repo-vui--login-link login)
@@ -859,7 +859,7 @@ MERGING non-nil shows a merge under way."
                  ;; An open PR's checks are in its merge box, as on GitHub.
                  (or (octocat-pr--merge-section pr on-visit-check merging)
                      (octocat-checks-block
-                      (or (octocat-timeline--get pr "statusCheckRollup") [])
+                      (or (octocat--get pr "statusCheckRollup") [])
                       on-visit-check)))))))))
 
 
