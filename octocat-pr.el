@@ -43,7 +43,7 @@
 ;; The PR page and the PR list page below reuse the row builder and fetch
 ;; plumbing from octocat-repo.el, which requires this file (so cannot be
 ;; required here).
-(declare-function octocat-repo-vui--pr-row "octocat-repo" (repo pr current-branch width bg))
+(declare-function octocat-repo-vui--pr-row "octocat-repo" (repo pr width bg))
 (declare-function octocat-repo-vui--state-label"octocat-repo" (state &optional draft))
 (declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title bg &optional branch omit))
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
@@ -713,7 +713,7 @@ default) or `files'."
                                 #'octocat-pr-diff-refresh
                               #'octocat-pr-refresh)))
       bg
-      ;; Where the list shows the branch, show where it merges to as well.
+      ;; The list leaves the branch out; the page shows it and its base.
       (concat (propertize head 'face (if (equal head local)
                                          'octocat-branch-current
                                        'octocat-branch))
@@ -901,15 +901,14 @@ background."
   (unless octocat-vui-list--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
   (octocat-vui-preserving-view
-    (let ((repo   octocat-vui-list--repo)
-          (branch (plist-get (octocat--head-info) :branch))
-          (bg     (octocat--label-background)))
+    (let ((repo octocat-vui-list--repo)
+          (bg   (octocat--label-background)))
       (vui-mount (vui-component 'octocat-vui-search-list
                                 :repo repo
                                 :kind 'pulls
                                 :query (octocat-vui-list-query)
                                 :row-fn (lambda (pr width)
-                                          (octocat-repo-vui--pr-row repo pr branch width bg)))
+                                          (octocat-repo-vui--pr-row repo pr width bg)))
                  (buffer-name)))))
 
 (define-derived-mode octocat-pr-list-mode octocat-vui-list-mode "Octocat-PRs"

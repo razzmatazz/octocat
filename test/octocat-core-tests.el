@@ -60,7 +60,7 @@
 
 (ert-deftest octocat-core-test-parse-list-items ()
   "Connections flatten to what the rows read; the cursor ends with the pages."
-  (let* ((json "{\"data\":{\"search\":{\"nodes\":[{\"number\":5,\"labels\":{\"nodes\":[{\"name\":\"bug\",\"color\":\"d73a4a\"}]},\"comments\":{\"totalCount\":3},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"state\":\"FAILURE\"}}}]}},{\"number\":6,\"labels\":{\"nodes\":[]},\"comments\":{\"totalCount\":0},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":null}}]}}],\"pageInfo\":{\"hasNextPage\":true,\"endCursor\":\"Y3I\"}}}}")
+  (let* ((json "{\"data\":{\"search\":{\"nodes\":[{\"number\":5,\"labels\":{\"nodes\":[{\"name\":\"bug\",\"color\":\"d73a4a\"}]},\"comments\":{\"totalCount\":3},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":{\"state\":\"FAILURE\",\"contexts\":{\"checkRunCountsByState\":[{\"state\":\"SUCCESS\",\"count\":3},{\"state\":\"FAILURE\",\"count\":1}],\"statusContextCountsByState\":[{\"state\":\"SUCCESS\",\"count\":1}]}}}}]}},{\"number\":6,\"labels\":{\"nodes\":[]},\"comments\":{\"totalCount\":0},\"commits\":{\"nodes\":[{\"commit\":{\"statusCheckRollup\":null}}]}}],\"pageInfo\":{\"hasNextPage\":true,\"endCursor\":\"Y3I\"}}}}")
          (page  (octocat--parse-list-items json))
          (pr    (car (plist-get page :items)))
          (bare  (cadr (plist-get page :items))))
@@ -69,6 +69,7 @@
     (should (= (gethash "commentCount" pr) 3))
     (should (equal (gethash "ciState" pr) "FAILURE"))
     (should (equal (substring-no-properties (octocat--ci-status pr)) "✗"))
+    (should (equal (substring-no-properties (octocat--ci-count-label pr)) "✗ 4/5"))
     (should-not (gethash "ciState" bare))
     (should-not (gethash "commits" bare)))
   (should-not (plist-get (octocat--parse-list-items

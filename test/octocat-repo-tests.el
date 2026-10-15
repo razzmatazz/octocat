@@ -121,13 +121,13 @@
   (should (equal (octocat-repo--commits-cache-id "feat/x") "branch-feat--x")))
 
 (ert-deftest octocat-repo-test-item-lines ()
-  "Item lines put the author on the title line and cut only given a width."
+  "Item lines put the labels on the title line and cut only given a width."
   (let ((cells (list :title (make-string 60 ?t) :author "@a" :date "1d"
                      :chips "bug" :branch "b" :number "#1")))
-    (pcase-let ((`(,top ,bottom) (octocat-repo-vui--item-lines "open" cells '(:branch))))
-      (should (string-suffix-p " · #1 by @a · 1d" top))
+    (pcase-let ((`(,top ,bottom) (octocat-repo-vui--item-lines "open" cells '(:review :branch))))
+      (should (string-suffix-p "  bug" top))
       (should (string-match-p (make-string 60 ?t) top))
-      (should (string-suffix-p "bug  b" bottom)))
+      (should (string-suffix-p "#1 by @a · 1d · b" bottom)))
     (dolist (line (octocat-repo-vui--item-lines "open" cells '(:branch) 40))
       (should (<= (string-width line) 39)))))
 

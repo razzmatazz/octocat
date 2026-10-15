@@ -623,6 +623,17 @@ Combines a dimmed \"CI:\" prefix with the coloured status icon from
           " "
           (octocat--ci-status pr)))
 
+(defun octocat--ci-count-label (pr)
+  "Return PR's CI status as GitHub's list has it, e.g. \"✓ 5/5\".
+Without the counts (see `octocat--flatten-list-item') it is
+`octocat--ci-label'."
+  (if-let* ((total (gethash "ciTotal" pr))
+            ((> total 0)))
+      (concat (octocat--ci-status pr) " "
+              (propertize (format "%d/%d" (gethash "ciPassed" pr) total)
+                          'face 'octocat-dimmed))
+    (octocat--ci-label pr)))
+
 ;;;; Disk cache
 
 (defun octocat--cache-safe-repo (repo)
@@ -1224,7 +1235,7 @@ OR in it cannot escape the repo scope."
       (format "( %s ) %s" query scope))))
 
 (defconst octocat--list-item-fields
-  '((pulls  . "...on PullRequest{number title state isDraft createdAt headRefName author{login} labels(first:20){nodes{name color}} comments{totalCount} commits(last:1){nodes{commit{statusCheckRollup{state}}}}}")
+  '((pulls  . "...on PullRequest{number title state isDraft reviewDecision createdAt author{login} labels(first:20){nodes{name color}} comments{totalCount} commits(last:1){nodes{commit{statusCheckRollup{state contexts{checkRunCountsByState{state count} statusContextCountsByState{state count}}}}}}}")
     (issues . "...on Issue{number title state createdAt author{login} labels(first:20){nodes{name color}} comments{totalCount} closedByPullRequestsReferences(first:5){nodes{number}}}"))
   "The GraphQL fields of a list row, by KIND.
 Only what the row shows: `gh pr/issue list --json' would fetch every
@@ -1240,7 +1251,8 @@ comment's body and every check run, many times the size and the API cost.")
 \"labels\" and \"closedByPullRequestsReferences\" become vectors of their
 nodes, as gh's JSON has them; the comments become their count,
 \"commentCount\"; and the head commit's checks become GitHub's rolled-up
-state, \"ciState\", absent without checks."
+state, \"ciState\", and how many passed of how many, \"ciPassed\" and
+\"ciTotal\", absent without checks."
   (dolist (key '("labels" "closedByPullRequestsReferences"))
     (let ((conn (gethash key item)))
       (when (hash-table-p conn)
@@ -1253,7 +1265,18 @@ state, \"ciState\", absent without checks."
          (node    (and (hash-table-p commits) (seq-first (gethash "nodes" commits))))
          (rollup  (and node (gethash "statusCheckRollup" (gethash "commit" node)))))
     (when (hash-table-p rollup)
-      (puthash "ciState" (gethash "state" rollup) item))
+      (puthash "ciState" (gethash "state" rollup) item)
+      (let ((ctx (gethash "contexts" rollup)) (passed 0) (total 0))
+        (when (hash-table-p ctx)
+          (dolist (kind '(("checkRunCountsByState" "SUCCESS" "NEUTRAL" "SKIPPED")
+                          ("statusContextCountsByState" "SUCCESS")))
+            (seq-doseq (c (or (gethash (car kind) ctx) []))
+              (let ((n (gethash "count" c)))
+                (setq total (+ total n))
+                (when (member (gethash "state" c) (cdr kind))
+                  (setq passed (+ passed n))))))
+          (puthash "ciPassed" passed item)
+          (puthash "ciTotal" total item))))
     (remhash "commits" item))
   item)
 
