@@ -27,6 +27,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'color)
 (require 'json)
 (require 'eldoc)
 (require 'octocat-markdown)
@@ -162,39 +163,77 @@ Strings shorter than the width are space-padded; longer ones are
 truncated with a trailing ellipsis (…)."
   (truncate-string-to-width title octocat-title-width nil ?\s "…"))
 
-(defun octocat--label-foreground (hex)
-  "Return \"black\" or \"white\", whichever is more readable on HEX (\"rrggbb\")."
-  (let* ((r (string-to-number (substring hex 0 2) 16))
-         (g (string-to-number (substring hex 2 4) 16))
-         (b (string-to-number (substring hex 4 6) 16)))
-    ;; Perceived luminance (ITU-R BT.601), 0-255.
-    (if (> (+ (* 0.299 r) (* 0.587 g) (* 0.114 b)) 150) "black" "white")))
+(defun octocat--label-background ()
+  "Return the frame's background colour if it is dark, else nil.
+This is the BG argument of `octocat--label-face'."
+  (and (eq (frame-parameter nil 'background-mode) 'dark)
+       (let ((c (face-background 'default nil t)))
+         (if (stringp c) c "black"))))
 
-(defun octocat--label-face (label)
+(defun octocat--label-rgb (colour)
+  "Return COLOUR as a list of floats 0-1.
+\"#rrggbb\" is parsed exactly; `color-name-to-rgb' would round it to the
+palette of a terminal frame."
+  (if (string-match-p "\\`#[0-9a-fA-F]\\{6\\}\\'" colour)
+      (mapcar (lambda (i) (/ (string-to-number (substring colour i (+ i 2)) 16) 255.0))
+              '(1 3 5))
+    (or (color-name-to-rgb colour) '(0.0 0.0 0.0))))
+
+(defun octocat--label-hex (rgb)
+  "Return RGB (floats 0-1) as \"#rrggbb\".
+Rounds, where `color-rgb-to-hex' truncates and so shifts colours that
+pass through HSL."
+  (apply #'format "#%02x%02x%02x" (mapcar (lambda (c) (round (* 255 c))) rgb)))
+
+(defun octocat--label-lightness (rgb)
+  "Return the perceived lightness, 0-1, of RGB (floats 0-1), as GitHub does."
+  (pcase-let ((`(,r ,g ,b) rgb))
+    (+ (* 0.2126 r) (* 0.7152 g) (* 0.0722 b))))
+
+(defun octocat--label-blend (rgb alpha bg)
+  "Return RGB at opacity ALPHA over colour BG, as a \"#rrggbb\" string."
+  (octocat--label-hex
+   (cl-mapcar (lambda (c b) (+ (* alpha c) (* (- 1 alpha) b)))
+              rgb (octocat--label-rgb bg))))
+
+(defun octocat--label-face (label bg)
   "Return the face of GitHub LABEL hash-table, or nil without a valid colour.
-The background is the label's own GitHub colour, with a black or white
-foreground chosen for contrast."
+BG is nil on a light background: a chip in the label's colour with black
+or white text.  On a dark one it is the background colour (see
+`octocat--label-background'): a faint tint with the label's colour,
+lightened to read, as text and border.  Both follow github.com's CSS."
   (let ((c (gethash "color" label)))
     (and (stringp c) (string-match-p "\\`[0-9a-fA-F]\\{6\\}\\'" c)
-         `(:background ,(concat "#" c)
-           :foreground ,(octocat--label-foreground c)))))
+         (let* ((rgb (octocat--label-rgb (concat "#" c)))
+                (pl  (octocat--label-lightness rgb)))
+           (if (not bg)
+               `(:background ,(concat "#" c)
+                 :foreground ,(if (> pl 0.453) "black" "white"))
+             (pcase-let* ((`(,h ,s ,l) (apply #'color-rgb-to-hsl rgb))
+                          (fg (color-hsl-to-rgb
+                               h s (min 1.0 (+ l (max 0 (- 0.6 pl)))))))
+               `(:background ,(octocat--label-blend rgb 0.18 bg)
+                 :foreground ,(octocat--label-hex fg)
+                 :box (:line-width (-1 . -1)
+                       :color ,(octocat--label-blend fg 0.3 bg)))))))))
 
-(defun octocat--format-label (label)
+(defun octocat--format-label (label bg)
   "Return a propertized chip string for GitHub LABEL hash-table.
-See `octocat--label-face'; without a colour it falls back to the
-`octocat-branch' face."
+BG is as for `octocat--label-face'; without a colour it falls back to
+the `octocat-branch' face."
   (let ((name (or (gethash "name" label) ""))
-        (face (octocat--label-face label)))
+        (face (octocat--label-face label bg)))
     (if face
         (propertize (concat " " name " ") 'face face)
       (propertize name 'face 'octocat-branch))))
 
-(defun octocat--format-labels (labels)
+(defun octocat--format-labels (labels bg)
   "Return LABELS (vector of label hash-tables) as space-separated chips.
-Returns the empty string when LABELS is nil, `:null' or empty."
+BG is as for `octocat--label-face'.  Returns the empty string when
+LABELS is nil, `:null' or empty."
   (if (or (null labels) (eq labels :null) (zerop (length labels)))
       ""
-    (mapconcat #'octocat--format-label labels " ")))
+    (mapconcat (lambda (l) (octocat--format-label l bg)) labels " ")))
 
 (defun octocat--format-branch (branch width)
   "Return BRANCH truncated to WIDTH characters and styled with `octocat-branch'.
@@ -1293,19 +1332,20 @@ in `octocat--parse-counts', or a cons \\=(error . MSG).  One API call."
   "Fetch the label names of REPO asynchronously and call CALLBACK.
 CALLBACK is called with a list of strings, each in its label's face so
 completion shows the colours, or a cons \\=(error . MSG)."
-  (octocat--run-gh "labels"
-                   (list "label" "list"
-                         "--repo" repo
-                         "--limit" "200"
-                         "--json" "name,color")
-                   (lambda (output)
-                     (mapcar (lambda (h)
-                               (let ((face (octocat--label-face h)))
-                                 (if face
-                                     (propertize (gethash "name" h) 'face face)
-                                   (gethash "name" h))))
-                             (octocat--parse-json-list output)))
-                   callback))
+  (let ((bg (octocat--label-background)))
+    (octocat--run-gh "labels"
+                     (list "label" "list"
+                           "--repo" repo
+                           "--limit" "200"
+                           "--json" "name,color")
+                     (lambda (output)
+                       (mapcar (lambda (h)
+                                 (let ((face (octocat--label-face h bg)))
+                                   (if face
+                                       (propertize (gethash "name" h) 'face face)
+                                     (gethash "name" h))))
+                               (octocat--parse-json-list output)))
+                     callback)))
 
 (defun octocat--list-people (repo callback)
   "Fetch the logins that can be assigned in REPO and call CALLBACK.

@@ -121,9 +121,10 @@ Missing keys, non-table intermediates and JSON null all give nil."
           (propertize (or from "") 'face 'octocat-dimmed)
           (or to "")))
 
-(defun octocat-timeline--event-text (event)
+(defun octocat-timeline--event-text (event bg)
   "Return what timeline EVENT did as a short string, or nil to skip it.
-The actor is not included; see `octocat-timeline--actor'."
+The actor is not included; see `octocat-timeline--actor'.  BG is as
+for `octocat--label-face'."
   (let ((label (octocat-timeline--get event "label"))
         (actor (octocat-timeline--get event "actor" "login"))
         (who   (octocat-timeline--get event "assignee" "login"))
@@ -132,8 +133,8 @@ The actor is not included; see `octocat-timeline--actor'."
                      (concat "@" login)
                    (octocat-timeline--get event "requested_team" "name")))))
     (pcase (gethash "event" event)
-      ("labeled"   (and label (format "added the %s label" (octocat--format-label label))))
-      ("unlabeled" (and label (format "removed the %s label" (octocat--format-label label))))
+      ("labeled"   (and label (format "added the %s label" (octocat--format-label label bg))))
+      ("unlabeled" (and label (format "removed the %s label" (octocat--format-label label bg))))
       ("assigned"   (and who (if (equal who actor)
                                  "self-assigned this"
                                (format "assigned @%s" who))))
@@ -189,13 +190,14 @@ known, so a merge or close still shows up, without who did it."
                      :text (if (eq time merged) "merged this" "closed this")
                      :state (if (eq time merged) "merged" "closed"))))))
 
-(defun octocat-timeline-items (obj post-verb events &optional extra)
+(defun octocat-timeline-items (obj post-verb events bg &optional extra)
   "Return the timeline items of OBJ merged with EVENTS, oldest first.
 OBJ is the issue or PR hash-table from `gh issue view' / `gh pr view';
 its body, author and comments become the opening post (described by
 POST-VERB, \"opened this issue\") and the comments.  EVENTS is a vector of
-timeline events or nil while they are not known.  EXTRA is a list of
-further items, such as a PR's reviews and commits."
+timeline events or nil while they are not known.  BG colours the labels,
+see `octocat--label-face'.  EXTRA is a list of further items, such as a
+PR's reviews and commits."
   (let* ((merged (octocat-timeline--get obj "mergedAt"))
          (items
           (append
@@ -219,7 +221,7 @@ further items, such as a PR's reviews and commits."
            (if events
                (delq nil
                      (mapcar (lambda (event)
-                               (let ((text (octocat-timeline--event-text event))
+                               (let ((text (octocat-timeline--event-text event bg))
                                      (name (gethash "event" event)))
                                  ;; GitHub logs a close next to every merge.
                                  (and text
@@ -241,7 +243,8 @@ further items, such as a PR's reviews and commits."
           (octocat-timeline--merge-renames
            (octocat-timeline--merge-labels
             (sort (cdr items)
-                  (lambda (a b) (string< (plist-get a :time) (plist-get b :time)))))))))
+                  (lambda (a b) (string< (plist-get a :time) (plist-get b :time))))
+            bg)))))
 
 (defun octocat-timeline--merge-renames (items)
   "Return ITEMS with one actor's consecutive renames merged into one.
@@ -270,12 +273,14 @@ carries the time of the last change."
   "Return ISO 8601 string TIME as float seconds, or nil if unparsable."
   (ignore-errors (float-time (date-to-time time))))
 
-(defun octocat-timeline--labels-text (labeled)
-  "Return the phrase for LABELED, a list of (STATE . LABEL) in order."
+(defun octocat-timeline--labels-text (labeled bg)
+  "Return the phrase for LABELED, a list of (STATE . LABEL) in order.
+BG is as for `octocat--label-face'."
   (let* ((names (lambda (state)
                   (octocat--format-labels
                    (vconcat (mapcar #'cdr (seq-filter (lambda (l) (equal (car l) state))
-                                                      labeled))))))
+                                                      labeled)))
+                   bg)))
          (added   (funcall names "labeled"))
          (removed (funcall names "unlabeled"))
          (phrase  (lambda (verb str state)
@@ -289,11 +294,12 @@ carries the time of the last change."
                       (funcall phrase "removed" removed "unlabeled"))))
      " and ")))
 
-(defun octocat-timeline--merge-labels (items)
+(defun octocat-timeline--merge-labels (items bg)
   "Return ITEMS with label events of one actor in a row merged into one.
 Like GitHub, consecutive labeled/unlabeled events of the same actor,
 within `octocat-timeline--merge-window' seconds of the first, become a
-single entry such as \"added the A B labels\"."
+single entry such as \"added the A B labels\".  BG is as for
+`octocat--label-face'."
   (let (result run)
     (cl-flet ((flush ()
                 (when run
@@ -304,7 +310,8 @@ single entry such as \"added the A B labels\"."
                                (list :text (octocat-timeline--labels-text
                                             (mapcar (lambda (i) (cons (plist-get i :state)
                                                                       (plist-get i :label)))
-                                                    ordered)))
+                                                    ordered)
+                                            bg))
                                first)
                             first)
                           result))

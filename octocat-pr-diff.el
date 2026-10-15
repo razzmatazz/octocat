@@ -47,7 +47,7 @@
 (declare-function octocat-repo-vui-use-cached "octocat-repo"
                   (type repo number fetch &optional as-list))
 (declare-function octocat-pr--use-data "octocat-pr" (repo number))
-(declare-function octocat-pr--header "octocat-pr" (repo pr &optional tab))
+(declare-function octocat-pr--header "octocat-pr" (repo pr bg &optional tab))
 (declare-function octocat-pr--tabs "octocat-pr" (current repo number &optional files))
 (declare-function octocat-switch-repo "octocat-core" ())
 (declare-function octocat-search-repo "octocat-search" ())
@@ -233,7 +233,8 @@ COMMENTS is the `vui-use-async' result for the review comments."
      (pcase (plist-get pr :status)
        ('ready (apply #'vui-vstack
                       (delq nil (octocat-pr--header
-                                 repo (plist-get pr :data) 'files))))
+                                 repo (plist-get pr :data)
+                                 (octocat--label-background) 'files))))
        ('error (vui-vstack
                 (vui-text (format "Error: %s" (plist-get pr :error)) :face 'error)
                 (octocat-pr--tabs 'files repo number)))

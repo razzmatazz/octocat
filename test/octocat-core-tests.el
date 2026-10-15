@@ -14,24 +14,40 @@
   (let* ((label (make-hash-table :test 'equal)))
     (puthash "name" "bug" label)
     (puthash "color" "d73a4a" label)
-    (let* ((s (octocat--format-label label))
+    (let* ((s (octocat--format-label label nil))
            (face (get-text-property 1 'face s)))
       (should (equal s " bug "))
       (should (equal (plist-get face :background) "#d73a4a"))
       (should (equal (plist-get face :foreground) "white")))
     (puthash "color" "fef2c0" label)
-    (should (equal (plist-get (get-text-property 1 'face (octocat--format-label label))
+    (should (equal (plist-get (get-text-property 1 'face (octocat--format-label label nil))
                               :foreground)
                    "black"))))
+
+(ert-deftest octocat-core-test-format-label-dark ()
+  "On a dark background a label is a tint with lightened text, as on GitHub."
+  (let ((label (make-hash-table :test 'equal)))
+    (puthash "name" "bug" label)
+    (puthash "color" "d73a4a" label)
+    (let ((face (octocat--label-face label "#000000")))
+      ;; 18% of the colour over black.
+      (should (equal (plist-get face :background) "#270a0d"))
+      ;; Lightness 0.535 raised by 0.6 - 0.363.
+      (should (equal (plist-get face :foreground) "#eb9fa6"))
+      (should (equal (plist-get (plist-get face :box) :color) "#473032")))
+    ;; Light enough already: the text keeps the label's colour.
+    (puthash "color" "fef2c0" label)
+    (should (equal (plist-get (octocat--label-face label "#000000") :foreground)
+                   "#fef2c0"))))
 
 (ert-deftest octocat-core-test-format-label-fallback ()
   (let ((label (make-hash-table :test 'equal)))
     (puthash "name" "x" label)
-    (should (eq (get-text-property 0 'face (octocat--format-label label))
+    (should (eq (get-text-property 0 'face (octocat--format-label label nil))
                 'octocat-branch))
-    (should (equal (octocat--format-labels nil) ""))
-    (should (equal (octocat--format-labels :null) ""))
-    (should (equal (octocat--format-labels []) ""))))
+    (should (equal (octocat--format-labels nil nil) ""))
+    (should (equal (octocat--format-labels :null nil) ""))
+    (should (equal (octocat--format-labels [] nil) ""))))
 
 (ert-deftest octocat-core-test-search-query ()
   "The query is scoped to the repo and kind; nil means open items."

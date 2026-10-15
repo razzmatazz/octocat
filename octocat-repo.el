@@ -462,13 +462,14 @@ DRAFT is the JSON isDraft value; t shows an open pull request as \"draft\"."
 ;;   open  Another dummy PR  @me · 3 days ago
 ;;         duplicate enhancement  owner/repo#5 · some-pr · CI: ●
 
-(defun octocat-repo-vui--cells (item current-branch repo)
+(defun octocat-repo-vui--cells (item current-branch repo bg)
   "Return the display cells of the PR or issue ITEM of REPO as a plist.
 The keys are :title, :chips (label chips), :branch, :ci, :author, :prs
 \(the PRs that close an issue), :comments, :date and :ref (\"owner/repo#N\");
 a cell that ITEM does not have is nil or empty.  CURRENT-BRANCH, when
 non-nil, is the local HEAD branch name; a matching PR branch is
-highlighted with `octocat-branch-current'."
+highlighted with `octocat-branch-current'.  BG is as for
+`octocat--label-face'."
   (let* ((branch   (octocat--nonempty (gethash "headRefName" item)))
          (checks   (gethash "statusCheckRollup" item))
          (closers  (gethash "closedByPullRequestsReferences" item))
@@ -490,7 +491,7 @@ highlighted with `octocat-branch-current'."
           :comments (and (> comments 0)
                          (propertize (format "✉ %d" comments)
                                      'face 'octocat-dimmed))
-          :chips  (octocat--format-labels (gethash "labels" item))
+          :chips  (octocat--format-labels (gethash "labels" item) bg)
           :branch (and branch
                        (propertize branch 'face
                                    (if (equal branch current-branch)
@@ -546,21 +547,22 @@ WIDTH.  ON-VISIT and HELP are as for `octocat-vui-row'."
               "\n")
    on-visit help))
 
-(defun octocat-repo-vui--pr-row (repo pr current-branch width)
+(defun octocat-repo-vui--pr-row (repo pr current-branch width bg)
   "Return a row vnode for PR in REPO, cut to WIDTH.
-CURRENT-BRANCH is as for `octocat-repo-vui--cells'."
+CURRENT-BRANCH and BG are as for `octocat-repo-vui--cells'."
   (octocat-repo-vui--item-row
    (octocat-repo-vui--state-label (gethash "state" pr) (gethash "isDraft" pr))
-   (octocat-repo-vui--cells pr current-branch repo)
+   (octocat-repo-vui--cells pr current-branch repo bg)
    width
    (lambda () (octocat-repo-vui--open-pr repo pr))
    "RET: view pull request"))
 
-(defun octocat-repo-vui--issue-row (repo issue width)
-  "Return a row vnode for ISSUE in REPO, cut to WIDTH."
+(defun octocat-repo-vui--issue-row (repo issue width bg)
+  "Return a row vnode for ISSUE in REPO, cut to WIDTH.
+BG is as for `octocat-repo-vui--cells'."
   (octocat-repo-vui--item-row
    (octocat-repo-vui--state-label (gethash "state" issue))
-   (octocat-repo-vui--cells issue nil repo)
+   (octocat-repo-vui--cells issue nil repo bg)
    width
    (lambda () (octocat-repo-vui--open-issue repo issue))
    "RET: view issue"))
@@ -570,7 +572,7 @@ CURRENT-BRANCH is as for `octocat-repo-vui--cells'."
 ;; before the title with the labels after it, then a dimmed line with where
 ;; it lives and who opened it.
 
-(defun octocat-repo-vui--detail-header (repo item state on-edit-title
+(defun octocat-repo-vui--detail-header (repo item state on-edit-title bg
                                             &optional branch omit)
   "Return the header vnodes of the issue or PR ITEM of REPO.
 STATE is its coloured state text (see `octocat-repo-vui--state-label').
@@ -578,10 +580,11 @@ The first row is the repo and number, as in every other view; RET on it
 opens the repo view.  Below it are the item's two list lines (see
 `octocat-repo-vui--item-lines'), uncut and less the repo reference
 above; the first is the `title' target of the page's edit command, and
-RET on either calls ON-EDIT-TITLE.  BRANCH, when non-nil, replaces the
+RET on either calls ON-EDIT-TITLE.  BG is as for
+`octocat-repo-vui--cells'.  BRANCH, when non-nil, replaces the
 branch cell.  OMIT is a list of cell keys (see `octocat-repo-vui--cells')
 to leave out."
-  (let* ((cells (octocat-repo-vui--cells item nil repo))
+  (let* ((cells (octocat-repo-vui--cells item nil repo bg))
          (cells (if branch (plist-put cells :branch branch) cells))
          (lines (octocat-repo-vui--item-lines
                  state cells (seq-difference '(:branch :ci :prs :comments) omit))))

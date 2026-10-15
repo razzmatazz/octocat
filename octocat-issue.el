@@ -39,9 +39,9 @@
 ;; The issue list page below reuses the row builder and fetch plumbing
 ;; from octocat-repo.el, which requires this file (so cannot be required
 ;; here).
-(declare-function octocat-repo-vui--issue-row "octocat-repo" (repo issue width))
+(declare-function octocat-repo-vui--issue-row "octocat-repo" (repo issue width bg))
 (declare-function octocat-repo-vui--state-label "octocat-repo" (state &optional draft))
-(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title &optional branch omit))
+(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title bg &optional branch omit))
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
 (declare-function octocat-repo-vui--logins "octocat-repo" (users))
 (declare-function octocat-repo-vui--numbers "octocat-repo" (refs))
@@ -245,13 +245,14 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
 ;;
 ;; The timeline itself (items, entries, rail) is in octocat-timeline.el.
 
-(defun octocat-issue--header (repo issue)
-  "Return the vnodes above the timeline: repo, title and labels of ISSUE in REPO."
+(defun octocat-issue--header (repo issue bg)
+  "Return the vnodes above the timeline: repo, title and labels of ISSUE in REPO.
+BG is as for `octocat--label-face'."
   (let ((state (or (gethash "state" issue) "OPEN")))
     (append
      (octocat-repo-vui--detail-header
       repo issue (octocat-repo-vui--state-label state)
-      #'octocat-issue-edit-title nil '(:comments))
+      #'octocat-issue-edit-title bg nil '(:comments))
      (list
       (octocat-repo-vui--detail-fields
        (list (cons "Assignees" (octocat-repo-vui--logins (gethash "assignees" issue)))
@@ -265,6 +266,7 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
   :state ((win-width nil))
   :render
   (let* ((width  (octocat-vui-use-window-width))
+         (bg     (octocat--label-background))
          (cached (vui-use-memo (repo number)
                    (octocat--detail-cache-load repo "issue" number)))
          (async  (vui-use-async (list 'issue repo number)
@@ -282,11 +284,11 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
                        (plist-get result :refreshing)
                        (cdr timeline)))
          ;; WIDTH is a dependency: tables are laid out for the window.
-         (entries  (vui-use-memo (result events raw width)
+         (entries  (vui-use-memo (result events raw width bg)
                      (and (eq (plist-get result :status) 'ready)
                           (octocat-timeline-entries
                            (octocat-timeline-items (plist-get result :data)
-                                                   "opened this issue" events)
+                                                   "opened this issue" events bg)
                            raw (octocat--markdown-width))))))
     (vui-use-effect (fresh)
       (when fresh (octocat--detail-cache-save repo "issue" number fresh))
@@ -299,7 +301,7 @@ Calls CALLBACK with a single hash-table of issue data, or a cons \\=(error . MSG
        (let ((issue (plist-get result :data)))
          (apply #'vui-vstack
                 (append
-                 (delq nil (octocat-issue--header repo issue))
+                 (delq nil (octocat-issue--header repo issue bg))
                  entries
                  (octocat-timeline-buttons
                   (list '("+ Add a comment" "RET: write a comment" octocat-issue-add-comment)
@@ -377,13 +379,14 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
   (unless octocat-vui-list--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
   (octocat-vui-preserving-view
-    (let ((repo octocat-vui-list--repo))
+    (let ((repo octocat-vui-list--repo)
+          (bg   (octocat--label-background)))
       (vui-mount (vui-component 'octocat-vui-search-list
                                 :repo repo
                                 :kind 'issues
                                 :query (octocat-vui-list-query)
                                 :row-fn (lambda (issue width)
-                                          (octocat-repo-vui--issue-row repo issue width)))
+                                          (octocat-repo-vui--issue-row repo issue width bg)))
                  (buffer-name)))))
 
 (define-derived-mode octocat-issue-list-mode octocat-vui-list-mode "Octocat-Issues"

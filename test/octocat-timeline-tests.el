@@ -29,7 +29,7 @@
                           "{\"event\":\"commented\",\"created_at\":\"2026-01-02T10:00:00Z\"},"
                           "{\"event\":\"closed\",\"created_at\":\"2026-01-03T10:00:00Z\","
                           "\"actor\":{\"login\":\"ann\"},\"state_reason\":\"completed\"}]")))
-         (items (octocat-timeline-items issue "opened this issue" events)))
+         (items (octocat-timeline-items issue "opened this issue" events nil)))
     (should (equal (mapcar (lambda (i) (plist-get i :kind)) items)
                    '(post comment event event comment)))
     (should (equal (plist-get (nth 1 items) :actor) "@cy"))
@@ -55,7 +55,7 @@
                           "]")))
          (texts (mapcar (lambda (i) (substring-no-properties (plist-get i :text)))
                         (seq-filter (lambda (i) (eq (plist-get i :kind) 'event))
-                                    (octocat-timeline-items issue "opened this issue" events)))))
+                                    (octocat-timeline-items issue "opened this issue" events nil)))))
     (should (equal (seq-take texts 3)
                    '("added the  bug   docs  labels and removed the  wip  label"
                      "added the  x  label"
@@ -74,7 +74,7 @@
                                ",")
                           "]")))
          (renames (seq-filter (lambda (i) (plist-get i :rename))
-                              (octocat-timeline-items issue "opened this issue" events))))
+                              (octocat-timeline-items issue "opened this issue" events nil))))
     (should (= (length renames) 1))
     (should (equal (plist-get (car renames) :rename) '("a" . "c")))
     (should (equal (substring-no-properties (plist-get (car renames) :text))
@@ -83,14 +83,14 @@
 (ert-deftest octocat-timeline-test-issue-close-without-events ()
   "Before the events load, a close still shows, from `closedAt'."
   (let ((items (octocat-timeline-items (json-parse-string octocat-timeline-tests--issue-json)
-                                       "opened this issue" nil)))
+                                       "opened this issue" nil nil)))
     (should (equal (mapcar (lambda (i) (plist-get i :kind)) items)
                    '(post comment event comment)))
     (should (equal (plist-get (nth 2 items) :actor) ""))))
 
 (ert-deftest octocat-timeline-test-issue-event-text ()
   "Events render as short phrases; unknown ones are skipped."
-  (let ((text (lambda (json) (octocat-timeline--event-text (json-parse-string json)))))
+  (let ((text (lambda (json) (octocat-timeline--event-text (json-parse-string json) nil))))
     (should (equal (funcall text "{\"event\":\"assigned\",\"actor\":{\"login\":\"a\"},\"assignee\":{\"login\":\"a\"}}")
                    "self-assigned this"))
     (should (equal (funcall text "{\"event\":\"assigned\",\"actor\":{\"login\":\"a\"},\"assignee\":{\"login\":\"b\"}}")
@@ -127,7 +127,7 @@
                           "\"actor\":{\"login\":\"ann\"}}]")))
          (kinds (lambda (evs)
                   (mapcar (lambda (i) (plist-get i :text))
-                          (cdr (octocat-timeline-items pr "opened this pull request" evs))))))
+                          (cdr (octocat-timeline-items pr "opened this pull request" evs nil))))))
     (should (equal (funcall kinds events) '("merged this")))
     ;; Without events the merge still shows, from `mergedAt'.
     (should (equal (funcall kinds nil) '("merged this")))))
@@ -137,13 +137,13 @@
   (let* ((pr (json-parse-string
               "{\"body\":\"x\",\"createdAt\":\"2026-01-02T10:00:00Z\",\"author\":{\"login\":\"ann\"},\"comments\":[]}"))
          (items (octocat-timeline-items
-                 pr "opened this pull request" nil
+                 pr "opened this pull request" nil nil
                  (list (list :time "2026-01-01T10:00:00Z" :kind 'commit :actor "" :text "c")))))
     (should (equal (mapcar (lambda (i) (plist-get i :kind)) items) '(post commit)))))
 
 (ert-deftest octocat-timeline-test-review-events ()
   "Review requests name a user or a team."
-  (let ((text (lambda (json) (octocat-timeline--event-text (json-parse-string json)))))
+  (let ((text (lambda (json) (octocat-timeline--event-text (json-parse-string json) nil))))
     (should (equal (funcall text "{\"event\":\"review_requested\",\"requested_reviewer\":{\"login\":\"zed\"}}")
                    "requested a review from @zed"))
     (should (equal (funcall text "{\"event\":\"review_requested\",\"requested_team\":{\"name\":\"core\"}}")

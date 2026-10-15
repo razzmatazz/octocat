@@ -43,9 +43,9 @@
 ;; The PR page and the PR list page below reuse the row builder and fetch
 ;; plumbing from octocat-repo.el, which requires this file (so cannot be
 ;; required here).
-(declare-function octocat-repo-vui--pr-row "octocat-repo" (repo pr current-branch width))
+(declare-function octocat-repo-vui--pr-row "octocat-repo" (repo pr current-branch width bg))
 (declare-function octocat-repo-vui--state-label"octocat-repo" (state &optional draft))
-(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title &optional branch omit))
+(declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title bg &optional branch omit))
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
 (declare-function octocat-repo-vui--logins "octocat-repo" (users))
 (declare-function octocat-repo-vui--numbers "octocat-repo" (refs))
@@ -656,9 +656,10 @@ the CI status."
              :state (downcase state))))
    (or (octocat-timeline--get pr "reviews") [])))
 
-(defun octocat-pr--items (repo pr events)
-  "Return the timeline items of PR in REPO, with its EVENTS (or nil)."
-  (octocat-timeline-items pr "opened this pull request" events
+(defun octocat-pr--items (repo pr events bg)
+  "Return the timeline items of PR in REPO, with its EVENTS (or nil).
+BG is as for `octocat--label-face'."
+  (octocat-timeline-items pr "opened this pull request" events bg
                           (append (octocat-pr--review-items pr)
                                   (octocat-pr--commit-items repo pr))))
 
@@ -690,10 +691,11 @@ of changed files shown on the \"Files changed\" tab, as GitHub does."
                    :help-echo "RET: show the files changed"
                    :on-click (lambda () (octocat-pr-diff-open repo number)))))))
 
-(defun octocat-pr--header (repo pr &optional tab)
+(defun octocat-pr--header (repo pr bg &optional tab)
   "Return the vnodes above the body: repo, title, branches, labels, tabs.
-PR is the hash-table of the pull request in REPO.  TAB is the page
-showing it, `conversation' (the default) or `files'."
+PR is the hash-table of the pull request in REPO.  BG is as for
+`octocat--label-face'.  TAB is the page showing it, `conversation' (the
+default) or `files'."
   (let* ((number   (gethash "number" pr))
          (state    (or (gethash "state" pr) "OPEN"))
          (head    (or (gethash "headRefName" pr) ""))
@@ -709,6 +711,7 @@ showing it, `conversation' (the default) or `files'."
                             (if (eq tab 'files)
                                 #'octocat-pr-diff-refresh
                               #'octocat-pr-refresh)))
+      bg
       ;; Where the list shows the branch, show where it merges to as well.
       (concat (propertize head 'face (if (equal head local)
                                          'octocat-branch-current
@@ -775,6 +778,7 @@ Each is \"@login (state)\": the state of their latest review, or
   :state ((win-width nil))
   :render
   (let* ((width  (octocat-vui-use-window-width))
+         (bg     (octocat--label-background))
          (result (octocat-pr--use-data repo number))
          (timeline (octocat-timeline-use-events repo number))
          (events   (car timeline))
@@ -782,10 +786,10 @@ Each is \"@login (state)\": the state of their latest review, or
                        (plist-get result :refreshing)
                        (cdr timeline)))
          ;; WIDTH is a dependency: tables are laid out for the window.
-         (entries  (vui-use-memo (result events raw width)
+         (entries  (vui-use-memo (result events raw width bg)
                      (and (eq (plist-get result :status) 'ready)
                           (octocat-timeline-entries
-                           (octocat-pr--items repo (plist-get result :data) events)
+                           (octocat-pr--items repo (plist-get result :data) events bg)
                            raw (octocat--markdown-width))))))
     (octocat-vui-use-mode-line-loading loading)
     (pcase (plist-get result :status)
@@ -799,7 +803,7 @@ Each is \"@login (state)\": the state of their latest review, or
                                       (octocat--nonempty (gethash "headRefName" pr))))))
          (apply #'vui-vstack
                 (append
-                 (delq nil (octocat-pr--header repo pr))
+                 (delq nil (octocat-pr--header repo pr bg))
                  entries
                  ;; Under the timeline, as they add to it; the checks and
                  ;; merge are about the PR as a whole.
@@ -896,13 +900,14 @@ background."
     (user-error "Octocat: Buffer is not associated with a repository"))
   (octocat-vui-preserving-view
     (let ((repo   octocat-vui-list--repo)
-          (branch (plist-get (octocat--head-info) :branch)))
+          (branch (plist-get (octocat--head-info) :branch))
+          (bg     (octocat--label-background)))
       (vui-mount (vui-component 'octocat-vui-search-list
                                 :repo repo
                                 :kind 'pulls
                                 :query (octocat-vui-list-query)
                                 :row-fn (lambda (pr width)
-                                          (octocat-repo-vui--pr-row repo pr branch width)))
+                                          (octocat-repo-vui--pr-row repo pr branch width bg)))
                  (buffer-name)))))
 
 (define-derived-mode octocat-pr-list-mode octocat-vui-list-mode "Octocat-PRs"
