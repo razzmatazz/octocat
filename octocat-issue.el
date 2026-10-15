@@ -44,7 +44,8 @@
 (declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title bg &optional branch omit))
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
 (declare-function octocat-repo-vui--logins "octocat-repo" (users))
-(declare-function octocat-repo-vui--numbers "octocat-repo" (refs))
+(declare-function octocat-repo-vui--numbers "octocat-repo" (repo refs open))
+(declare-function octocat-pr-open "octocat-pr" (repo number))
 (declare-function octocat-repo-vui--milestone "octocat-repo" (item))
 (declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
 
@@ -258,7 +259,8 @@ BG is as for `octocat--label-face'."
        (list (cons "Assignees" (octocat-repo-vui--logins (gethash "assignees" issue)))
              (cons "Milestone" (octocat-repo-vui--milestone issue))
              (cons "Fixed by"  (octocat-repo-vui--numbers
-                                (gethash "closedByPullRequestsReferences" issue)))))
+                                repo (gethash "closedByPullRequestsReferences" issue)
+                                #'octocat-pr-open))))
       (vui-newline)))))
 
 (vui-defcomponent octocat-issue--page (repo number raw)

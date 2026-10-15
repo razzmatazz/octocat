@@ -68,6 +68,7 @@
 (declare-function octocat-issue-list               "octocat"          ())
 (declare-function octocat-pr-list                  "octocat"          ())
 (declare-function octocat-actions                  "octocat"          ())
+(declare-function octocat-user-open                "octocat-user"     (login))
 
 
 ;;;; User options
@@ -619,19 +620,47 @@ line is dimmed and lined up with the title column."
                            (mapconcat #'identity parts
                                       (propertize " · " 'face 'octocat-dimmed)))))))
 
+(defun octocat-repo-vui--link (label face action)
+  "Return LABEL in FACE, opening its page with ACTION on RET or a click.
+A `keymap' text property, so it works within a line of plain text, as
+the links of rendered markdown do."
+  (let ((map (make-sparse-keymap))
+        (cmd (lambda () (interactive) (funcall action))))
+    (define-key map (kbd "RET") cmd)
+    (define-key map [mouse-1] cmd)
+    (propertize label 'face face 'mouse-face 'highlight
+                'help-echo (concat "RET: open " label) 'keymap map)))
+
 (defun octocat-repo-vui--logins (users)
-  "Return the \"@login\" names of USERS (a vector of user objects) joined, or nil."
+  "Return the \"@login\" names of USERS (a vector of user objects) joined, or nil.
+Each opens the page of its user."
   (and (vectorp users) (> (length users) 0)
        (mapconcat (lambda (u)
-                    (propertize (concat "@" (or (gethash "login" u) (gethash "name" u) ""))
-                                'face 'octocat-pr-author))
+                    (let ((login (gethash "login" u)))
+                      (if (octocat--nonempty login)
+                          (octocat-repo-vui--link (concat "@" login) 'octocat-pr-author
+                                                  (lambda () (octocat-user-open login)))
+                        (propertize (concat "@" (or (gethash "name" u) ""))
+                                    'face 'octocat-pr-author))))
                   users ", ")))
 
-(defun octocat-repo-vui--numbers (refs)
-  "Return the \"#N\" numbers of REFS (a vector of issue/PR objects) joined, or nil."
+(defun octocat-repo-vui--numbers (repo refs open)
+  "Return the \"#N\" numbers of REFS (a vector of issue/PR objects) joined, or nil.
+Each calls OPEN with its repository, REPO unless it names another, and
+number."
   (and (vectorp refs) (> (length refs) 0)
-       (propertize (mapconcat (lambda (r) (format "#%d" (gethash "number" r))) refs " ")
-                   'face 'octocat-pr-number)))
+       (mapconcat (lambda (r)
+                    (let* ((n     (gethash "number" r))
+                           (other (gethash "repository" r))
+                           (owner (and (hash-table-p other) (gethash "owner" other)))
+                           (where (if (and (hash-table-p owner) (gethash "login" owner))
+                                      (format "%s/%s" (gethash "login" owner)
+                                              (gethash "name" other))
+                                    repo)))
+                      (octocat-repo-vui--link
+                       (if (equal where repo) (format "#%d" n) (format "%s#%d" where n))
+                       'octocat-pr-number (lambda () (funcall open where n)))))
+                  refs " ")))
 
 (defun octocat-repo-vui--milestone (item)
   "Return the milestone title of ITEM, or nil."

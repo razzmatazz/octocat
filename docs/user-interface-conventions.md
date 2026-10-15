@@ -72,6 +72,7 @@ it open paints open, without animating).
 |---|---|
 | The whole line opens something | `octocat-vui-row` with a `help-echo` |
 | One control among others on a line | `vui-button` |
+| A name or number within a line of text opens its page (a header's Assignees, Closes) | `octocat-repo-vui--link`: a `keymap` text property, like rendered markdown's links |
 | A foldable block | `vui-collapsible` for a plain title; `octocat-vui-fold` with `octocat-vui-fold-header` when the title has its own faces or the body should be built only once unfolded (see "Folds") |
 
 ---

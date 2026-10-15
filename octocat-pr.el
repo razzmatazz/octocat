@@ -48,7 +48,8 @@
 (declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title bg &optional branch omit))
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
 (declare-function octocat-repo-vui--logins "octocat-repo" (users))
-(declare-function octocat-repo-vui--numbers "octocat-repo" (refs))
+(declare-function octocat-repo-vui--numbers "octocat-repo" (repo refs open))
+(declare-function octocat-issue-open "octocat-issue" (repo number))
 (declare-function octocat-repo-vui--milestone "octocat-repo" (item))
 (declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
 
@@ -726,7 +727,8 @@ default) or `files'."
              (cons "Assignees" (octocat-repo-vui--logins (gethash "assignees" pr)))
              (cons "Milestone" (octocat-repo-vui--milestone pr))
              (cons "Closes"    (octocat-repo-vui--numbers
-                                (gethash "closingIssuesReferences" pr)))))
+                                repo (gethash "closingIssuesReferences" pr)
+                                #'octocat-issue-open))))
       (vui-newline)
       (octocat-pr--tabs (or tab 'conversation) repo number
                         (gethash "changedFiles" pr))

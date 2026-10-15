@@ -173,5 +173,15 @@
   (should-error (octocat-repo--parse-history
                  "{\"data\":{\"repository\":{\"object\":null}}}")))
 
+(ert-deftest octocat-repo-test-numbers-link ()
+  "Each number opens its own issue, in its repository when another."
+  (let* ((refs (json-parse-string
+                "[{\"number\":3},{\"number\":4,\"repository\":{\"name\":\"x\",\"owner\":{\"login\":\"o\"}}}]"))
+         (s (octocat-repo-vui--numbers "a/b" refs (lambda (r n) (list r n)))))
+    (should (equal (substring-no-properties s) "#3 o/x#4"))
+    (should (get-text-property 0 'keymap s))
+    (should (equal (funcall (lookup-key (get-text-property 4 'keymap s) (kbd "RET")))
+                   '("o/x" 4)))))
+
 (provide 'octocat-repo-tests)
 ;;; octocat-repo-tests.el ends here
