@@ -363,11 +363,12 @@ A blocked merge is not refused: it may pass with admin rights."
   (cond ((eq (gethash "isDraft" pr) t) "Draft pull requests cannot be merged.")
         ((octocat-pr--conflicts-p pr) "This branch has conflicts that must be resolved")))
 
-(defun octocat-pr--merge-section (pr on-visit-check)
+(defun octocat-pr--merge-section (pr on-visit-check merging)
   "Return the vnodes of the merge box of open PR, or nil.
 Like GitHub's, it holds the review, checks and conflict status, then
 the merge (or, for a draft, the ready for review) button.
-ON-VISIT-CHECK is called by RET on a check."
+ON-VISIT-CHECK is called by RET on a check.  MERGING non-nil shows a
+merge under way in place of the buttons."
   (when (equal (gethash "state" pr) "OPEN")
     (let ((draft  (eq (gethash "isDraft" pr) t))
           (checks (or (octocat-timeline--get pr "statusCheckRollup") [])))
@@ -383,13 +384,19 @@ ON-VISIT-CHECK is called by RET on a check."
                                     (octocat-checks-rows checks on-visit-check "    "))))))
                (octocat-pr--merge-rows pr))
        (list (vui-newline))
-       (if draft
-           (append
-            (list (vui-text "  This pull request is still a work in progress" :face 'bold))
-            (octocat-timeline-buttons
-             '(("Ready for review" "RET: mark this pull request ready for review"
-                octocat-pr-ready "Draft pull requests cannot be merged."))
-             'tight))
+       (cond
+        (merging
+         (list (vui-text (concat "  " (octocat-pr--merge-icon 'wait)
+                                 " Merging pull request…")
+                         :face 'bold)))
+        (draft
+         (append
+          (list (vui-text "  This pull request is still a work in progress" :face 'bold))
+          (octocat-timeline-buttons
+           '(("Ready for review" "RET: mark this pull request ready for review"
+              octocat-pr-ready "Draft pull requests cannot be merged."))
+           'tight)))
+        (t
          (append
           (unless (octocat-pr--conflicts-p pr)
             (list
@@ -403,7 +410,7 @@ ON-VISIT-CHECK is called by RET on a check."
                         octocat-pr-merge))
                  '("Convert to draft" "RET: convert this pull request to a draft"
                    octocat-pr-convert-to-draft "Still in progress?"))
-           'tight)))))))
+           'tight))))))))
 
 (defun octocat-pr--merge-data (method methods defaults delete)
   "Return the merge dialog's user data for METHOD, one of METHODS or nil.
@@ -447,10 +454,22 @@ a narrow window."
           header-line-format (cadr lines)))
   (force-mode-line-update))
 
+(defvar-local octocat-pr--merging nil
+  "Non-nil while this PR buffer's merge is under way.")
+
+(defun octocat-pr--set-merging (buf merging)
+  "Set BUF's merge under way to MERGING and show it in its page."
+  (when (buffer-live-p buf)
+    (with-current-buffer buf
+      (setq octocat-pr--merging merging)
+      (octocat-vui-update-page :merging merging))))
+
 (defun octocat-pr--submit-merge (text source on-success on-error)
   "Merge the PR in SOURCE buffer with commit message TEXT.
 The method and branch deletion are read from the edit buffer's user
-data.  Calls ON-SUCCESS on completion or ON-ERROR with a message."
+data.  The dialog closes at once, through ON-SUCCESS, and SOURCE shows
+the merge under way until it ends, so a slow GitHub does not block;
+ON-ERROR is called only for a missing method."
   (let ((method (plist-get octocat-edit--user-data :method))
         (delete (plist-get octocat-edit--user-data :delete)))
     (if (not method)
@@ -458,14 +477,21 @@ data.  Calls ON-SUCCESS on completion or ON-ERROR with a message."
                            "Pick a merge method with \\[octocat-pr-merge-cycle]"))
       (with-current-buffer source
         (let ((number octocat--pr-number))
+          (setq octocat-pr--merging t)
           (octocat--run-gh "merge"
             (octocat-pr--merge-args octocat--pr-repo number method text delete)
             #'string-trim
             (lambda (result)
               (if (eq (car-safe result) 'error)
-                  (funcall on-error (cdr result))
+                  (progn
+                    (message "Octocat: Failed to merge PR #%d: %s" number (cdr result))
+                    (octocat-pr--set-merging source nil))
                 (message "Octocat: Merged PR #%d" number)
-                (funcall on-success)))))))))
+                (when (buffer-live-p source)
+                  (with-current-buffer source
+                    (setq octocat-pr--merging nil)
+                    (octocat-pr-refresh))))))))
+      (funcall on-success))))
 
 (defun octocat-pr-merge-cycle ()
   "Switch the merge dialog to the next allowed method.
@@ -515,7 +541,8 @@ accidental choice."
          (method   (and (null (cdr methods)) (car methods)))
          (data     (octocat-pr--merge-data method methods defaults delete))
          (win      (octocat--open-edit-buffer
-                    title #'octocat-pr--submit-merge #'octocat-pr-refresh
+                    title #'octocat-pr--submit-merge
+                    (lambda (source) (octocat-pr--set-merging source t))
                     (cdr (assoc method defaults)) data)))
     (with-current-buffer (window-buffer win)
       (goto-char (point-min))
@@ -538,6 +565,7 @@ is the confirmation."
          (source  (current-buffer)))
     (cond
      ((not pr) (user-error "Octocat: PR not loaded yet"))
+     (octocat-pr--merging (user-error "Octocat: PR #%d is being merged" octocat--pr-number))
      ((not (equal (gethash "state" pr) "OPEN"))
       (user-error "Octocat: PR #%d is not open" octocat--pr-number))
      (refusal (user-error "Octocat: %s" refusal)))
@@ -775,8 +803,9 @@ Each is \"@login (state)\": the state of their latest review, or
                         requests)))))
     (and parts (mapconcat #'identity parts ", "))))
 
-(vui-defcomponent octocat-pr--page (repo number raw)
-  "Pull request NUMBER of REPO as a timeline; RAW shows markdown verbatim."
+(vui-defcomponent octocat-pr--page (repo number raw merging)
+  "Pull request NUMBER of REPO as a timeline; RAW shows markdown verbatim.
+MERGING non-nil shows a merge under way."
   :state ((win-width nil))
   :render
   (let* ((width  (octocat-vui-use-window-width))
@@ -819,7 +848,7 @@ Each is \"@login (state)\": the state of their latest review, or
                   t)
                  (list (vui-newline))
                  ;; An open PR's checks are in its merge box, as on GitHub.
-                 (or (octocat-pr--merge-section pr on-visit-check)
+                 (or (octocat-pr--merge-section pr on-visit-check merging)
                      (octocat-checks-block
                       (or (octocat-timeline--get pr "statusCheckRollup") [])
                       on-visit-check)))))))))
@@ -875,7 +904,8 @@ background."
     (vui-mount (vui-component 'octocat-pr--page
                               :repo octocat--pr-repo
                               :number octocat--pr-number
-                              :raw octocat--markdown-raw)
+                              :raw octocat--markdown-raw
+                              :merging octocat-pr--merging)
                (buffer-name))))
 
 (defun octocat-pr-open (repo number)

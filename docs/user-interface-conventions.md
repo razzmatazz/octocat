@@ -458,6 +458,29 @@ none: stale content stands in until fresh data replaces it.
 
 ---
 
+## Never block the UI on the network
+
+A command that writes to GitHub (merge, comment, state change) must not
+leave the user waiting on `gh`: on a slow network or a slow GitHub that
+can take many seconds.  Validate what can be checked locally, then close
+any dialog at once and show the action as **in progress** on the page
+itself, as github.com does ("Merging pull request…" in place of the
+merge button).  When `gh` returns, refresh the page to show the result;
+on failure, clear the in-progress state and report the error in the
+echo area.
+
+The in-progress state lives in a buffer-local variable passed to the
+page as a prop, so a refresh (`g`) while the action runs still shows
+it.  Change it with `octocat-vui-update-page`, which re-renders the page
+in place, not with a remount (see docs/using-vui.md).  While it is set,
+hide the buttons that would start the action again, and make their
+commands refuse with a `user-error`.
+
+The merge dialog (`octocat-pr--submit-merge`, `octocat-pr--merging`)
+is the reference implementation.
+
+---
+
 ## Revealing more rows ("Load N more…")
 
 Rows that a `[+] Load N more…` button brings in **unfold** one frame at a

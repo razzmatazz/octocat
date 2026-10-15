@@ -34,8 +34,12 @@ compile: deps
 lint: deps
 	$(DOCKER_RUN) sh -c 'eask lint checkdoc 2>&1 | tee /tmp/checkdoc.log && ! grep -E "\.el:[0-9]+: " /tmp/checkdoc.log > /dev/null && eask lint package'
 
+# Each eask start takes seconds, so the tests share one process, but for
+# the evil one, which must load octocat itself (see its Commentary).
+EVIL_TEST := test/octocat-evil-repo-tests.el
+
 test: deps
-	$(DOCKER_RUN) sh -c 'for f in test/*-tests.el; do eask test ert "$$f" || exit 1; done'
+	$(DOCKER_RUN) sh -c 'eask test ert $(EVIL_TEST) && eask test ert $(filter-out $(EVIL_TEST),$(wildcard test/*-tests.el))'
 
 # compile, lint and test are independent, so run them in parallel.
 ci: clean

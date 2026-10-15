@@ -20,7 +20,7 @@
 ;; This file MUST be run in its own Emacs process, separate from the
 ;; other test files, which `(require 'octocat)' at load time and would
 ;; make the first assertion below vacuous.  The `test' target in the
-;; Makefile runs each test file in its own process.
+;; Makefile runs this file in its own process, the others in another.
 ;;
 ;; Run via:
 ;;   eask test ert test/octocat-evil-repo-tests.el
