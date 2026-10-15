@@ -126,7 +126,6 @@ insert a newline into it."
     ("C-c C-s" . octocat-search-repo)
     ("gs"      . octocat-search-repo)
     ("gr"      . revert-buffer)
-    ("/"       . octocat-evil-list-edit-query)
     ("F"       . octocat-vui-list-filter)
     ("q"       . quit-window))
   "Normal-state bindings of the PR, issue and Actions list pages.")
@@ -212,7 +211,6 @@ Off an entry, such as on the header, move left."
                      octocat-issue-list-mode-map
                      octocat-actions-mode-map))
     (evil-define-key* 'motion map
-      (kbd "/")       #'octocat-evil-list-edit-query
       (kbd "F")       #'octocat-vui-list-filter))
   (add-hook 'octocat-vui-list-mode-hook #'octocat-evil--list-setup)
   (add-hook 'octocat-vui-list-query-submit-hook #'octocat-evil--list-query-submitted)

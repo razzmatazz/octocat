@@ -833,7 +833,7 @@ The first page is cached on disk and painted while it is refetched;
 ;;
 ;; The PR and issue pages are filtered by a GitHub search query string
 ;; (see octocat-core.el, "List filters"), kept in `octocat-vui-list--query'
-;; and edited in a field above the list (`/' moves into it), with
+;; and edited in a field above the list (TAB reaches it), with
 ;; completion for the usual qualifiers; the State / Author / Assignee
 ;; buttons (or `F') edit single qualifiers through a toggle prompt:
 ;; choosing an item checks it, choosing the checked item unchecks it.
@@ -1131,7 +1131,6 @@ A [clear] button shows when it differs from the default."
                                  :on-click #'octocat-vui-list-clear-filter)))))
      (vui-newline))))
 
-(define-key octocat-vui-list-mode-map (kbd "/") #'octocat-vui-list-edit-query)
 (define-key octocat-vui-list-mode-map (kbd "F") #'octocat-vui-list-filter)
 
 (provide 'octocat-vui)
