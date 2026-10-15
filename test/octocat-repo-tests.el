@@ -160,5 +160,18 @@
             (should (= (plist-get u :behind) 1))))
       (delete-directory root t))))
 
+(ert-deftest octocat-repo-test-parse-history ()
+  "History edges become REST-shaped commits that keep their cursor."
+  (let* ((json "{\"data\":{\"repository\":{\"object\":{\"history\":{\"edges\":[{\"cursor\":\"abc 0\",\"node\":{\"oid\":\"abc\",\"messageHeadline\":\"Fix it\",\"authoredDate\":\"2026-10-14T13:40:36Z\",\"author\":{\"name\":\"Ann\",\"email\":\"a@x\",\"user\":{\"login\":\"ann\"}}}},{\"cursor\":\"abc 1\",\"node\":{\"oid\":\"def\",\"messageHeadline\":\"Old\",\"authoredDate\":\"2026-10-13T00:00:00Z\",\"author\":{\"name\":\"Bo\",\"email\":\"b@x\",\"user\":null}}}]}}}}}")
+         (commits (octocat-repo--parse-history json))
+         (first   (car commits)))
+    (should (equal (gethash "sha" first) "abc"))
+    (should (equal (gethash "message" (gethash "commit" first)) "Fix it"))
+    (should (equal (octocat--commit-author first) "@ann"))
+    (should (equal (octocat--commit-author (cadr commits)) "Bo"))
+    (should (equal (gethash "cursor" (cadr commits)) "abc 1")))
+  (should-error (octocat-repo--parse-history
+                 "{\"data\":{\"repository\":{\"object\":null}}}")))
+
 (provide 'octocat-repo-tests)
 ;;; octocat-repo-tests.el ends here

@@ -278,20 +278,60 @@ Call CALLBACK with a list of run hash-tables (each including a
    #'octocat--parse-json-list
    callback))
 
-(defun octocat-repo--list-commits (repo sha page callback)
-  "Fetch PAGE (1-based) of the commits of REPO, starting at commit SHA.
-SHA nil means the head of the default branch.  A page holds
-`octocat-repo-commits-page-size' commits.  Calls CALLBACK with a list of
-commit hash-tables, or a cons \\=(error . MSG).
-The query is in the URL so that `gh api' issues a GET."
-  (octocat--run-gh
-   "commits"
-   (list "api"
-         (format "repos/%s/commits?per_page=%d&page=%d%s"
-                 repo octocat-repo-commits-page-size page
-                 (if sha (concat "&sha=" sha) "")))
-   #'octocat--parse-json-list
-   callback))
+(defconst octocat-repo--history-query
+  "query($owner:String!,$name:String!,$ref:String!,$limit:Int!,$after:String){repository(owner:$owner,name:$name){object(expression:$ref){...on Commit{history(first:$limit,after:$after){edges{cursor node{oid messageHeadline authoredDate author{name email user{login}}}}}}}}}"
+  "GraphQL query behind `octocat-repo--list-commits'.
+Only what a row shows: the REST commits endpoint sends ~15 times as much.")
+
+(defun octocat-repo--list-commits (repo ref callback &optional after)
+  "Fetch a page of the commits of REPO, from REF back.
+REF is a branch or SHA; nil means the head of the default branch.
+AFTER, a commit's \"cursor\", fetches the page after that commit.  A
+page holds `octocat-repo-commits-page-size' commits.  Calls CALLBACK with
+a list of commits from `octocat-repo--parse-history', or a cons
+\\=(error . MSG)."
+  (let ((parts (split-string repo "/")))
+    (octocat--run-gh
+     "commits"
+     (append (list "api" "graphql"
+                   "-f" (concat "query=" octocat-repo--history-query)
+                   "-f" (concat "owner=" (car parts))
+                   "-f" (concat "name=" (cadr parts))
+                   "-f" (concat "ref=" (or ref "HEAD"))
+                   "-F" (format "limit=%d" octocat-repo-commits-page-size))
+             (and after (list "-f" (concat "after=" after))))
+     #'octocat-repo--parse-history
+     callback)))
+
+(defun octocat-repo--parse-history (json-string)
+  "Parse the commit history response JSON-STRING into a list of commits.
+Each is shaped as the REST commits endpoint has it, which is what the
+rows read: \"sha\"; \"commit\", with the \"message\" (its headline only)
+and the git \"author\" (name, email, date); and \"author\", the GitHub
+user or :null.  It also has its \"cursor\", for the page after it."
+  (let* ((repo (gethash "repository" (gethash "data" (json-parse-string json-string))))
+         (obj  (and (hash-table-p repo) (gethash "object" repo))))
+    (unless (hash-table-p obj)
+      (error "No such branch or commit"))
+    (mapcar (lambda (edge)
+              (let* ((node   (gethash "node" edge))
+                     (a      (gethash "author" node))
+                     (user   (and (hash-table-p a) (gethash "user" a)))
+                     (git    (make-hash-table :test #'equal))
+                     (c      (make-hash-table :test #'equal))
+                     (commit (make-hash-table :test #'equal)))
+                (when (hash-table-p a)
+                  (puthash "name" (gethash "name" a) git)
+                  (puthash "email" (gethash "email" a) git))
+                (puthash "date" (gethash "authoredDate" node) git)
+                (puthash "message" (gethash "messageHeadline" node) c)
+                (puthash "author" git c)
+                (puthash "sha" (gethash "oid" node) commit)
+                (puthash "commit" c commit)
+                (puthash "author" (if (hash-table-p user) user :null) commit)
+                (puthash "cursor" (gethash "cursor" edge) commit)
+                commit))
+            (gethash "edges" (gethash "history" obj)))))
 
 (defun octocat-repo--commits-merge (base &rest others)
   "Return the longest of BASE and OTHERS with the head commit of BASE.
@@ -771,12 +811,14 @@ beyond the cache are fetched, a page at a time, pinned to that head."
   :render
   (let* ((size   octocat-repo-commits-page-size)
          (cache-id (octocat-repo--commits-cache-id branch))
+         ;; "history", not the REST-era "commits", whose entries lack
+         ;; the cursors that load more pages after.
          (cached (vui-use-memo (repo cache-id)
-                   (octocat--items-cache-load repo "commits" cache-id)))
+                   (octocat--items-cache-load repo "history" cache-id)))
          (first  (vui-use-async (list 'commits repo branch)
                    (lambda (resolve reject)
                      (octocat-repo--list-commits
-                      repo branch 1
+                      repo branch
                       (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
          (fresh  (and (eq (plist-get first :status) 'ready)
                       (plist-get first :data)))
@@ -794,7 +836,7 @@ beyond the cache are fetched, a page at a time, pinned to that head."
     (octocat-vui-use-mode-line-loading loading)
     (vui-use-effect (fresh commits label)
       (when (and fresh label)
-        (octocat--items-cache-save repo "commits" cache-id commits label))
+        (octocat--items-cache-save repo "history" cache-id commits label))
       nil)
     (vui-vstack
      (octocat-repo-vui--commits-heading label current-branch (and branch t) default-branch)
@@ -823,25 +865,21 @@ beyond the cache are fetched, a page at a time, pinned to that head."
 (defun octocat-repo-vui--load-more-commits (repo commits limit)
   "Show LIMIT of COMMITS of REPO, fetching the next page when short.
 Called from the load-more button of `octocat-repo-vui--commits-section'.
-The page is fetched at the head of COMMITS, so the history it pages
-through cannot shift under it."
+The page is fetched at the head of COMMITS, after the last of them, so
+the history it pages through cannot shift under it."
   (vui-set-state :limit limit)
   (when (< (length commits) limit)
-    (let* ((size (length commits))
-           (page (1+ (/ size octocat-repo-commits-page-size)))
-           ;; Rows of the page that COMMITS already holds, when its
-           ;; length is no multiple of the page size (an older cache).
-           (skip (- size (* (1- page) octocat-repo-commits-page-size)))
-           (on-page
-            (vui-async-callback (r)
-              (vui-set-state :fetching nil)
-              (if (eq (car-safe r) 'error)
-                  (message "octocat: %s" (cdr r))
-                (vui-set-state
-                 :more (list :items (append commits (nthcdr skip r))
-                             :done (< (length r) octocat-repo-commits-page-size)))))))
+    (let ((on-page
+           (vui-async-callback (r)
+             (vui-set-state :fetching nil)
+             (if (eq (car-safe r) 'error)
+                 (message "octocat: %s" (cdr r))
+               (vui-set-state
+                :more (list :items (append commits r)
+                            :done (< (length r) octocat-repo-commits-page-size)))))))
       (vui-set-state :fetching t)
-      (octocat-repo--list-commits repo (gethash "sha" (car commits)) page on-page))))
+      (octocat-repo--list-commits repo (gethash "sha" (car commits)) on-page
+                                  (gethash "cursor" (car (last commits)))))))
 
 ;;;; Root
 
