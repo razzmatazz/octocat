@@ -3,6 +3,7 @@
 See [README.md](README.md) for full project documentation.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for code conventions.
 See [docs/user-interface-conventions.md](docs/user-interface-conventions.md) for UI conventions: how to signal interactivity, `mouse-face`/`help-echo` patterns, and the decision table for RET-able sections vs inline buttons.
+See [docs/using-vui.md](docs/using-vui.md) for vui.el gotchas and their workarounds, e.g. why a button handler must not remount its page synchronously.
 See "Functional core" in [CONTRIBUTING.md](CONTRIBUTING.md): keep functions as functional as possible, with context (e.g. width) passed in as arguments and side effects confined to commands and effects.
 
 ## Rules

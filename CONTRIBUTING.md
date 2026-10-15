@@ -101,20 +101,9 @@ Generic, repo-agnostic vui helpers (the RET-able `octocat-vui-row`,
 Put new reusable vui hooks/components there, and keep them free of GitHub
 knowledge.
 
-vui.el gotchas:
-
-- `vui-collapsible` indents only the **first** body line (default `:indent
-  2`).  Rows here carry their own two-space prefix, so every collapsible
-  passes `:indent 0`; otherwise the first row is indented by four spaces.
-- Rows use `vui-text` inside a `vui-region` (not `vui-button`) so per-segment
-  faces are preserved; see "Row rendering" in `octocat-repo.el`.
-- Every repeating timer goes through `octocat-vui-use-timer`, never a bare
-  `run-with-timer`.  It ties the timer to the component: it is cancelled
-  when the component unmounts or the hook's dependencies change, when the
-  callback returns nil (done), and when the callback signals, so a broken
-  frame is reported once instead of on every tick.  A callback that sets
-  state to the value it already has does not re-render, so a timer that
-  only stopped on a re-render would run forever: return nil instead.
+vui.el gotchas, and the workarounds for them, are in
+[docs/using-vui.md](docs/using-vui.md).  Read it before adding a vui button
+or field whose handler rebuilds the page.
 
 ### Functional core
 

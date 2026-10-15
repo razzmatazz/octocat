@@ -662,7 +662,7 @@ instead; this is how the tab strip of the other repo pages gets here."
                                 (plist-get (octocat--head-info) :branch)
                                 octocat-tree--branch)
         octocat-tree--root-sha nil)
-  (octocat-tree-refresh))
+  (octocat-vui-refresh-later #'octocat-tree-refresh))
 
 (defun octocat-tree-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the tree buffer from the GitHub API.

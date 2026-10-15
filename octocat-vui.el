@@ -560,6 +560,16 @@ holds as the page is repainted from the disk cache before it refetches."
      (prog1 (progn ,@body)
        (octocat-vui--restore-view view))))
 
+(defun octocat-vui-refresh-later (fn)
+  "Call FN in the current buffer after the running command is done.
+For a command that remounts its own page and is also a vui button's or
+field's handler: a `vui-mount' inside the handler is undone when it
+returns, leaking the new page.  See docs/using-vui.md."
+  (let ((buf (current-buffer)))
+    (run-at-time 0 nil (lambda ()
+                         (when (buffer-live-p buf)
+                           (with-current-buffer buf (funcall fn)))))))
+
 (defvar-local octocat-vui--page nil
   "The page `octocat-vui-refresh-page' mounted here: (COMPONENT ID INSTANCE).")
 
@@ -958,7 +968,7 @@ given as initial input so RET alone keeps them."
 (defun octocat-vui-list--apply (query)
   "Make QUERY the current query and refresh the buffer."
   (setq octocat-vui-list--query (string-trim query))
-  (revert-buffer nil t))
+  (octocat-vui-refresh-later (lambda () (revert-buffer nil t))))
 
 (defvar octocat-vui-list-query-submit-hook nil
   "Hook run in a list buffer when its query field is submitted.")

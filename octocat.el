@@ -502,7 +502,7 @@ re-runs `octocat-refresh'."
   (unless octocat--feed-limit
     (setq octocat--feed-limit octocat-feed-limit))
   (cl-incf octocat--feed-limit octocat-feed-limit)
-  (octocat-refresh))
+  (octocat-vui-refresh-later #'octocat-refresh))
 
 
 ;;;; Entry points

@@ -1,5 +1,104 @@
 # TODO list
 
+## Report to vui.el: a handler's remount is undone, leaking the new page
+
+File at https://github.com/d12frosted/vui.el/issues: title and body below.
+Once fixed upstream, drop `octocat-vui-refresh-later` and its section in
+docs/using-vui.md.
+
+**Title:** A `vui-mount` inside an event handler is undone when the handler returns, leaking the new tree
+
+**Body:**
+
+When a button's `:on-click` (or a field's `:on-submit`, etc.) remounts
+its own buffer with `vui-mount`, the buffer-local `vui--root-instance`
+reverts to the old, already unmounted root as the handler returns.  The
+next `vui-mount` of that buffer then tears down the dead root, and the
+live tree is never unmounted: its effects stay installed and their
+cleanups never run.
+
+Seen on d8e76e7 and still present on master (f42b4d8).
+
+#### Repro
+
+```elisp
+;;; -*- lexical-binding: t -*-
+(defvar probe-live nil "Labels of the trees whose effect is installed.")
+
+(vui-defcomponent probe-page (label)
+  :render
+  (progn
+    (vui-use-effect ()
+      (push label probe-live)
+      (lambda () (setq probe-live (delete label probe-live))))
+    (vui-button "remount"
+      :on-click (lambda () (probe-mount (concat label "+"))))))
+
+(defun probe-mount (label)
+  (vui-mount (vui-component 'probe-page :label label) "*probe*"))
+```
+
+1. `(probe-mount "A")`: `probe-live` is `("A")`.
+2. Press `[remount]` in `*probe*`: `probe-live` is `("A+")`, as expected,
+   but `vui--root-instance` in `*probe*` is the tree of `"A"`, detached
+   (`(vui-instance-buffer vui--root-instance)` is nil).
+3. `(probe-mount "B")`: `probe-live` is `("B" "A+")`.  `"A+"` was never
+   unmounted.
+
+Expected after step 3: `("B")`.
+
+#### Impact
+
+The leaked tree's effects keep running.  In our case a
+`window-size-change-functions` hook (added by an effect, removed in its
+cleanup) called `vui-set-state` on the leaked tree via
+`vui-with-async-context`; the tree is not detached, so the closure's
+liveness check passes, and it re-rendered its stale props over the
+buffer on every window resize.  On a list page, `C-x 3` swapped the
+current filter and results for an earlier one.
+
+#### Cause
+
+The event wrappers run the handler inside
+
+```elisp
+(let ((vui--current-instance captured-instance)
+      (vui--root-instance captured-root))
+  (funcall wrapped-click))
+```
+
+(`vui-button`, checkbox, select, and `vui-field`'s `:notify` and
+`:action`; five places on master).  `vui-mount` sets
+`vui--root-instance` to the new root, but that `setq` hits the `let`
+binding, which unwinds to the value from before the handler: the root
+`vui-mount` just unmounted.
+
+#### Possible fix
+
+Carry a root replaced during the handler out of the `let`, in one helper
+the five wrappers share:
+
+```elisp
+(let ((buf (current-buffer)) new-root)
+  (let ((vui--current-instance captured-instance)
+        (vui--root-instance captured-root))
+    (funcall wrapped-click)
+    ;; Read in BUF: the handler may have left another buffer current.
+    (let ((root (buffer-local-value 'vui--root-instance buf)))
+      (unless (eq root captured-root)
+        (setq new-root root))))
+  (when new-root
+    (with-current-buffer buf (setq vui--root-instance new-root))))
+```
+
+A remount into another buffer is unaffected: the `let` binds the
+clicked buffer's value only.
+
+#### Workaround
+
+Defer the remount until after the handler, e.g. with
+`(run-at-time 0 nil ...)` in the clicked buffer.
+
 ## upload to melpa
 
 https://github.com/melpa/melpa/pull/10048

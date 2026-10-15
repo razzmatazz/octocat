@@ -972,13 +972,13 @@ Everything but the commits comes from a single summary API call."
                    octocat-repo--repo default (plist-get (octocat--head-info) :branch)
                    (or octocat-repo--branch default))))
     (setq octocat-repo--branch (unless (equal picked default) picked))
-    (octocat-repo-refresh)))
+    (octocat-vui-refresh-later #'octocat-repo-refresh)))
 
 (defun octocat-repo-reset-branch ()
   "Show the commits of the default branch again."
   (interactive)
   (setq octocat-repo--branch nil)
-  (octocat-repo-refresh))
+  (octocat-vui-refresh-later #'octocat-repo-refresh))
 
 (defvar octocat-repo-mode-map
   (let ((map (make-sparse-keymap)))
