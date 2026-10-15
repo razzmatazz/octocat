@@ -246,5 +246,35 @@ comments are markdown, rendered unless RAW, to fit WIDTH columns."
                  :width width
                  :fits (<= (octocat-diff--line-count files) (octocat-vui-window-height))))
 
+(defun octocat-diff-comments-section (label comments raw width)
+  "Return the vnode of the comments section headed LABEL, e.g. \"Comments\".
+COMMENTS is the `vui-use-async' result for the comments.  Inline ones
+are in the diff, so only counted here; the others are boxed like them.
+RAW and WIDTH are as for `octocat-diff--comment-lines'."
+  (let* ((all     (plist-get comments :data))
+         (general (seq-remove (lambda (c) (octocat--nonempty (gethash "path" c))) all))
+         (inline  (- (length all) (length general)))
+         (noun    (downcase (string-remove-suffix "s" label))))
+    (apply #'vui-vstack
+           (vui-text (propertize (if (eq (plist-get comments :status) 'ready)
+                                     (format "%s (%d)" label (length all))
+                                   label)
+                                 'face 'octocat-section-heading))
+           (pcase (plist-get comments :status)
+             ('pending (list (vui-text (octocat-vui-skeleton '(("  " 36))))))
+             ('error   (list (vui-text (format "  %s" (plist-get comments :error))
+                                       :face 'octocat-dimmed)))
+             (_ (if (null all)
+                    (list (vui-text (format "  (no %ss)" noun) :face 'octocat-dimmed))
+                  (append
+                   (and (> inline 0)
+                        (list (vui-text (format "  (%d inline %s%s shown in the diff above)"
+                                                inline noun (if (= inline 1) "" "s"))
+                                        :face 'octocat-dimmed)))
+                   (mapcar (lambda (c)
+                             (vui-text (string-join (octocat-diff--comment-lines c raw width)
+                                                    "\n")))
+                           general))))))))
+
 (provide 'octocat-diff)
 ;;; octocat-diff.el ends here

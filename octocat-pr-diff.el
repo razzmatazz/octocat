@@ -222,23 +222,6 @@ Write the review text, pick Comment, Approve or Request changes with
 
 ;;;; Components
 
-(defun octocat-pr-diff--comments-section (comments)
-  "Return the vnode of the Review Comments section.
-COMMENTS is the `vui-use-async' result for the review comments."
-  (let ((n (length (plist-get comments :data))))
-    (vui-vstack
-     (vui-text (concat (propertize "Review Comments" 'face 'octocat-section-heading)
-                       (when (eq (plist-get comments :status) 'ready)
-                         (propertize (format " (%d)" n) 'face 'octocat-section-heading))))
-     (pcase (plist-get comments :status)
-       ('pending (vui-text (octocat-vui-skeleton '(("  " 36)))))
-       ('error   (vui-text (format "  %s" (plist-get comments :error)) :face 'octocat-dimmed))
-       (_ (vui-text (if (zerop n)
-                        "  (no review comments)"
-                      (format "  (%d inline review comment%s shown in the diff above)"
-                              n (if (= n 1) "" "s")))
-                    :face 'octocat-dimmed))))))
-
 (vui-defcomponent octocat-pr-diff--page (repo number raw reviewing)
   "The diff of pull request NUMBER of REPO, under the PR page's header.
 RAW shows the review comments' markdown verbatim.  REVIEWING non-nil
@@ -280,7 +263,8 @@ shows a review being submitted in place of the submit button."
        (_ (octocat-diff-files-section (plist-get files :data) by-path
                                       raw (octocat--markdown-width))))
      (vui-newline)
-     (octocat-pr-diff--comments-section comments)
+     (octocat-diff-comments-section "Review Comments" comments
+                                    raw (octocat--markdown-width))
      (if reviewing
          (vui-text (concat "  " (octocat-pr--merge-icon 'wait) " Submitting review…")
                    :face 'bold)

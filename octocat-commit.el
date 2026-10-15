@@ -175,45 +175,6 @@ Its check-runs are in CHECKS, a `vui-use-async' result."
               (vconcat (mapcar #'octocat-checks-from-rest (plist-get checks :data)))
               (lambda () (octocat-checks-open repo sha nil))))))
 
-(defun octocat-commit--comment (comment raw width)
-  "Return the vnode of the general COMMENT, its author, date and body.
-RAW and WIDTH are as for `octocat--markdown-string'."
-  (let* ((user   (gethash "user" comment))
-         (login  (or (and (hash-table-p user) (octocat--nonempty (gethash "login" user)))
-                     ""))
-         (body   (string-trim (or (gethash "body" comment) ""))))
-    (vui-text
-     (concat "  "
-             (propertize (if (string-empty-p login) "(unknown)" (concat "@" login))
-                         'face 'octocat-pr-author)
-             "  "
-             (propertize (octocat--format-ts-relative
-                          (or (octocat--nonempty (gethash "created_at" comment)) ""))
-                         'face 'octocat-dimmed)
-             "\n"
-             (if (string-empty-p body)
-                 (propertize "  (empty)" 'face 'octocat-dimmed)
-               (string-remove-suffix
-                "\n" (octocat--markdown-string body nil raw width)))))))
-
-(defun octocat-commit--comments (comments raw width)
-  "Return the Comments section.
-COMMENTS is the `vui-use-async' result for the commit's comments.  Only
-general comments are listed; inline ones are in the diff, and counted in
-a dimmed note.  RAW and WIDTH are as for `octocat--markdown-string'."
-  (let* ((all     (plist-get comments :data))
-         (general (seq-remove (lambda (c) (octocat--nonempty (gethash "path" c))) all))
-         (inline  (- (length all) (length general))))
-    (apply #'vui-vstack
-           (octocat-commit--heading "Comments" comments)
-           (or (delq nil (list (octocat-commit--async-status comments "(no comments)")))
-               (append
-                (and (> inline 0)
-                     (list (vui-text (format "  (%d inline comment%s shown in the diff above)"
-                                             inline (if (= inline 1) "" "s"))
-                                     :face 'octocat-dimmed)))
-                (mapcar (lambda (c) (octocat-commit--comment c raw width)) general))))))
-
 
 ;;;; Page
 
@@ -259,7 +220,7 @@ are fetched independently; each shows its cached copy until then."
                              (octocat-diff-files-section
                               (or (gethash "files" data) []) by-path raw md-width)
                              (vui-newline)
-                             (octocat-commit--comments comments raw md-width)))))))))
+                             (octocat-diff-comments-section "Comments" comments raw md-width)))))))))
 
 
 ;;;; Major mode
@@ -296,7 +257,8 @@ are fetched independently; each shows its cached copy until then."
   (setq-local revert-buffer-function #'octocat-commit-refresh)
   (setq-local octocat--refresh-fn #'octocat-commit-refresh)
   (octocat-markdown--ensure-invisibility)
-  (octocat--ts-eldoc-setup))
+  (octocat--ts-eldoc-setup)
+  (octocat--max-width-setup))
 
 
 ;;;; Refresh

@@ -38,5 +38,23 @@
     (should (equal (nth 1 (octocat-diff--comment-lines c nil 80)) "  │ hi"))
     (should (equal (nth 1 (octocat-diff--comment-lines c t 80)) "  │ **hi**"))))
 
+(ert-deftest octocat-diff-test-comments-section ()
+  "General comments are boxed; inline ones only counted."
+  (let ((text (lambda (data)
+                (with-temp-buffer
+                  (vui-render (octocat-diff-comments-section
+                               "Comments" (list :status 'ready :data data) nil 80))
+                  (buffer-substring-no-properties (point-min) (point-max))))))
+    (should (string-search "(no comments)" (funcall text nil)))
+    (let ((out (funcall text
+                        (list (json-parse-string
+                               "{\"user\":{\"login\":\"me\"},\"body\":\"hi\",\"created_at\":\"\"}")
+                              (json-parse-string
+                               "{\"path\":\"a.el\",\"body\":\"x\",\"created_at\":\"\"}")))))
+      (should (string-search "Comments (2)" out))
+      (should (string-search "(1 inline comment shown in the diff above)" out))
+      (should (string-search "┌─ @me" out))
+      (should (string-search "│ hi" out)))))
+
 (provide 'octocat-diff-tests)
 ;;; octocat-diff-tests.el ends here
