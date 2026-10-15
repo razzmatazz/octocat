@@ -405,11 +405,11 @@ ON-VISIT-CHECK is called by RET on a check."
            'tight)))))))
 
 (defun octocat-pr--merge-data (method methods defaults delete)
-  "Return the merge dialog's user data for METHOD, one of METHODS.
+  "Return the merge dialog's user data for METHOD, one of METHODS or nil.
 DEFAULTS is an alist of each method's default message; DELETE whether
 to delete the head branch."
   (list :method method :methods methods :defaults defaults :delete delete
-        :allow-empty (equal method "Rebase")))
+        :allow-empty (member method '(nil "Rebase"))))
 
 (defun octocat-pr--merge-header (title data)
   "Return the merge dialog's two header lines for TITLE with user DATA.
@@ -428,8 +428,9 @@ a narrow window."
              (if (plist-get data :delete)
                  (propertize "[x] Delete branch" 'face 'bold)
                (propertize "[ ] Delete branch" 'face 'octocat-dimmed))
-             (and (equal method "Rebase")
-                  (propertize "    (message unused)" 'face 'octocat-dimmed)))
+             (pcase method
+               ('nil (propertize "    (pick a method)" 'face 'warning))
+               ("Rebase" (propertize "    (message unused)" 'face 'octocat-dimmed))))
      (concat "  "
              (funcall key "C-c C-t") " method   "
              (funcall key "C-c C-d") " delete branch   "
@@ -451,16 +452,19 @@ The method and branch deletion are read from the edit buffer's user
 data.  Calls ON-SUCCESS on completion or ON-ERROR with a message."
   (let ((method (plist-get octocat-edit--user-data :method))
         (delete (plist-get octocat-edit--user-data :delete)))
-    (with-current-buffer source
-      (let ((number octocat--pr-number))
-        (octocat--run-gh "merge"
-          (octocat-pr--merge-args octocat--pr-repo number method text delete)
-          #'string-trim
-          (lambda (result)
-            (if (eq (car-safe result) 'error)
-                (funcall on-error (cdr result))
-              (message "Octocat: Merged PR #%d" number)
-              (funcall on-success))))))))
+    (if (not method)
+        (funcall on-error (substitute-command-keys
+                           "Pick a merge method with \\[octocat-pr-merge-cycle]"))
+      (with-current-buffer source
+        (let ((number octocat--pr-number))
+          (octocat--run-gh "merge"
+            (octocat-pr--merge-args octocat--pr-repo number method text delete)
+            #'string-trim
+            (lambda (result)
+              (if (eq (car-safe result) 'error)
+                  (funcall on-error (cdr result))
+                (message "Octocat: Merged PR #%d" number)
+                (funcall on-success)))))))))
 
 (defun octocat-pr-merge-cycle ()
   "Switch the merge dialog to the next allowed method.
@@ -472,7 +476,7 @@ An unedited default message is replaced by the next method's."
          (method   (plist-get data :method))
          (next     (or (cadr (member method methods)) (car methods))))
     (when (equal (string-trim (buffer-string))
-                 (string-trim (cdr (assoc method defaults))))
+                 (string-trim (or (cdr (assoc method defaults)) "")))
       (erase-buffer)
       (insert (cdr (assoc next defaults)))
       (goto-char (point-min))
@@ -499,15 +503,19 @@ An unedited default message is replaced by the next method's."
   "Pick the method of a PR merge in its edit buffer."
   :keymap octocat-pr-merge-mode-map)
 
-(defun octocat-pr--open-merge-dialog (pr methods)
-  "Open the dialog merging PR (a hash-table) by one of METHODS."
+(defun octocat-pr--open-merge-dialog (pr methods delete)
+  "Open the dialog merging PR (a hash-table) by one of METHODS.
+DELETE is the initial choice to delete the head branch.
+With several METHODS none is preselected, so a merge is never the
+accidental choice."
   (let* ((title    (format "Merge PR #%d" octocat--pr-number))
          (defaults (mapcar (lambda (m) (cons m (octocat-pr--merge-message m pr)))
                            methods))
-         (data     (octocat-pr--merge-data (car methods) methods defaults nil))
+         (method   (and (null (cdr methods)) (car methods)))
+         (data     (octocat-pr--merge-data method methods defaults delete))
          (win      (octocat--open-edit-buffer
                     title #'octocat-pr--submit-merge #'octocat-pr-refresh
-                    (cdar defaults) data)))
+                    (cdr (assoc method defaults)) data)))
     (with-current-buffer (window-buffer win)
       (goto-char (point-min))
       ;; Draw the tab line used as a second header line like the header
@@ -535,7 +543,10 @@ is the confirmation."
     (message "Octocat: Fetching merge options…")
     (octocat--run-gh "merge-methods"
       (list "repo" "view" octocat--pr-repo "--json"
-            (mapconcat (lambda (m) (nth 2 m)) octocat-pr--merge-methods ","))
+            (mapconcat #'identity
+                       (cons "deleteBranchOnMerge"
+                             (mapcar (lambda (m) (nth 2 m)) octocat-pr--merge-methods))
+                       ","))
       (lambda (out) (json-parse-string (string-trim out)))
       (lambda (result)
         (let ((methods (and (hash-table-p result) (octocat-pr--merge-allowed result))))
@@ -546,7 +557,8 @@ is the confirmation."
            ((buffer-live-p source)
             (message nil)
             (with-current-buffer source
-              (octocat-pr--open-merge-dialog pr methods)))))))))
+              (octocat-pr--open-merge-dialog
+               pr methods (eq (gethash "deleteBranchOnMerge" result) t))))))))))
 
 (defun octocat-pr--set-draft (draft)
   "Mark the current PR a draft if DRAFT, else ready for review."
