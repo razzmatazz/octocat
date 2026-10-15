@@ -210,13 +210,13 @@
   "Frames are cut short with their titles when the width is tight."
   (let ((out (octocat-mermaid-tests--draw
               (string-join '("graph TD" "Dev --> PR"
-                             "subgraph ci [Continuous integration]" "Build --> Test" "end"
-                             "PR --> Build" "Test --> Deploy")
+                             "subgraph ci [Continuous integration]" "Build --> Test[Run tests]"
+                             "end" "PR --> Build" "Test --> Deploy")
                            "\n")
               20)))
     (should out)
     (should (<= (octocat-mermaid-tests--width out) 20))
-    (should (string-match-p "┌╌ Co…" out))))
+    (should (string-match-p "┌╌ Con…" out))))
 
 (ert-deftest octocat-mermaid-test-subgraph-unsupported ()
   "Nested subgraphs, edges to a subgraph and a subgraph with a foreign node

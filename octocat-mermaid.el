@@ -603,9 +603,12 @@ each its only one on that side is made straight when it can be."
               (high (min (+ (octocat-mermaid--n-cross a) (octocat-mermaid--csize a) -2)
                          (+ (octocat-mermaid--n-cross b) (octocat-mermaid--csize b) -2))))
           (when (<= low high)
-            (let ((c (max low (min high (round (/ (+ (octocat-mermaid--center a)
-                                                     (octocat-mermaid--center b))
-                                                  2.0))))))
+            ;; The middle cell of a box lies half a cell before its centre;
+            ;; aim between those, so an odd-width box gets its exact middle.
+            (let ((c (max low (min high (round (- (/ (+ (octocat-mermaid--center a)
+                                                        (octocat-mermaid--center b))
+                                                     2.0)
+                                                  0.5))))))
               (setf (octocat-mermaid--e-start-c e) c
                     (octocat-mermaid--e-end-c e) c))))))))
 
