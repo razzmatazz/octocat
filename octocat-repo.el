@@ -616,7 +616,8 @@ rows and the page headers so the two read alike."
 (defun octocat-repo-vui--compact-line (state number cells &optional width)
   "Return the one line of an item in a compact list.
 That is STATE text, NUMBER (\"#N\"), the title and its label chips, then
-the author; CELLS are as made by `octocat-repo-vui--cells'.  The repo is
+the author; CELLS are as made by `octocat-repo-vui--cells'.  A nil STATE
+leaves it out.  The repo is
 the page's and the age is left out, to make room for the title.
 WIDTH, when non-nil, cuts the line to fit, shortening the title first."
   (let* ((cap   (and width (max 10 (1- width))))
@@ -624,7 +625,7 @@ WIDTH, when non-nil, cuts the line to fit, shortening the title first."
                   (if (string-empty-p c) "" (concat "  " c))))
          (tail  (concat (propertize " · " 'face 'octocat-dimmed)
                         (plist-get cells :author)))
-         (head  (concat state "  " number "  "))
+         (head  (concat (and state (concat state "  ")) number "  "))
          (title (plist-get cells :title))
          (line  (concat head
                         (if cap
@@ -656,22 +657,26 @@ the one line of `octocat-repo-vui--compact-line', with NUMBER."
   "Return the \"#N\" of the issue or PR ITEM."
   (propertize (format "#%d" (gethash "number" item)) 'face 'octocat-pr-number))
 
-(defun octocat-repo-vui--pr-row (repo pr width bg &optional compact)
+(defun octocat-repo-vui--pr-row (repo pr width bg &optional compact no-state)
   "Return a row vnode for PR in REPO, cut to WIDTH.
-BG is as for `octocat-repo-vui--cells'; COMPACT draws it on one line."
+BG is as for `octocat-repo-vui--cells'; COMPACT draws it on one line,
+without the state when NO-STATE is non-nil."
   (octocat-repo-vui--item-row
-   (octocat-repo-vui--state-label (gethash "state" pr) (gethash "isDraft" pr))
+   (unless (and compact no-state)
+     (octocat-repo-vui--state-label (gethash "state" pr) (gethash "isDraft" pr)))
    (octocat-repo-vui--cells repo pr bg)
    width
    (lambda () (octocat-repo-vui--open-pr repo pr))
    "RET: view pull request"
    compact (octocat-repo-vui--number pr)))
 
-(defun octocat-repo-vui--issue-row (repo issue width bg &optional compact)
+(defun octocat-repo-vui--issue-row (repo issue width bg &optional compact no-state)
   "Return a row vnode for ISSUE in REPO, cut to WIDTH.
-BG is as for `octocat-repo-vui--cells'; COMPACT draws it on one line."
+BG is as for `octocat-repo-vui--cells'; COMPACT draws it on one line,
+without the state when NO-STATE is non-nil."
   (octocat-repo-vui--item-row
-   (octocat-repo-vui--state-label (gethash "state" issue))
+   (unless (and compact no-state)
+     (octocat-repo-vui--state-label (gethash "state" issue)))
    (octocat-repo-vui--cells repo issue bg)
    width
    (lambda () (octocat-repo-vui--open-issue repo issue))

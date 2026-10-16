@@ -39,7 +39,7 @@
 ;; The issue list page below reuses the row builder and fetch plumbing
 ;; from octocat-repo.el, which requires this file (so cannot be required
 ;; here).
-(declare-function octocat-repo-vui--issue-row "octocat-repo" (repo issue width bg &optional compact))
+(declare-function octocat-repo-vui--issue-row "octocat-repo" (repo issue width bg &optional compact no-state))
 (declare-function octocat-repo-vui--state-label "octocat-repo" (state &optional draft))
 (declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title bg &optional branch omit))
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
@@ -372,9 +372,9 @@ background, in place: what is unfolded stays so."
                                     :kind 'issues
                                     :query (octocat-vui-list-query)
                                     :compact (octocat-vui-list-compact-p)
-                                    :row-fn (lambda (issue width compact)
+                                    :row-fn (lambda (issue width compact no-state)
                                               (octocat-repo-vui--issue-row
-                                               repo issue width bg compact))))))
+                                               repo issue width bg compact no-state))))))
 
 (define-derived-mode octocat-issue-list-mode octocat-vui-list-mode "Octocat-Issues"
   "Major mode for the issue list of a repository.

@@ -96,6 +96,13 @@
     (dolist (line lines)
       (should (<= (string-width line) 30)))))
 
+(ert-deftest octocat-vui-test-compact-list-skeleton-no-state ()
+  "NO-STATE drops the state bar from the compact list skeleton."
+  (let ((with    (car (split-string (octocat-vui-list-skeleton 200 t) "\n")))
+        (without (car (split-string (octocat-vui-list-skeleton 200 t t) "\n"))))
+    (should (= (string-width with)
+               (+ (string-width without) octocat-repo-vui--state-width 2)))))
+
 (ert-deftest octocat-vui-test-list-skeleton ()
   "The list skeleton draws two-line rows of grey bars within WIDTH."
   (let ((text (octocat-vui-list-skeleton 30)))

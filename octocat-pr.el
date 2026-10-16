@@ -43,7 +43,7 @@
 ;; The PR page and the PR list page below reuse the row builder and fetch
 ;; plumbing from octocat-repo.el, which requires this file (so cannot be
 ;; required here).
-(declare-function octocat-repo-vui--pr-row "octocat-repo" (repo pr width bg &optional compact))
+(declare-function octocat-repo-vui--pr-row "octocat-repo" (repo pr width bg &optional compact no-state))
 (declare-function octocat-repo-vui--state-label"octocat-repo" (state &optional draft))
 (declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title bg &optional branch omit))
 (declare-function octocat-repo-vui--cells "octocat-repo" (repo item bg))
@@ -1200,9 +1200,9 @@ background, in place: what is unfolded stays so."
                                     :kind 'pulls
                                     :query (octocat-vui-list-query)
                                     :compact (octocat-vui-list-compact-p)
-                                    :row-fn (lambda (pr width compact)
+                                    :row-fn (lambda (pr width compact no-state)
                                               (octocat-repo-vui--pr-row
-                                               repo pr width bg compact))))))
+                                               repo pr width bg compact no-state))))))
 
 (define-derived-mode octocat-pr-list-mode octocat-vui-list-mode "Octocat-PRs"
   "Major mode for the pull request list of a repository.

@@ -201,17 +201,19 @@ of a PR page (see `octocat-vui-tab-row')."
        nil)
      width)))
 
-(defun octocat-vui-list-skeleton (width &optional compact)
+(defun octocat-vui-list-skeleton (width &optional compact no-state)
   "Return grey bars shaped like a page of two-line list rows, cut to WIDTH.
-COMPACT shapes them as one-line rows instead.  Shown when there is
+COMPACT shapes them as one-line rows instead, without the state when
+NO-STATE is non-nil.  Shown when there is
 neither a cache nor a response yet; see `octocat-repo-vui--item-row' for
 the layout it imitates."
   (let ((state  octocat-repo-vui--state-width)
         (indent (make-string (+ octocat-repo-vui--state-width 2) ?\s)))
     (octocat-vui-skeleton
      (if compact
-         `((,state "  " 4 "  " 44 "  " 12) (,state "  " 4 "  " 30 "  " 12)
-           (,state "  " 4 "  " 38 "  " 12) (,state "  " 4 "  " 24 "  " 12))
+         (mapcar (lambda (title)
+                   `(,@(unless no-state (list state "  ")) 4 "  " ,title "  " 12))
+                 '(44 30 38 24))
        `((,state "  " 44 "  " 16) (,indent 32)
          (,state "  " 30 "  " 16) (,indent 18)))
      width)))
@@ -888,8 +890,9 @@ them again."
 
 (vui-defcomponent octocat-vui-search-list (repo kind query row-fn compact tick)
   "List page of the KIND items of REPO, `issues' or `pulls', matching QUERY.
-ROW-FN returns the row of an item, given it, the window width and
-COMPACT, non-nil for one-line rows.  A new QUERY or COMPACT re-renders
+ROW-FN returns the row of an item, given it, the window width, COMPACT,
+non-nil for one-line rows, and NO-STATE, non-nil to leave a compact
+row's state out: under the default query, every item is open.  A new QUERY or COMPACT re-renders
 in place: the header keeps its counts, and the results start afresh, as
 the compact view loads more at a time.  A new TICK refetches the counts
 and starts the results afresh."
@@ -914,6 +917,7 @@ The first page is cached on disk and painted while it is refetched;
          (type   (if (eq kind 'pulls) "prs" "issues"))
          (noun   (if (eq kind 'pulls) "pull requests" "issues"))
          (limit  (if compact octocat-list-compact-page-size octocat-list-page-size))
+         (no-state (and compact (not (octocat-vui-list-filter-active-p query))))
          (id     (octocat--query-cache-id query))
          (cached (vui-use-memo (repo id) (octocat--items-cache-load repo type id)))
          (first  (vui-use-async (list kind repo query limit)
@@ -944,7 +948,7 @@ The first page is cached on disk and painted while it is refetched;
       nil)
     (octocat-vui-use-mode-line-loading loading)
     (pcase (plist-get page :status)
-      ('pending (vui-text (octocat-vui-list-skeleton width compact)))
+      ('pending (vui-text (octocat-vui-list-skeleton width compact no-state)))
       ('error   (vui-text (format "%s\n" (plist-get page :error)) :face 'octocat-dimmed))
       ('ready
        (vui-fragment
@@ -956,7 +960,7 @@ The first page is cached on disk and painted while it is refetched;
                       :face 'octocat-dimmed)
           (octocat-vui-reveal-list
            items
-           (lambda (item) (funcall row-fn item width compact))
+           (lambda (item) (funcall row-fn item width compact no-state))
            (lambda (item) (gethash "number" item))))
         ;; The cached first page has no cursor: its button waits for
         ;; the fresh one.
@@ -984,7 +988,7 @@ The first page is cached on disk and painted while it is refetched;
                                    :cursor (plist-get r :cursor))))))
                 query cursor limit)))
            fetching 0
-           (octocat-vui-list-skeleton width compact))))))))
+           (octocat-vui-list-skeleton width compact no-state))))))))
 
 
 ;;;; List filters

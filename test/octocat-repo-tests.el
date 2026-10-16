@@ -191,7 +191,8 @@
     (should-not (string-search "1d" line))
     (let ((cut (octocat-repo-vui--compact-line "open" "#1" cells 40)))
       (should (<= (string-width cut) 39))
-      (should (string-suffix-p "  bug · @a" cut)))))
+      (should (string-suffix-p "  bug · @a" cut)))
+    (should (string-prefix-p "#1  t" (octocat-repo-vui--compact-line nil "#1" cells)))))
 
 (ert-deftest octocat-repo-test-unpushed ()
   "Count local commits against the upstream, and how far it is ahead."
