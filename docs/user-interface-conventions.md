@@ -440,6 +440,23 @@ view that has a github.com page, add its URL to
 
 ---
 
+## Alternative view (`C-c C-v`)
+
+`C-c C-v` switches a page to its other way of showing the same content,
+and back: rendered vs. raw markdown on pages with markdown, two-line vs.
+one-line rows on the PR and issue lists.  Users learn one key for "show
+this differently", so a page that gains a second view binds it to
+`C-c C-v` (in the mode map and, for Evil, in octocat-evil.el) rather than
+to a key of its own, and documents it in the README's keybinding table.
+A page has at most one alternative view, so the key stays a plain
+toggle.
+
+Re-render the page in place with the new prop (`octocat-vui-update-page`),
+not a remount; see [using vui.el](using-vui.md).  Remember the choice with
+`octocat--setting-put` when it describes how the reader likes a page,
+not just what they are looking at now, as the list pages' compact view
+does.
+
 ## Windows: opening pages and `q`
 
 Octocat follows Magit (`magit-display-buffer-traditional`,

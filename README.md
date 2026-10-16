@@ -235,7 +235,7 @@ owner/repo  src/foo.el  (7 commits)
 | `C-c C-a` | Add a comment (PR and issue detail views); submit a review (PR files changed view; `C-c C-t` picks Comment / Approve / Request changes) |
 | `C-c C-e` | Edit body or comment at point (PR and issue detail views) |
 | `C-c C-m` | Merge the PR (PR detail view): edit the commit message, `C-c C-t` picks Merge / Squash / Rebase, `C-c C-d` toggles deleting the branch, `C-c C-c` merges |
-| `C-c C-v` | Toggle between rendered and raw markdown (repo page, PR, commit, and issue detail views); toggle the compact view (PR and issue lists) |
+| `C-c C-v` | Alternative view of the page (see below): raw markdown on the repo page and the PR, commit and issue pages; one line per item on the PR and issue lists |
 | `C-c C-t` | Open file tree browser (repo buffer) |
 | `C-c C-b` | Pick the branch shown (repo buffer's commits, file tree); `[reset to main]` on the repo page goes back to the default branch |
 | `C-c C-f` | Open fuzzy file finder — `completing-read` over the full recursive file list; works from both the repo buffer and the file tree browser (list is cached after first fetch) |
@@ -244,6 +244,14 @@ owner/repo  src/foo.el  (7 commits)
 | `q` | Back to the previous page, or out of octocat (see below) |
 | `TAB` | Expand / collapse section at point |
 | `S-TAB` | Cycle visibility of all sections |
+
+`C-c C-v` is the one key for seeing a page another way: wherever a page
+has a second way to show what is on it, `C-c C-v` switches to it and
+back.  Pages showing markdown switch between rendered and raw text, so
+the markup can be read or copied as written; the PR and issue lists
+switch between two-line rows and a compact view of one line per item.
+The list pages remember the choice per repository, across Emacs
+sessions; the others go back to the default view when reopened.
 
 RET opens a page in the same window and `q` steps back, as in Magit (see
 [UI conventions](docs/user-interface-conventions.md#windows-opening-pages-and-q)).
