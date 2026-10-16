@@ -105,6 +105,7 @@ clearing the cache keeps them."
 
 (defcustom octocat-max-width 112
   "Most columns the text of an issue or pull request page takes, or nil.
+Also of the documents, such as the README, under the repo page's commits.
 The page keeps to the left of a wider window, as GitHub bounds its
 conversation column; what does not fit the column, such as a diff's long
 lines, runs on past it."

@@ -1151,7 +1151,10 @@ under its blob SHA, so while the branch stays put no request is made."
                       (octocat-tree--load-blob
                        repo oid
                        (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
-         (width (octocat--markdown-width))
+         ;; Capped as an issue's text, though the rest of the page is not:
+         ;; the commit rows are better off with the whole window.
+         (width (let ((w (octocat--markdown-width)))
+                  (if octocat-max-width (min w octocat-max-width) w)))
          (text  (vui-use-memo ((plist-get blob :data) raw width)
                   (and entry (plist-get blob :data)
                        (octocat-repo--doc-text (gethash "name" entry)
