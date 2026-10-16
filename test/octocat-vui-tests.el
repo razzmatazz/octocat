@@ -57,7 +57,7 @@
 (ert-deftest octocat-vui-test-detail-skeleton ()
   "The skeleton names the item and keeps its grey bars within WIDTH."
   (let ((text (octocat-vui-detail-skeleton "o/r" 7 30)))
-    (should (string-prefix-p "o/r#7\n" text))
+    (should (string-search "o/r#7" (cadr (split-string text "\n"))))
     (should (text-property-any 0 (length text) 'face 'octocat-skeleton text))
     (dolist (line (split-string text "\n"))
       (should (<= (string-width line) 30)))))

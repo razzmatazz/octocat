@@ -470,16 +470,6 @@ config (octocat must not call Doom):
 
 ---
 
-## Navigating back to the parent repo view
-
-Every detail view belongs to a GitHub repository.  Its top line starts with
-the item's identity, RET-able to the repo view: `owner/repo#N` for a PR,
-its diff and an issue, `owner/repo@sha` for a commit and its checks, and
-`owner/repo` for a workflow, run or job (`octocat-vui-actions-top-row`).
-The line shows from the moment the buffer opens, before any data arrives.
-
----
-
 ## Indicating that a page is loading or refreshing
 
 While fetching, only the mode line shows it: `(Octocat-PR:loading ▘)`,

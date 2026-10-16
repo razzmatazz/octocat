@@ -462,12 +462,13 @@ DRAFT is the JSON isDraft value; t shows an open pull request as \"draft\"."
 ;; The title gives way to the labels.  The branch is left to the page.
 ;;
 ;;   open  Another dummy PR  duplicate enhancement
-;;         #5 by @me · 3 days ago · Review required · ✓ 4/5
+;;         owner/repo#5 by @me · 3 days ago · Review required · ✓ 4/5
 
-(defun octocat-repo-vui--cells (item bg)
-  "Return the display cells of the PR or issue ITEM as a plist.
+(defun octocat-repo-vui--cells (repo item bg)
+  "Return the display cells of the PR or issue ITEM of REPO as a plist.
 The keys are :title, :chips (label chips), :review, :ci, :author, :prs
-\(the PRs that close an issue), :comments, :date and :number (\"#N\");
+\(the PRs that close an issue), :comments, :date and :number
+\(\"owner/repo#N\");
 a cell that ITEM does not have is nil or empty.  BG is as for
 `octocat--label-face'."
   (let* ((checks   (gethash "statusCheckRollup" item))
@@ -477,8 +478,9 @@ a cell that ITEM does not have is nil or empty.  BG is as for
                        (let ((c (gethash "comments" item)))
                          (if (vectorp c) (length c) 0)))))
     (list :title  (or (gethash "title" item) "")
-          :number (propertize (format "#%d" (gethash "number" item))
-                              'face 'octocat-pr-number)
+          :number (concat (propertize repo 'face 'octocat-repo)
+                          (propertize (format "#%d" (gethash "number" item))
+                                      'face 'octocat-pr-number))
           :date   (propertize (octocat--format-ts-relative
                                (or (gethash "createdAt" item) ""))
                               'face 'octocat-dimmed)
@@ -561,7 +563,7 @@ WIDTH.  ON-VISIT and HELP are as for `octocat-vui-row'."
 BG is as for `octocat-repo-vui--cells'."
   (octocat-repo-vui--item-row
    (octocat-repo-vui--state-label (gethash "state" pr) (gethash "isDraft" pr))
-   (octocat-repo-vui--cells pr bg)
+   (octocat-repo-vui--cells repo pr bg)
    width
    (lambda () (octocat-repo-vui--open-pr repo pr))
    "RET: view pull request"))
@@ -571,7 +573,7 @@ BG is as for `octocat-repo-vui--cells'."
 BG is as for `octocat-repo-vui--cells'."
   (octocat-repo-vui--item-row
    (octocat-repo-vui--state-label (gethash "state" issue))
-   (octocat-repo-vui--cells issue bg)
+   (octocat-repo-vui--cells repo issue bg)
    width
    (lambda () (octocat-repo-vui--open-issue repo issue))
    "RET: view issue"))
@@ -585,48 +587,35 @@ BG is as for `octocat-repo-vui--cells'."
                                             &optional branch omit)
   "Return the header vnodes of the issue or PR ITEM of REPO.
 STATE is its coloured state text (see `octocat-repo-vui--state-label').
-The first row is the repo and number, as in every other view; RET on it
-opens the repo view.  Below it are the item's two list lines (see
-`octocat-repo-vui--item-lines'), uncut; the first is the `title'
-target of the page's edit command, and RET on either calls
-ON-EDIT-TITLE.  BG is as for
-`octocat-repo-vui--cells'.  BRANCH, when non-nil, is shown after
-the review.  OMIT is a list of cell keys (see `octocat-repo-vui--cells')
-to leave out."
-  (let* ((cells (octocat-repo-vui--cells item bg))
+The rows are the item's two list lines (see
+`octocat-repo-vui--item-lines'), uncut; the first is the `title' target
+of the page's edit command, and RET on either calls ON-EDIT-TITLE.  BG
+is as for `octocat-repo-vui--cells'.  BRANCH, when non-nil, is shown
+after the review.  OMIT is a list of cell keys (see
+`octocat-repo-vui--cells') to leave out."
+  (let* ((cells (octocat-repo-vui--cells repo item bg))
          (cells (if branch (plist-put cells :branch branch) cells))
          (lines (octocat-repo-vui--item-lines
                  state cells (seq-difference '(:review :branch :ci :prs :comments) omit))))
     (list
      (octocat-vui-row
-      (concat (propertize repo 'face 'octocat-repo)
-              (propertize (format "#%d" (gethash "number" item))
-                          'face 'octocat-pr-number))
-      (lambda () (octocat-visit-repo repo))
-      "RET: open repo view")
-     (octocat-vui-row
       (propertize (car lines) 'octocat-timeline-target 'title)
       on-edit-title
       "RET: edit title")
-     (octocat-repo-vui--detail-who item cells omit on-edit-title))))
+     (octocat-repo-vui--detail-who cells omit on-edit-title))))
 
-(defun octocat-repo-vui--detail-who (item cells omit on-edit-title)
-  "Return the header row under the title: ITEM's number, author, date and cells.
-As the second of `octocat-repo-vui--item-lines', but the number and the
-author are TAB-able links.  CELLS, OMIT and ON-EDIT-TITLE are as for
+(defun octocat-repo-vui--detail-who (cells omit on-edit-title)
+  "Return the header row under the title: number, author, date and cells.
+As the second of `octocat-repo-vui--item-lines', but the author is a
+TAB-able link.  CELLS, OMIT and ON-EDIT-TITLE are as for
 `octocat-repo-vui--detail-header'."
-  (let* ((url    (gethash "url" item))
-         (author (plist-get cells :author))
+  (let* ((author (plist-get cells :author))
          (rest   (octocat-repo-vui--join-cells
                   cells (cons :date (seq-difference '(:review :branch :ci :prs :comments)
                                                     omit)))))
     (octocat-vui-row
      (list (make-string (+ octocat-repo-vui--state-width 2) ?\s)
-           (if (octocat--nonempty url)
-               (octocat-repo-vui--link (plist-get cells :number) 'octocat-pr-number
-                                       (lambda () (browse-url url))
-                                       "RET: open on GitHub")
-             (plist-get cells :number))
+           (plist-get cells :number)
            (propertize " by " 'face 'octocat-dimmed)
            (if (string-empty-p author)
                ""

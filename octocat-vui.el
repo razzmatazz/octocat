@@ -182,10 +182,10 @@ the opening timeline entry, laid out as the real page lays them out."
         (indent (make-string (+ octocat-repo-vui--state-width 2) ?\s))
         (rail   (concat (propertize "│" 'face 'octocat-dimmed) " ")))
     (octocat-vui-skeleton
-     `((,(propertize repo 'face 'octocat-repo)
-        ,(propertize (format "#%d" number) 'face 'octocat-pr-number))
-       (,state "  " 44 "  " 16)
-       (,indent 32)
+     `((,state "  " 44 "  " 16)
+       (,indent ,(propertize repo 'face 'octocat-repo)
+        ,(propertize (format "#%d" number) 'face 'octocat-pr-number)
+        " " 24)
        nil
        (,(propertize "●" 'face 'octocat-dimmed) " " 36)
        (,rail 64) (,rail 58) (,rail 40)
