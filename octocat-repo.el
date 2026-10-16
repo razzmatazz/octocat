@@ -1345,7 +1345,7 @@ Everything but the commits comes from a single summary API call."
 (define-key octocat-repo-mode-map (kbd "C-c C-b") #'octocat-repo-switch-branch)
 (define-key octocat-repo-mode-map (kbd "C-c C-o") #'octocat-repo-browse)
 (define-key octocat-repo-mode-map (kbd "C-c C-v") #'octocat-toggle-markdown)
-(define-key octocat-repo-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-repo-mode-map (kbd "C-c C-j") #'octocat-switch-repo)
 (define-key octocat-repo-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 
 (define-derived-mode octocat-repo-mode vui-mode "Octocat-Repo"

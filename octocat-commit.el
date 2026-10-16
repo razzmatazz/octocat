@@ -258,7 +258,7 @@ new TICK fetches them again."
 (define-key octocat-commit-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-commit-mode-map (kbd "C-c C-o") #'octocat-commit-browse)
 (define-key octocat-commit-mode-map (kbd "C-c C-v") #'octocat-toggle-markdown)
-(define-key octocat-commit-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-commit-mode-map (kbd "C-c C-j") #'octocat-switch-repo)
 (define-key octocat-commit-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 
 (define-derived-mode octocat-commit-mode vui-mode "Octocat-Commit"

@@ -362,7 +362,7 @@ A new TICK fetches everything again."
 (define-key octocat-user-mode-map (kbd "q") #'octocat-quit-window)
 (define-key octocat-user-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-user-mode-map (kbd "C-c C-o") #'octocat-user-browse)
-(define-key octocat-user-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-user-mode-map (kbd "C-c C-j") #'octocat-switch-repo)
 
 (define-derived-mode octocat-user-mode vui-mode "Octocat-User"
   "Major mode for a GitHub user or organization page.

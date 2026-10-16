@@ -123,7 +123,7 @@ Populated on first call and reused until the root SHA changes.")
 (define-key octocat-tree-mode-map (kbd "q")       #'octocat-quit-window)
 (define-key octocat-tree-mode-map (kbd "C-c C-o") #'octocat-tree-browse)
 (define-key octocat-tree-mode-map (kbd "o")       #'octocat-tree-browse)
-(define-key octocat-tree-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-tree-mode-map (kbd "C-c C-j") #'octocat-switch-repo)
 (define-key octocat-tree-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 (define-key octocat-tree-mode-map (kbd "gr")      #'octocat-tree-refresh)
 
@@ -156,7 +156,7 @@ The buffer is rendered by vui.el; see `octocat-tree--root'.
 (define-key octocat-file-mode-map (kbd "o")       #'octocat-file-browse)
 (define-key octocat-file-mode-map (kbd "C-c C-f") #'octocat-tree-find-file)
 (define-key octocat-file-mode-map (kbd "C-c C-l") #'octocat-file-log-open)
-(define-key octocat-file-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-file-mode-map (kbd "C-c C-j") #'octocat-switch-repo)
 (define-key octocat-file-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 (define-key octocat-file-mode-map (kbd "gr")      #'octocat-file-refresh)
 
@@ -192,7 +192,7 @@ The buffer is rendered by vui.el; see `octocat-tree--root'.
 (define-key octocat-file-log-mode-map (kbd "RET")     #'octocat-file-log-visit)
 (define-key octocat-file-log-mode-map (kbd "C-c C-o") #'octocat-file-log-browse)
 (define-key octocat-file-log-mode-map (kbd "o")       #'octocat-file-log-browse)
-(define-key octocat-file-log-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-file-log-mode-map (kbd "C-c C-j") #'octocat-switch-repo)
 (define-key octocat-file-log-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 (define-key octocat-file-log-mode-map (kbd "gr")      #'octocat-file-log-refresh)
 

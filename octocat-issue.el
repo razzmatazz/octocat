@@ -311,7 +311,7 @@ A new TICK fetches everything again."
 (define-key octocat-issue-mode-map (kbd "C-c C-a") #'octocat-issue-add-comment)
 (define-key octocat-issue-mode-map (kbd "C-c C-e") #'octocat-issue-edit)
 (define-key octocat-issue-mode-map (kbd "C-c C-v") #'octocat-toggle-markdown)
-(define-key octocat-issue-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-issue-mode-map (kbd "C-c C-j") #'octocat-switch-repo)
 (define-key octocat-issue-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 
 (define-derived-mode octocat-issue-mode vui-mode "Octocat-Issue"

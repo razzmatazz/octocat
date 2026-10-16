@@ -48,7 +48,9 @@
                   (type repo number fetch &optional as-list tick))
 (declare-function octocat-pr--use-data "octocat-pr" (repo number tick))
 (declare-function octocat-pr--header "octocat-pr" (repo pr bg width &optional tab))
-(declare-function octocat-pr-refresh "octocat-pr" (&optional _ignore-auto _noconfirm))
+(declare-function octocat-pr--current "octocat-pr" ())
+(declare-function octocat-pr--refresh-pages "octocat-pr" (repo number))
+(declare-function octocat-pr-merge "octocat-pr" ())
 (declare-function octocat-pr--tabs "octocat-pr" (current repo number width &optional files commits))
 (declare-function octocat-switch-repo "octocat-core" ())
 (declare-function octocat-search-repo "octocat-search" ())
@@ -131,14 +133,16 @@ Only an approval may be submitted without text."
           (propertize "C-c C-k" 'face 'help-key-binding) " discard"))
 
 (defvar-local octocat-pr-diff--reviewing nil
-  "Non-nil while this PR diff buffer's review is being submitted.")
+  "Non-nil while the review started from this PR page is being submitted.")
 
 (defun octocat-pr-diff--set-reviewing (buf reviewing)
   "Set BUF's review submission under way to REVIEWING and show it in its page."
   (when (buffer-live-p buf)
     (with-current-buffer buf
       (setq octocat-pr-diff--reviewing reviewing)
-      (octocat-vui-update-page :reviewing reviewing))))
+      ;; Only the files changed page has the submit button to show it in.
+      (when (derived-mode-p 'octocat-pr-diff-mode)
+        (octocat-vui-update-page :reviewing reviewing)))))
 
 (defun octocat-pr-diff--submit-review (body source on-success on-error)
   "Submit BODY as a review of the PR in SOURCE buffer.
@@ -151,8 +155,7 @@ missing decision."
     (if (not flag)
         (funcall on-error "Pick a decision with C-c C-t first")
       (with-current-buffer source
-        (let ((repo   octocat--pr-diff-repo)
-              (number octocat--pr-diff-number))
+        (pcase-let ((`(,repo . ,number) (octocat-pr--current)))
           (setq octocat-pr-diff--reviewing t)
           (octocat--run-gh "review"
             (octocat-pr-diff--review-args repo number flag body)
@@ -165,13 +168,10 @@ missing decision."
                 (message "Octocat: Reviewed PR #%d" number)
                 (when (buffer-live-p source)
                   (with-current-buffer source
-                    (setq octocat-pr-diff--reviewing nil)
-                    (octocat-pr-diff-refresh)))
+                    (setq octocat-pr-diff--reviewing nil)))
                 ;; The review joins the conversation's timeline and may
                 ;; change its merge box.
-                (when-let* ((pr-buf (get-buffer (format "*%s pr %d*" repo number))))
-                  (with-current-buffer pr-buf
-                    (octocat-pr-refresh))))))))
+                (octocat-pr--refresh-pages repo number))))))
       (funcall on-success))))
 
 (defun octocat-pr-diff-review-cycle ()
@@ -198,15 +198,15 @@ missing decision."
   :keymap octocat-pr-diff-review-mode-map)
 
 (defun octocat-pr-diff-review ()
-  "Open the dialog to submit a review of this PR.
+  "Open the dialog to submit a review of this PR, from any of its pages.
 Write the review text, pick Comment, Approve or Request changes with
 \\<octocat-pr-diff-review-mode-map>\\[octocat-pr-diff-review-cycle], then submit."
   (interactive)
-  (unless (and octocat--pr-diff-repo octocat--pr-diff-number)
-    (user-error "Octocat: Buffer is not associated with a pull request diff"))
-  (when octocat-pr-diff--reviewing
-    (user-error "Octocat: A review of PR #%d is being submitted" octocat--pr-diff-number))
-  (let* ((title (format "Review PR #%d" octocat--pr-diff-number))
+  (let* ((number (cdr (or (octocat-pr--current)
+                          (user-error "Octocat: Buffer is not associated with a pull request"))))
+         (_     (when octocat-pr-diff--reviewing
+                  (user-error "Octocat: A review of PR #%d is being submitted" number)))
+         (title (format "Review PR #%d" number))
          (win   (octocat--open-edit-buffer
                  title
                  #'octocat-pr-diff--submit-review
@@ -293,10 +293,11 @@ TICK fetches everything again."
   "Keymap for `octocat-pr-diff-mode'.")
 (define-key octocat-pr-diff-mode-map (kbd "q") #'octocat-quit-window)
 (define-key octocat-pr-diff-mode-map (kbd "g") #'revert-buffer)
-(define-key octocat-pr-diff-mode-map (kbd "C-c C-a") #'octocat-pr-diff-review)
+(define-key octocat-pr-diff-mode-map (kbd "C-c C-r") #'octocat-pr-diff-review)
+(define-key octocat-pr-diff-mode-map (kbd "C-c C-m") #'octocat-pr-merge)
 (define-key octocat-pr-diff-mode-map (kbd "C-c C-o") #'octocat-pr-diff-browse)
 (define-key octocat-pr-diff-mode-map (kbd "C-c C-v") #'octocat-toggle-markdown)
-(define-key octocat-pr-diff-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-pr-diff-mode-map (kbd "C-c C-j") #'octocat-switch-repo)
 (define-key octocat-pr-diff-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 
 (define-derived-mode octocat-pr-diff-mode vui-mode "Octocat-PR-Diff"

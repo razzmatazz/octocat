@@ -267,7 +267,7 @@ A new TICK fetches them again."
 (define-key octocat-workflow-mode-map (kbd "q") #'octocat-quit-window)
 (define-key octocat-workflow-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-workflow-mode-map (kbd "C-c C-o") #'octocat-workflow-browse)
-(define-key octocat-workflow-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-workflow-mode-map (kbd "C-c C-j") #'octocat-switch-repo)
 (define-key octocat-workflow-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 
 (define-derived-mode octocat-workflow-mode vui-mode "Octocat-Workflow"

@@ -589,7 +589,7 @@ unfolded, until the fresh data replaces it."
 (define-key octocat-job-mode-map (kbd "q") #'octocat-quit-window)
 (define-key octocat-job-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-job-mode-map (kbd "C-c C-o") #'octocat-job-browse)
-(define-key octocat-job-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-job-mode-map (kbd "C-c C-j") #'octocat-switch-repo)
 (define-key octocat-job-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 
 (define-derived-mode octocat-job-mode vui-mode "Octocat-Job"

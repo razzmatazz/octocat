@@ -281,7 +281,7 @@ data replaces it."
 (define-key octocat-run-mode-map (kbd "q") #'octocat-quit-window)
 (define-key octocat-run-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-run-mode-map (kbd "C-c C-o") #'octocat-run-browse)
-(define-key octocat-run-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-run-mode-map (kbd "C-c C-j") #'octocat-switch-repo)
 (define-key octocat-run-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 
 (define-derived-mode octocat-run-mode vui-mode "Octocat-Run"

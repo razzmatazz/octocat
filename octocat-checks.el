@@ -278,7 +278,7 @@ A new TICK fetches them again."
 (define-key octocat-checks-mode-map (kbd "q") #'octocat-quit-window)
 (define-key octocat-checks-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-checks-mode-map (kbd "C-c C-o") #'octocat-checks-browse)
-(define-key octocat-checks-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-checks-mode-map (kbd "C-c C-j") #'octocat-switch-repo)
 (define-key octocat-checks-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 
 (define-derived-mode octocat-checks-mode vui-mode "Octocat-Checks"

@@ -99,7 +99,7 @@ Falls back to the user's GitHub page when point is not on a row."
 (define-key octocat-mode-map (kbd "g")       #'revert-buffer)
 (define-key octocat-mode-map (kbd "+")       #'octocat-feed-load-more)
 (define-key octocat-mode-map (kbd "C-c C-o") #'octocat-dashboard-browse)
-(define-key octocat-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-mode-map (kbd "C-c C-j") #'octocat-switch-repo)
 (define-key octocat-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 (define-derived-mode octocat-mode vui-mode "Octocat"
   "Major mode for the GitHub account dashboard.

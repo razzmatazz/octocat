@@ -747,7 +747,7 @@ The choice is remembered for this page of this repository."
 (define-key octocat-vui-list-mode-map (kbd "q") #'octocat-quit-window)
 (define-key octocat-vui-list-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-vui-list-mode-map (kbd "C-c C-o") #'octocat-vui-list-browse)
-(define-key octocat-vui-list-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-vui-list-mode-map (kbd "C-c C-j") #'octocat-switch-repo)
 (define-key octocat-vui-list-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 (define-key octocat-vui-list-mode-map (kbd "C-c C-v") #'octocat-vui-list-toggle-compact)
 

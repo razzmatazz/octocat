@@ -64,7 +64,7 @@ Evil bindings of `octocat-repo-mode' are installed."
   ;; Rows bind RET themselves, so check a binding `octocat-evil-setup'
   ;; installs on the mode, the canary that it ran for this mode at all.
   (let* ((aux (evil-get-auxiliary-keymap octocat-repo-mode-map 'normal nil t))
-         (binding (and aux (lookup-key aux (kbd "C-c C-r")))))
+         (binding (and aux (lookup-key aux (kbd "C-c C-j")))))
     (should (eq binding #'octocat-switch-repo))))
 
 (provide 'octocat-evil-repo-tests)

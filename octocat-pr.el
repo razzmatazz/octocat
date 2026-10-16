@@ -72,6 +72,30 @@
 ;; rendering functions that run in `octocat-pr-mode' buffers.
 (defvar octocat--pr-repo)
 (defvar octocat--pr-number)
+(defvar octocat--pr-commits-repo)
+(defvar octocat--pr-commits-number)
+(defvar octocat--pr-diff-repo)
+(defvar octocat--pr-diff-number)
+(declare-function octocat-pr-diff-review "octocat-pr-diff" ())
+
+(defun octocat-pr--current ()
+  "Return (REPO . NUMBER) of the PR shown by this buffer, or nil.
+The buffer is one of its pages: conversation, commits or files changed."
+  (cond ((and octocat--pr-repo octocat--pr-number)
+         (cons octocat--pr-repo octocat--pr-number))
+        ((and octocat--pr-commits-repo octocat--pr-commits-number)
+         (cons octocat--pr-commits-repo octocat--pr-commits-number))
+        ((and (bound-and-true-p octocat--pr-diff-repo) octocat--pr-diff-number)
+         (cons octocat--pr-diff-repo octocat--pr-diff-number))))
+
+(defun octocat-pr--refresh-pages (repo number)
+  "Refresh each open page of pull request NUMBER of REPO.
+A merge or review changes what all of them show, whichever started it."
+  (dolist (name '("*%s pr %d*" "*%s pr %d commits*" "*%s pr %d diff*"))
+    (when-let* ((buf (get-buffer (format name repo number))))
+      (with-current-buffer buf
+        (when octocat--refresh-fn
+          (funcall octocat--refresh-fn))))))
 
 ;;;; Edit / comment commands — submit helpers
 
@@ -505,7 +529,9 @@ a narrow window."
   (when (buffer-live-p buf)
     (with-current-buffer buf
       (setq octocat-pr--merging merging)
-      (octocat-vui-update-page :merging merging))))
+      ;; Only the conversation page has the merge box to show it in.
+      (when (derived-mode-p 'octocat-pr-mode)
+        (octocat-vui-update-page :merging merging)))))
 
 (defun octocat-pr--submit-merge (text source on-success on-error)
   "Merge the PR in SOURCE buffer with commit message TEXT.
@@ -519,11 +545,11 @@ ON-ERROR is called only for a missing method."
         (funcall on-error (substitute-command-keys
                            "Pick a merge method with \\[octocat-pr-merge-cycle]"))
       (with-current-buffer source
-        (let ((number octocat--pr-number))
-          (octocat--setting-put (list 'merge-method octocat--pr-repo) method)
+        (pcase-let ((`(,repo . ,number) (octocat-pr--current)))
+          (octocat--setting-put (list 'merge-method repo) method)
           (setq octocat-pr--merging "Merging pull request…")
           (octocat--run-gh "merge"
-            (octocat-pr--merge-args octocat--pr-repo number method text delete)
+            (octocat-pr--merge-args repo number method text delete)
             #'string-trim
             (lambda (result)
               (if (eq (car-safe result) 'error)
@@ -533,8 +559,8 @@ ON-ERROR is called only for a missing method."
                 (message "Octocat: Merged PR #%d" number)
                 (when (buffer-live-p source)
                   (with-current-buffer source
-                    (setq octocat-pr--merging nil)
-                    (octocat-pr-refresh))))))))
+                    (setq octocat-pr--merging nil)))
+                (octocat-pr--refresh-pages repo number))))))
       (funcall on-success))))
 
 (defun octocat-pr-merge-cycle ()
@@ -574,15 +600,15 @@ An unedited default message is replaced by the next method's."
   "Pick the method of a PR merge in its edit buffer."
   :keymap octocat-pr-merge-mode-map)
 
-(defun octocat-pr--open-merge-dialog (pr methods delete)
-  "Open the dialog merging PR (a hash-table) by one of METHODS.
+(defun octocat-pr--open-merge-dialog (repo pr methods delete)
+  "Open the dialog merging PR (a hash-table) of REPO by one of METHODS.
 DELETE is the initial choice to delete the head branch.  The method
 starts as in `octocat-pr--merge-initial-method'."
-  (let* ((title    (format "Merge PR #%d" octocat--pr-number))
+  (let* ((title    (format "Merge PR #%d" (gethash "number" pr)))
          (defaults (mapcar (lambda (m) (cons m (octocat-pr--merge-message m pr)))
                            methods))
          (method   (octocat-pr--merge-initial-method
-                    methods (octocat--setting (list 'merge-method octocat--pr-repo))))
+                    methods (octocat--setting (list 'merge-method repo))))
          (data     (octocat-pr--merge-data method methods defaults delete))
          (win      (octocat--open-edit-buffer
                     title #'octocat-pr--submit-merge
@@ -597,25 +623,26 @@ starts as in `octocat-pr--merge-initial-method'."
       (octocat-pr--merge-update octocat-edit--user-data))))
 
 (defun octocat-pr-merge ()
-  "Open the dialog to merge the current PR.
+  "Open the dialog to merge the current PR, from any of its pages.
 Edit the commit message and pick the method with
 \\<octocat-pr-merge-mode-map>\\[octocat-pr-merge-cycle]; submitting the dialog
 is the confirmation."
   (interactive)
-  (unless (and octocat--pr-repo octocat--pr-number)
-    (user-error "Octocat: Buffer is not associated with a pull request"))
-  (let* ((pr      (octocat--detail-cache-load octocat--pr-repo "pr" octocat--pr-number))
-         (refusal (and pr (octocat-pr--merge-refusal pr)))
-         (source  (current-buffer)))
+  (pcase-let* ((`(,repo . ,number)
+                (or (octocat-pr--current)
+                    (user-error "Octocat: Buffer is not associated with a pull request")))
+               (pr      (octocat--detail-cache-load repo "pr" number))
+               (refusal (and pr (octocat-pr--merge-refusal pr)))
+               (source  (current-buffer)))
     (cond
      ((not pr) (user-error "Octocat: PR not loaded yet"))
      (octocat-pr--merging (user-error "Octocat: Wait for \"%s\" to finish" octocat-pr--merging))
      ((not (equal (gethash "state" pr) "OPEN"))
-      (user-error "Octocat: PR #%d is not open" octocat--pr-number))
+      (user-error "Octocat: PR #%d is not open" number))
      (refusal (user-error "Octocat: %s" refusal)))
     (message "Octocat: Fetching merge options…")
     (octocat--run-gh "merge-methods"
-      (list "repo" "view" octocat--pr-repo "--json"
+      (list "repo" "view" repo "--json"
             (mapconcat #'identity
                        (cons "deleteBranchOnMerge"
                              (mapcar (lambda (m) (nth 2 m)) octocat-pr--merge-methods))
@@ -631,7 +658,7 @@ is the confirmation."
             (message nil)
             (with-current-buffer source
               (octocat-pr--open-merge-dialog
-               pr methods (eq (gethash "deleteBranchOnMerge" result) t))))))))))
+               repo pr methods (eq (gethash "deleteBranchOnMerge" result) t))))))))))
 
 (defvar-local octocat-pr--approving nil
   "\"Approving workflows…\" while workflow runs are being approved, else nil.")
@@ -1070,8 +1097,9 @@ A new TICK fetches them again."
 (define-key octocat-pr-mode-map (kbd "C-c C-a") #'octocat-pr-add-comment)
 (define-key octocat-pr-mode-map (kbd "C-c C-e") #'octocat-pr-edit)
 (define-key octocat-pr-mode-map (kbd "C-c C-m") #'octocat-pr-merge)
+(define-key octocat-pr-mode-map (kbd "C-c C-r") #'octocat-pr-diff-review)
 (define-key octocat-pr-mode-map (kbd "C-c C-v") #'octocat-toggle-markdown)
-(define-key octocat-pr-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-pr-mode-map (kbd "C-c C-j") #'octocat-switch-repo)
 (define-key octocat-pr-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 
 (define-derived-mode octocat-pr-mode vui-mode "Octocat-PR"
@@ -1147,7 +1175,9 @@ background, in place: what is unfolded stays so."
 (define-key octocat-pr-commits-mode-map (kbd "q") #'octocat-quit-window)
 (define-key octocat-pr-commits-mode-map (kbd "g") #'revert-buffer)
 (define-key octocat-pr-commits-mode-map (kbd "C-c C-o") #'octocat-pr-commits-browse)
-(define-key octocat-pr-commits-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-pr-commits-mode-map (kbd "C-c C-m") #'octocat-pr-merge)
+(define-key octocat-pr-commits-mode-map (kbd "C-c C-r") #'octocat-pr-diff-review)
+(define-key octocat-pr-commits-mode-map (kbd "C-c C-j") #'octocat-switch-repo)
 (define-key octocat-pr-commits-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 
 (define-derived-mode octocat-pr-commits-mode vui-mode "Octocat-PR-Commits"
