@@ -249,6 +249,14 @@ On someone else\\='s comment: signal an error."
   (delq nil (mapcar (lambda (m) (and (eq (gethash (nth 2 m) repo-info) t) (car m)))
                     octocat-pr--merge-methods)))
 
+(defun octocat-pr--merge-initial-method (methods last)
+  "Return the merge dialog's initial method, one of METHODS or nil.
+LAST is the method last used in the repo; it is kept only while the
+repo still allows it.  Otherwise, with several METHODS none is picked,
+so a merge is never the accidental choice."
+  (cond ((null (cdr methods)) (car methods))
+        ((member last methods) last)))
+
 (defun octocat-pr--merge-message (method pr)
   "Return GitHub's default commit message for a METHOD merge of PR.
 The first line is the subject; a rebase keeps the commits, so has none."
@@ -509,6 +517,7 @@ ON-ERROR is called only for a missing method."
                            "Pick a merge method with \\[octocat-pr-merge-cycle]"))
       (with-current-buffer source
         (let ((number octocat--pr-number))
+          (octocat--setting-put (list 'merge-method octocat--pr-repo) method)
           (setq octocat-pr--merging "Merging pull request…")
           (octocat--run-gh "merge"
             (octocat-pr--merge-args octocat--pr-repo number method text delete)
@@ -564,13 +573,13 @@ An unedited default message is replaced by the next method's."
 
 (defun octocat-pr--open-merge-dialog (pr methods delete)
   "Open the dialog merging PR (a hash-table) by one of METHODS.
-DELETE is the initial choice to delete the head branch.
-With several METHODS none is preselected, so a merge is never the
-accidental choice."
+DELETE is the initial choice to delete the head branch.  The method
+starts as in `octocat-pr--merge-initial-method'."
   (let* ((title    (format "Merge PR #%d" octocat--pr-number))
          (defaults (mapcar (lambda (m) (cons m (octocat-pr--merge-message m pr)))
                            methods))
-         (method   (and (null (cdr methods)) (car methods)))
+         (method   (octocat-pr--merge-initial-method
+                    methods (octocat--setting (list 'merge-method octocat--pr-repo))))
          (data     (octocat-pr--merge-data method methods defaults delete))
          (win      (octocat--open-edit-buffer
                     title #'octocat-pr--submit-merge

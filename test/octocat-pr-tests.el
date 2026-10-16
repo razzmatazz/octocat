@@ -73,6 +73,13 @@
                                        \"rebaseMergeAllowed\":true}"))
                  '("Squash" "Rebase"))))
 
+(ert-deftest octocat-pr-test-merge-initial-method ()
+  "The last method is kept while allowed; a lone method is always picked."
+  (should (equal (octocat-pr--merge-initial-method '("Merge" "Squash") "Squash") "Squash"))
+  (should-not (octocat-pr--merge-initial-method '("Merge" "Squash") "Rebase"))
+  (should-not (octocat-pr--merge-initial-method '("Merge" "Squash") nil))
+  (should (equal (octocat-pr--merge-initial-method '("Rebase") "Squash") "Rebase")))
+
 (ert-deftest octocat-pr-test-merge-refusal ()
   "Drafts and conflicts cannot be merged; a blocked PR is left to GitHub."
   (should (octocat-pr--merge-refusal (octocat-pr-test--pr "{\"isDraft\":true}")))
