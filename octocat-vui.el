@@ -630,50 +630,6 @@ It is at most `octocat-max-width' on a capped page, see
   (let ((win (get-buffer-window (current-buffer) t)))
     (octocat--cap-width (if win (window-body-width win) 80))))
 
-(defun octocat-vui--save-view ()
-  "Return the point and scroll of every window showing the current buffer.
-Each entry is (WINDOW POINT-LINE POINT-COLUMN START-LINE)."
-  (let (view)
-    (dolist (win (get-buffer-window-list (current-buffer) nil t))
-      (save-excursion
-        (goto-char (window-point win))
-        (let ((line (line-number-at-pos))
-              (col  (current-column))
-              (start (line-number-at-pos (window-start win))))
-          (push (list win line col start) view))))
-    view))
-
-(defun octocat-vui--goto-line-column (line col)
-  "Return the position at LINE and COL of the current buffer, clamped."
-  (save-excursion
-    (goto-char (point-min))
-    (forward-line (1- line))
-    (move-to-column col)
-    (point)))
-
-(defun octocat-vui--restore-view (view)
-  "Put point and scroll back to VIEW, from `octocat-vui--save-view'."
-  (dolist (entry view)
-    (pcase-let ((`(,win ,line ,col ,start) entry))
-      (when (and (window-live-p win)
-                 (eq (window-buffer win) (current-buffer)))
-        (let ((pos (octocat-vui--goto-line-column line col)))
-          (set-window-point win pos)
-          (when (eq win (selected-window))
-            (goto-char pos))
-          (set-window-start win (octocat-vui--goto-line-column start 0)))))))
-
-(defmacro octocat-vui-preserving-view (&rest body)
-  "Run BODY, then restore point and scroll in the current buffer's windows.
-For a `vui-mount' of the buffer's own page: the mount erases the buffer
-and leaves point at the top, so a refresh would otherwise throw the
-reader back to the first line.  The restore is by line and column, which
-holds as the page is repainted from the disk cache before it refetches."
-  (declare (indent 0))
-  `(let ((view (octocat-vui--save-view)))
-     (prog1 (progn ,@body)
-       (octocat-vui--restore-view view))))
-
 (defun octocat-vui-update-page (&rest props)
   "Re-render the current buffer's page with PROPS changed, in place.
 PROPS is a plist of the props to change.  Unlike a remount, the page
@@ -697,17 +653,19 @@ them as its :key.  Return nil when the buffer has no page."
   "Mount COMPONENT with PROPS in the current buffer, or refresh it in place.
 ID names what the page shows.  When this buffer already shows COMPONENT
 for ID, it is re-rendered with new props instead of remounted, so it
-keeps its state, such as what is unfolded.  PROPS get a :tick, new on
-each call, for the page's fetch keys (see `octocat-vui-use-cached')."
+keeps its state, such as what is unfolded, and point.  PROPS get a
+:tick, new on each call, for the page's fetch keys (see
+`octocat-vui-use-cached').  Only the first call mounts, when the page is
+opened: `vui-mount' also selects the buffer, which from an async refresh
+would pull the user back to it (see docs/using-vui.md)."
   (let ((props (append props (list :tick (cl-incf octocat-vui--tick)))))
     (if (and (eq (nth 0 octocat-vui--page) component)
              (equal (nth 1 octocat-vui--page) id))
         (vui-update-props (nth 2 octocat-vui--page) props)
       (setq octocat-vui--page
             (list component id
-                  (octocat-vui-preserving-view
-                    (vui-mount (apply #'vui-component component props)
-                               (buffer-name))))))))
+                  (vui-mount (apply #'vui-component component props)
+                             (buffer-name)))))))
 
 
 ;;;; List-page base mode
@@ -873,15 +831,16 @@ while they load)."
                      :on-click (lambda () (funcall fn repo))))))
    octocat--repo-tabs))
 
-(vui-defcomponent octocat-vui-list-header (repo tab kind)
+(vui-defcomponent octocat-vui-list-header (repo tab kind tick)
   "Header for a list page: REPO, the tab strip and, for KIND, item counts.
 TAB is the symbol of the current tab (see `octocat-vui-repo-tabs').
 KIND is `issues' or `pulls' to show \"N open · M closed\" (plus merged
-for pulls) from one API call, or nil for no counts."
+for pulls) from one API call, or nil for no counts.  A new TICK fetches
+them again."
   :render
   (let* ((cached (vui-use-memo (repo kind)
                    (and kind (octocat--counts-cache-load repo kind))))
-         (result (vui-use-async (list 'counts kind repo)
+         (result (octocat-vui-use-async-sticky (list 'counts kind repo tick)
                    (lambda (resolve _reject)
                      (if (null kind)
                          (funcall resolve nil)
@@ -918,18 +877,19 @@ for pulls) from one API call, or nil for no counts."
                   :face 'octocat-dimmed)
         (vui-newline))))))
 
-(vui-defcomponent octocat-vui-search-list (repo kind query row-fn compact)
+(vui-defcomponent octocat-vui-search-list (repo kind query row-fn compact tick)
   "List page of the KIND items of REPO, `issues' or `pulls', matching QUERY.
 ROW-FN returns the row of an item, given it, the window width and
 COMPACT, non-nil for one-line rows.  A new QUERY or COMPACT re-renders
 in place: the header keeps its counts, and the results start afresh, as
-the compact view loads more at a time."
+the compact view loads more at a time.  A new TICK refetches the counts
+and starts the results afresh."
   :render
   (vui-vstack
-   (vui-component 'octocat-vui-list-header :repo repo :tab kind :kind kind)
+   (vui-component 'octocat-vui-list-header :repo repo :tab kind :kind kind :tick tick)
    (octocat-vui-list-filter-bar query)
    (vui-component 'octocat-vui--search-results
-                  :key (list query (and compact t))
+                  :key (list query (and compact t) tick)
                   :repo repo :kind kind :query query :row-fn row-fn
                   :compact compact)))
 
@@ -1209,7 +1169,7 @@ as the way to enter a value."
                  (run-at-time
                   0 nil
                   (lambda ()
-                    (when (buffer-live-p buf)
+                    (when (octocat--still-selected-p buf)
                       (with-current-buffer buf
                         (let* ((names (if (eq (car-safe result) 'error)
                                           (progn (message "Octocat: %s" (cdr result)) nil)

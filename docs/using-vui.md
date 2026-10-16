@@ -36,6 +36,15 @@ the query).
   never unmounted and its effects keep running: its window-width hook
   repainted a PR list's old filter over the current one on `C-x 3`.  See
   the vui.el item in TODO.md.
+- **Focus.**  `vui-mount` ends with `switch-to-buffer`, so a remount
+  from an async callback, such as a merge finishing, pulls the user back
+  to the page (see "Never steal focus" in
+  docs/user-interface-conventions.md).
 
-Remount only to start over (`gr`, opening a page).  A handler that must
-remount defers it, e.g. `(run-at-time 0 nil ...)`.
+A page mounts once, when it is opened, through
+`octocat-vui-refresh-page`.  Its refresh (`g`, or after an action) calls
+that again, which re-renders in place with a new `:tick`.  Each fetch
+takes the tick into its key (`octocat-vui-use-cached`,
+`octocat-vui-use-async-sticky`), so it refetches and keeps showing the
+old data until the new data arrives.  A handler that must remount
+defers it, e.g. `(run-at-time 0 nil ...)`.

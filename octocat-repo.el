@@ -27,19 +27,6 @@
 ;; The `M-x octocat-repo' entry point is defined in octocat.el (see
 ;; CONTRIBUTING.md, "Entry points"); this file defines `octocat-repo-mode'
 ;; and all of its supporting logic.
-;;
-;; Known regressions / gaps in this first pass (see AGENTS.md's note on
-;; this migration for context -- deliberately accepted for now):
-;;   - No disk cache / stale-while-revalidate: every `octocat-repo-refresh'
-;;     fully remounts the component tree via `vui-mount', so there is no
-;;     "render stale cache instantly, then replace with live data" step.
-;;   - Because every refresh remounts, collapse state and "load more"
-;;     limits reset to their defaults on each *explicit* refresh
-;;     (`revert-buffer', reopening via `octocat-visit-repo', etc.).  They
-;;     are preserved correctly for interactions *within* one mount
-;;     (collapsing a section, clicking "load more", navigating away and
-;;     back via `switch-to-buffer') since those go through vui's
-;;     reconciliation, not a remount.
 
 ;;; Code:
 
@@ -223,31 +210,25 @@ rather than rejecting, so the section shows \"(no pull requests)\"."
    (t (funcall reject (cdr result)))))
 
 
-(defun octocat-repo-vui-use-cached (type repo number fetch &optional as-list)
+(defun octocat-repo-vui-use-cached (type repo number fetch &optional as-list tick)
   "Return the `vui-use-async' result of FETCH for item NUMBER of REPO.
 NUMBER is what identifies the item, such as a PR number or a commit SHA.
 TYPE is the disk-cache type (see `octocat--detail-cache-file').  The last
-saved data shows at once with :refreshing t (see `octocat-vui-with-stale')
-while FETCH, called with REPO, NUMBER and a callback, runs on every open
-of the page; fresh data replaces it in place and is saved.  AS-LIST says
-the data is a list, which the cache stores as a vector.
-Must be called during render, like any hook."
-  (let* ((cached (vui-use-memo (repo number)
-                   (let ((raw (octocat--detail-cache-load repo type number)))
-                     (and raw (if as-list (cl-coerce raw 'list) raw)))))
-         (async  (vui-use-async (list type repo number)
-                   (lambda (resolve reject)
-                     (funcall fetch repo number
-                              (lambda (r)
-                                (octocat-repo-vui--resolve-or-reject r resolve reject))))))
-         (fresh  (and (eq (plist-get async :status) 'ready)
-                      (plist-get async :data))))
-    (vui-use-effect (fresh)
-      (when fresh
-        (octocat--detail-cache-save repo type number
-                                    (if as-list (vconcat fresh) fresh)))
-      nil)
-    (octocat-vui-with-stale async cached)))
+saved data shows at once with :refreshing t while FETCH, called with
+REPO, NUMBER and a callback, runs; fresh data replaces it in place and
+is saved.  A new TICK, the page's (see `octocat-vui-refresh-page'),
+fetches again.  AS-LIST says the data is a list, which the cache stores
+as a vector.  Must be called during render, like any hook."
+  (octocat-vui-use-cached
+   (list type repo number tick)
+   (lambda ()
+     (let ((raw (octocat--detail-cache-load repo type number)))
+       (and raw (if as-list (cl-coerce raw 'list) raw))))
+   (lambda (data)
+     (octocat--detail-cache-save repo type number (if as-list (vconcat data) data)))
+   (lambda (resolve reject)
+     (funcall fetch repo number
+              (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
 (defun octocat-repo--list-workflows (repo callback)
   "Fetch workflows for REPO asynchronously and call CALLBACK with results.
 CALLBACK is called with a list of workflow hash-tables, or a cons \\=(error . MSG)."
@@ -1055,7 +1036,7 @@ the DEFAULT branch.  Without LABEL the heading is plain \"Commits\"."
   (if branch (concat "branch-" (octocat--cache-safe-repo branch)) "default"))
 
 (vui-defcomponent octocat-repo-vui--commits-section
-    (repo branch default-branch current-branch head-info on-head)
+    (repo branch default-branch current-branch head-info on-head tick)
   "Commits section for REPO.
 The commits are those of BRANCH, or of the default branch when nil;
 the branch appears once in the title instead of on every row, with
@@ -1077,7 +1058,7 @@ whenever it changes, or with nil when there are no commits to show."
          ;; the cursors that load more pages after.
          (cached (vui-use-memo (repo cache-id)
                    (octocat--items-cache-load repo "history" cache-id)))
-         (first  (vui-use-async (list 'commits repo branch)
+         (first  (octocat-vui-use-async-sticky (list 'commits repo branch tick)
                    (lambda (resolve reject)
                      (octocat-repo--list-commits
                       repo branch
@@ -1242,7 +1223,7 @@ from `octocat-repo--fetch-summary', or an ellipsis while it loads."
                          (or (plist-get summary :open-issues) "…")
                          (or (plist-get summary :open-prs) "…")))
 
-(vui-defcomponent octocat-repo-vui--root (repo branch local-dir unpushed raw)
+(vui-defcomponent octocat-repo-vui--root (repo branch local-dir unpushed raw tick)
   "Root component for the repo buffer: header, local-head/fork-parent
 info, issue/PR summary line, then the UNPUSHED, the commits and the
 docs sections.  BRANCH is the branch whose commits and docs to show, nil
@@ -1257,7 +1238,7 @@ Everything but the commits comes from a single summary API call."
          (head-info      (octocat--head-info))
          (current-branch (plist-get head-info :branch))
          (cached         (vui-use-memo (repo) (octocat-repo--summary-cache-load repo)))
-         (summary-result (vui-use-async (list 'summary repo)
+         (summary-result (octocat-vui-use-async-sticky (list 'summary repo tick)
                            (lambda (resolve reject)
                              (octocat-repo--fetch-summary
                               repo
@@ -1269,7 +1250,8 @@ Everything but the commits comes from a single summary API call."
          (summary        (or fresh cached))
          (default-branch (plist-get summary :default-branch))
          (fork-parent    (plist-get summary :fork-parent))
-         (loading        (eq (plist-get summary-result :status) 'pending)))
+         (loading        (or (eq (plist-get summary-result :status) 'pending)
+                             (plist-get summary-result :refreshing))))
     (vui-use-effect (fresh)
       (when fresh (octocat-repo--summary-cache-save repo fresh))
       nil)
@@ -1306,7 +1288,7 @@ Everything but the commits comes from a single summary API call."
      (vui-component 'octocat-repo-vui--commits-section
                     :key (or branch 'default)
                     :repo repo :branch branch :default-branch default-branch
-                    :current-branch current-branch :head-info head-info
+                    :current-branch current-branch :head-info head-info :tick tick
                     :on-head (vui-async-callback (sha)
                                (vui-set-state :head (cons branch sha))))
      (let ((known (and head (equal (car head) branch))))
@@ -1378,23 +1360,20 @@ Everything but the commits comes from a single summary API call."
 ;;;; Async refresh
 
 (defun octocat-repo-refresh (&optional _ignore-auto _noconfirm)
-  "Refresh the current octocat-repo buffer.
-Mounts the vui.el component tree for `octocat-repo--repo' via
-`vui-mount'.  Every section fetches its own data independently (see
-the Commentary at the top of this file)."
+  "Refresh the current octocat-repo buffer, in place.
+Every section fetches its own data independently (see the Commentary at
+the top of this file)."
   (interactive)
   (unless octocat-repo--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
-  (octocat-vui-preserving-view
-    (vui-mount (vui-component 'octocat-repo-vui--root
-                              :repo octocat-repo--repo
-                              :branch octocat-repo--branch
-                              :local-dir octocat-repo--local-dir
-                              :raw octocat--markdown-raw
-                              :unpushed (and octocat-repo--local-dir
-                                             (octocat-repo--unpushed
-                                              octocat-repo--local-dir)))
-               (buffer-name))))
+  (octocat-vui-refresh-page 'octocat-repo-vui--root octocat-repo--repo
+                            (list :repo octocat-repo--repo
+                                  :branch octocat-repo--branch
+                                  :local-dir octocat-repo--local-dir
+                                  :raw octocat--markdown-raw
+                                  :unpushed (and octocat-repo--local-dir
+                                                 (octocat-repo--unpushed
+                                                  octocat-repo--local-dir)))))
 
 ;; NOTE: the `M-x octocat-repo' entry point itself (the `;;;###autoload'
 ;; command) is defined in `octocat.el', not here -- see CONTRIBUTING.md,

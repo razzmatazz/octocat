@@ -556,6 +556,26 @@ Where each action shows:
 
 ---
 
+## Never steal focus
+
+Only the command the user just ran may change what their windows show.
+Async work, such as a `gh` call ending or a timer firing, must not
+select a window, switch a window's buffer or open a prompt: by the time
+it runs, the user may be reading or typing somewhere else.
+
+- **A refresh re-renders the page in place.**  A page is mounted once,
+  when it is opened, and every later refresh goes through
+  `octocat-vui-refresh-page` without remounting.  A remount would also
+  select the buffer: a merge finishing used to pull the user back to
+  the PR page from wherever they had gone (see docs/using-vui.md).
+- **Something shown after a fetch checks that the user is still there.**
+  A command that has to wait on `gh` before it can show anything, such
+  as resolving `#123` to a PR or an issue, or fetching the labels to
+  pick from, goes ahead only if `octocat--still-selected-p` says the
+  buffer it started from is still in the selected window.
+
+---
+
 ## Revealing more rows ("Load N more…")
 
 Rows that a `[+] Load N more…` button brings in **unfold** one frame at a

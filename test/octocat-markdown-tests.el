@@ -262,13 +262,25 @@ the window's point; mid-render that scrambled the page."
               ((symbol-function 'octocat-issue-open)
                (lambda (&rest a) (push (cons 'issue a) opened)))
               ((symbol-function 'octocat-commit-open)
-               (lambda (&rest a) (push (cons 'commit a) opened))))
+               (lambda (&rest a) (push (cons 'commit a) opened)))
+              ((symbol-function 'octocat--still-selected-p) #'always))
       (octocat--markdown-open-ref 'issue "o/r" 5)
       (setq answer "false\n")
       (octocat--markdown-open-ref 'issue "o/r" 6)
       (octocat--markdown-open-ref 'commit "o/r" "abc1234"))
     (should (equal (nreverse opened)
                    '((pr "o/r" 5) (issue "o/r" 6) (commit "o/r" "abc1234"))))))
+
+(ert-deftest octocat-markdown-test-open-ref-moved-on ()
+  "A number resolved after the user went on to another buffer is not opened."
+  (let (opened)
+    (cl-letf (((symbol-function 'octocat--run-gh)
+               (lambda (_name _args parse callback) (funcall callback (funcall parse "true"))))
+              ((symbol-function 'octocat-pr-open)
+               (lambda (&rest a) (push a opened)))
+              ((symbol-function 'octocat--still-selected-p) #'ignore))
+      (octocat--markdown-open-ref 'issue "o/r" 5))
+    (should-not opened)))
 
 
 ;;; Blocks

@@ -41,7 +41,7 @@
 
 (declare-function octocat-search-repo "octocat-search" ())
 (declare-function octocat-repo-vui-use-cached "octocat-repo"
-                  (type repo number fetch &optional as-list))
+                  (type repo number fetch &optional as-list tick))
 
 
 
@@ -184,16 +184,19 @@ Its check-runs are in CHECKS, a `vui-use-async' result."
 
 ;;;; Page
 
-(vui-defcomponent octocat-commit--page (repo sha raw)
+(vui-defcomponent octocat-commit--page (repo sha raw tick)
   "Commit SHA of REPO: header, message, checks, files and comments.
 RAW shows markdown verbatim.  The commit, its checks and its comments
-are fetched independently; each shows its cached copy until then."
+are fetched independently; each shows its cached copy until then.  A
+new TICK fetches them again."
   :render
   (let* ((width    (octocat-vui-window-width))
-         (commit   (octocat-repo-vui-use-cached "commit" repo sha #'octocat--fetch-commit))
-         (checks   (octocat-repo-vui-use-cached "checks" repo sha #'octocat--fetch-checks t))
+         (commit   (octocat-repo-vui-use-cached
+                    "commit" repo sha #'octocat--fetch-commit nil tick))
+         (checks   (octocat-repo-vui-use-cached
+                    "checks" repo sha #'octocat--fetch-checks t tick))
          (comments (octocat-repo-vui-use-cached
-                    "commit-comments" repo sha #'octocat--fetch-commit-comments t))
+                    "commit-comments" repo sha #'octocat--fetch-commit-comments t tick))
          (data     (and (eq (plist-get commit :status) 'ready) (plist-get commit :data)))
          (loading  (and (or (memq 'pending (list (plist-get commit :status)
                                                  (plist-get checks :status)
@@ -276,17 +279,16 @@ are fetched independently; each shows its cached copy until then."
 
 (defun octocat-commit-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current commit buffer.
-Mounts the vui.el page, which paints the disk cache at once and fetches
-the commit, its checks and its comments in the background."
+The page paints the disk cache at once and fetches the commit, its
+checks and its comments in the background, in place."
   (interactive)
   (unless (and octocat--commit-repo octocat--commit-sha)
     (user-error "Octocat: Buffer is not associated with a commit"))
-  (octocat-vui-preserving-view
-    (vui-mount (vui-component 'octocat-commit--page
-                              :repo octocat--commit-repo
-                              :sha octocat--commit-sha
-                              :raw octocat--markdown-raw)
-               (buffer-name))))
+  (octocat-vui-refresh-page 'octocat-commit--page
+                            (cons octocat--commit-repo octocat--commit-sha)
+                            (list :repo octocat--commit-repo
+                                  :sha octocat--commit-sha
+                                  :raw octocat--markdown-raw)))
 
 (defun octocat-commit-open (repo sha)
   "Show commit SHA of REPO in its own buffer."

@@ -997,47 +997,43 @@ they keep working under Evil."
     (octocat-vui--default-help-echo
      line "RET: open commit details  o: browse on GitHub")))
 
-(vui-defcomponent octocat-file-log--page (repo path commits text face)
-  "The file log page: a REPO and PATH header, then COMMITS or TEXT.
-COMMITS is a list of commit hash-tables.  When TEXT is non-nil it is
-shown in FACE in place of the list (errors; \"\" while loading, drawn
-as grey bars), and the
-header leaves out the commit count."
+(vui-defcomponent octocat-file-log--page (repo path tick)
+  "The file log page: a REPO and PATH header, then the commits of PATH.
+The header leaves out the commit count until they are known.  A new
+TICK fetches them again."
   :render
-  (vui-vstack
-   (vui-text (concat
-              (propertize (or repo "") 'face 'octocat-repo)
-              "  "
-              (propertize (or path "") 'face 'octocat-branch)
-              (unless text
-                (concat "  "
-                        (propertize (format "(%d commits)" (length commits))
-                                    'face 'octocat-dimmed)))))
-   (cond
-    ((equal text "")
-     (vui-text (octocat-vui-line-skeleton "  ")))
-    (text
-     (vui-text (propertize (concat "  " text) 'face face)))
-    ((null commits)
-     (vui-text (propertize "  (no commits found)" 'face 'octocat-dimmed)))
-    (t
-     (vui-list commits
-               (lambda (commit) (vui-text (octocat-file-log--commit-line commit)))
-               (lambda (commit) (gethash "sha" commit)))))))
-
-(defun octocat-file-log--mount (&rest props)
-  "Mount `octocat-file-log--page' in the current buffer.
-The repo and path come from the buffer; PROPS are the page's other
-properties (:commits, or :text and :face)."
-  (vui-mount (apply #'vui-component 'octocat-file-log--page
-                    :repo octocat-file-log--repo
-                    :path octocat-file-log--path
-                    props)
-             (buffer-name)))
-
-(defun octocat-file-log--render-loading ()
-  "Render a loading skeleton in the current file-log buffer."
-  (octocat-file-log--mount :text "" :face nil))
+  (let* ((result  (octocat-vui-use-async-sticky (list 'file-log repo path tick)
+                    (lambda (resolve reject)
+                      (octocat-tree--fetch-file-commits
+                       repo path
+                       (lambda (r)
+                         (if (eq (car-safe r) 'error)
+                             (funcall reject (cdr r))
+                           (funcall resolve r)))))))
+         (status  (plist-get result :status))
+         (commits (plist-get result :data)))
+    (octocat-vui-use-mode-line-loading
+     (or (eq status 'pending) (plist-get result :refreshing)))
+    (vui-vstack
+     (vui-text (concat
+                (propertize (or repo "") 'face 'octocat-repo)
+                "  "
+                (propertize (or path "") 'face 'octocat-branch)
+                (when (eq status 'ready)
+                  (concat "  "
+                          (propertize (format "(%d commits)" (length commits))
+                                      'face 'octocat-dimmed)))))
+     (pcase status
+       ('pending (vui-text (octocat-vui-line-skeleton "  ")))
+       ('error
+        (vui-text (propertize (format "  Error loading commits: %s"
+                                      (plist-get result :error))
+                              'face 'error)))
+       (_ (if (null commits)
+              (vui-text (propertize "  (no commits found)" 'face 'octocat-dimmed))
+            (vui-list commits
+                      (lambda (commit) (vui-text (octocat-file-log--commit-line commit)))
+                      (lambda (commit) (gethash "sha" commit)))))))))
 
 (defun octocat-file-log--sha-at-point ()
   "Return the full SHA of the commit on the current line, or nil."
@@ -1066,7 +1062,6 @@ Works from an `octocat-file-mode' buffer.  Opens (or switches to) the
     (setq octocat-file-log--repo   repo
           octocat-file-log--path   path
           octocat-file-log--branch branch)
-    (octocat-file-log--render-loading)
     (octocat-file-log-refresh)))
 
 (defun octocat-file-log-refresh (&optional _ignore-auto _noconfirm)
@@ -1074,22 +1069,10 @@ Works from an `octocat-file-mode' buffer.  Opens (or switches to) the
   (interactive)
   (unless (and octocat-file-log--repo octocat-file-log--path)
     (user-error "Octocat: Buffer is not associated with a file"))
-  (let ((buf    (current-buffer))
-        (repo   octocat-file-log--repo)
-        (path   octocat-file-log--path))
-    (setq mode-line-process (octocat-vui-mode-line-busy ":refreshing"))
-    (octocat-tree--fetch-file-commits
-     repo path
-     (lambda (result)
-       (when (buffer-live-p buf)
-         (with-current-buffer buf
-           (setq mode-line-process nil)
-           (octocat-vui-preserving-view
-             (if (eq (car-safe result) 'error)
-                 (octocat-file-log--mount
-                  :text (format "Error loading commits: %s" (cdr result))
-                  :face 'error)
-               (octocat-file-log--mount :commits result)))))))))
+  (octocat-vui-refresh-page 'octocat-file-log--page
+                            (cons octocat-file-log--repo octocat-file-log--path)
+                            (list :repo octocat-file-log--repo
+                                  :path octocat-file-log--path)))
 
 (defun octocat-file-log-visit ()
   "Open the commit detail view for the commit at point."

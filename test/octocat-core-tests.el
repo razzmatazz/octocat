@@ -276,7 +276,8 @@ Other links, and an explicit request for an external browser, skip it;
                (lambda (_name _args parse callback) (funcall callback (funcall parse "false"))))
               ((symbol-function 'octocat-issue-open)
                (lambda (&rest a) (push (cons 'issue a) opened)))
-              ((symbol-function 'octocat--search-repo--current-repo) (lambda () "me/mine")))
+              ((symbol-function 'octocat--search-repo--current-repo) (lambda () "me/mine"))
+              ((symbol-function 'octocat--still-selected-p) #'always))
       (with-temp-buffer
         (insert out)
         (dolist (needle '("github.com" "#7" "abc1234"))

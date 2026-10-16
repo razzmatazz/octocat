@@ -407,18 +407,19 @@ function turning the loaded data into the vnode of its rows."
      ('error (vui-text (format "  %s" (plist-get result :error))
                        :face 'octocat-dimmed)))))
 
-(vui-defcomponent octocat-dashboard--root (feed-limit)
+(vui-defcomponent octocat-dashboard--root (feed-limit tick)
   "Root component of the dashboard: recent repositories, then the feed.
 FEED-LIMIT is how many feed events to fetch.  The disk cache shows until
-the fresh data arrives (stale-while-revalidate)."
+the fresh data arrives (stale-while-revalidate); a new TICK fetches both
+again."
   :render
   (let* ((cached (vui-use-memo () (octocat--dashboard-cache-load)))
-         (repos  (octocat-vui-use-async-sticky 'dashboard-repos
+         (repos  (octocat-vui-use-async-sticky (list 'dashboard-repos tick)
                    (lambda (resolve reject)
                      (octocat--fetch-recent-repos
                       (lambda (r) (octocat-repo-vui--resolve-or-reject
                                    r resolve reject))))))
-         (feed   (octocat-vui-use-async-sticky (list 'dashboard-feed feed-limit)
+         (feed   (octocat-vui-use-async-sticky (list 'dashboard-feed feed-limit tick)
                    (lambda (resolve reject)
                      (octocat--fetch-viewer-login
                       (lambda (login)
@@ -479,14 +480,12 @@ the fresh data arrives (stale-while-revalidate)."
 
 (defun octocat-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the octocat dashboard buffer.
-Mounts the vui.el dashboard, which paints the disk cache at once and then
-fetches the repositories and the feed in the background."
+The dashboard paints the disk cache at once and fetches the repositories
+and the feed in the background, in place."
   (interactive)
-  (octocat-vui-preserving-view
-    (vui-mount (vui-component 'octocat-dashboard--root
-                              :feed-limit (or octocat--feed-limit
-                                              octocat-feed-limit))
-               (buffer-name))))
+  (octocat-vui-refresh-page 'octocat-dashboard--root nil
+                            (list :feed-limit (or octocat--feed-limit
+                                                  octocat-feed-limit))))
 
 
 

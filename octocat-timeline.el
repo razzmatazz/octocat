@@ -62,7 +62,8 @@
 (require 'vui)
 (require 'vui-components) ; vui-vstack, etc.
 
-(declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
+(declare-function octocat-repo-vui-use-cached "octocat-repo"
+                  (type repo number fetch &optional as-list tick))
 
 
 ;;;; Data
@@ -81,25 +82,17 @@ timeline events of all pages, or a cons \\=(error . MSG)."
                        result))
                    callback))
 
-(defun octocat-timeline-use-events (repo number)
+(defun octocat-timeline-use-events (repo number tick)
   "Hook: load the timeline events of NUMBER in REPO, cached on disk.
 Return (EVENTS . LOADING): EVENTS is a vector of timeline events, or nil
 while neither a cache nor a fetch has produced any; LOADING is non-nil
-while the first fetch is outstanding.  Must be called during render."
-  (let* ((cached (vui-use-memo (repo number)
-                   (octocat--detail-cache-load repo "timeline" number)))
-         (async  (vui-use-async (list 'timeline repo number)
-                   (lambda (resolve reject)
-                     (octocat--fetch-issue-events
-                      repo number
-                      (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
-         (fresh  (and (eq (plist-get async :status) 'ready)
-                      (plist-get async :data))))
-    (vui-use-effect (fresh)
-      (when fresh (octocat--detail-cache-save repo "timeline" number fresh))
-      nil)
-    (cons (gethash "events" (or fresh cached (make-hash-table)))
-          (and (not fresh) (eq (plist-get async :status) 'pending)))))
+while a fetch is outstanding.  A new TICK fetches again.  Must be called
+during render."
+  (let ((result (octocat-repo-vui-use-cached
+                 "timeline" repo number #'octocat--fetch-issue-events nil tick)))
+    (cons (gethash "events" (or (plist-get result :data) (make-hash-table)))
+          (or (eq (plist-get result :status) 'pending)
+              (plist-get result :refreshing)))))
 
 
 ;;;; Model

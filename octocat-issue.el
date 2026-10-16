@@ -47,7 +47,8 @@
 (declare-function octocat-repo-vui--numbers "octocat-repo" (repo refs open))
 (declare-function octocat-pr-open "octocat-pr" (repo number))
 (declare-function octocat-repo-vui--milestone "octocat-repo" (item))
-(declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
+(declare-function octocat-repo-vui-use-cached "octocat-repo"
+                  (type repo number fetch &optional as-list tick))
 
 
 ;;;; Edit / comment commands — submit helpers
@@ -258,24 +259,16 @@ BG is as for `octocat--label-face'."
                                 #'octocat-pr-open))))
       (vui-newline)))))
 
-(vui-defcomponent octocat-issue--page (repo number raw action)
+(vui-defcomponent octocat-issue--page (repo number raw action tick)
   "Issue NUMBER of REPO as a timeline; RAW shows markdown bodies verbatim.
-ACTION, a label or nil, shows a change under way under the timeline."
+ACTION, a label or nil, shows a change under way under the timeline.
+A new TICK fetches everything again."
   :render
   (let* ((width  (octocat-vui-window-width))
          (bg     (octocat--label-background))
-         (cached (vui-use-memo (repo number)
-                   (octocat--detail-cache-load repo "issue" number)))
-         (async  (vui-use-async (list 'issue repo number)
-                   (lambda (resolve reject)
-                     (octocat--fetch-issue
-                      repo number
-                      (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
-         (fresh  (and (eq (plist-get async :status) 'ready)
-                      (plist-get async :data)))
-         ;; Cached data shows until the fresh data arrives.
-         (result (octocat-vui-with-stale async cached))
-         (timeline (octocat-timeline-use-events repo number))
+         (result (octocat-repo-vui-use-cached
+                  "issue" repo number #'octocat--fetch-issue nil tick))
+         (timeline (octocat-timeline-use-events repo number tick))
          (events   (car timeline))
          (loading  (or (eq (plist-get result :status) 'pending)
                        (plist-get result :refreshing)
@@ -287,9 +280,6 @@ ACTION, a label or nil, shows a change under way under the timeline."
                            (octocat-timeline-items (plist-get result :data)
                                                    "opened this issue" events bg)
                            raw (octocat--markdown-width))))))
-    (vui-use-effect (fresh)
-      (when fresh (octocat--detail-cache-save repo "issue" number fresh))
-      nil)
     (octocat-vui-use-mode-line-loading loading)
     (pcase (plist-get result :status)
       ('pending (vui-text (octocat-vui-detail-skeleton repo number width)))
@@ -341,18 +331,17 @@ ACTION, a label or nil, shows a change under way under the timeline."
 
 (defun octocat-issue-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current issue buffer.
-Mounts the vui.el page for the issue, which paints the disk cache at once
-\(stale-while-revalidate) and then fetches fresh data in the background."
+The page paints the disk cache at once and fetches fresh data in the
+background, in place: what is unfolded stays so."
   (interactive)
   (unless (and octocat--issue-repo octocat--issue-number)
     (user-error "Octocat: Buffer is not associated with an issue"))
-  (octocat-vui-preserving-view
-    (vui-mount (vui-component 'octocat-issue--page
-                              :repo octocat--issue-repo
-                              :number octocat--issue-number
-                              :raw octocat--markdown-raw
-                              :action octocat-timeline--action)
-               (buffer-name))))
+  (octocat-vui-refresh-page 'octocat-issue--page
+                            (cons octocat--issue-repo octocat--issue-number)
+                            (list :repo octocat--issue-repo
+                                  :number octocat--issue-number
+                                  :raw octocat--markdown-raw
+                                  :action octocat-timeline--action)))
 
 (defun octocat-issue-open (repo number)
   "Show issue NUMBER of REPO in its own buffer."
@@ -376,18 +365,16 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
   (interactive)
   (unless octocat-vui-list--repo
     (user-error "Octocat: Buffer is not associated with a repository"))
-  (octocat-vui-preserving-view
-    (let ((repo octocat-vui-list--repo)
-          (bg   (octocat--label-background)))
-      (vui-mount (vui-component 'octocat-vui-search-list
-                                :repo repo
-                                :kind 'issues
-                                :query (octocat-vui-list-query)
-                                :compact (octocat-vui-list-compact-p)
-                                :row-fn (lambda (issue width compact)
-                                          (octocat-repo-vui--issue-row
-                                           repo issue width bg compact)))
-                 (buffer-name)))))
+  (let ((repo octocat-vui-list--repo)
+        (bg   (octocat--label-background)))
+    (octocat-vui-refresh-page 'octocat-vui-search-list repo
+                              (list :repo repo
+                                    :kind 'issues
+                                    :query (octocat-vui-list-query)
+                                    :compact (octocat-vui-list-compact-p)
+                                    :row-fn (lambda (issue width compact)
+                                              (octocat-repo-vui--issue-row
+                                               repo issue width bg compact))))))
 
 (define-derived-mode octocat-issue-list-mode octocat-vui-list-mode "Octocat-Issues"
   "Major mode for the issue list of a repository.

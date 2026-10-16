@@ -43,7 +43,7 @@
 
 (declare-function octocat-run-open "octocat-run" (repo run-id))
 (declare-function octocat-repo-vui-use-cached "octocat-repo"
-                  (type repo number fetch &optional as-list))
+                  (type repo number fetch &optional as-list tick))
 (declare-function octocat-search-repo "octocat-search" ())
 
 
@@ -237,10 +237,12 @@ CHECKS is a list of REST check-runs."
                        "RET: open in browser")))
                   checks entries)))))
 
-(vui-defcomponent octocat-checks--page (repo sha ref)
-  "The check-runs of commit SHA of REPO; REF is its branch, or nil."
+(vui-defcomponent octocat-checks--page (repo sha ref tick)
+  "The check-runs of commit SHA of REPO; REF is its branch, or nil.
+A new TICK fetches them again."
   :render
-  (let* ((checks  (octocat-repo-vui-use-cached "checks" repo sha #'octocat--fetch-checks t))
+  (let* ((checks  (octocat-repo-vui-use-cached
+                   "checks" repo sha #'octocat--fetch-checks t tick))
          (loading (and (or (eq (plist-get checks :status) 'pending)
                            (plist-get checks :refreshing))
                        t)))
@@ -294,17 +296,16 @@ CHECKS is a list of REST check-runs."
 
 (defun octocat-checks-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current check-runs buffer.
-Mounts the vui.el page, which paints the disk cache at once and fetches
-the check-runs in the background."
+The page paints the disk cache at once and fetches the check-runs in
+the background, in place."
   (interactive)
   (unless (and octocat--checks-repo octocat--checks-sha)
     (user-error "Octocat: Buffer is not associated with a commit"))
-  (octocat-vui-preserving-view
-    (vui-mount (vui-component 'octocat-checks--page
-                              :repo octocat--checks-repo
-                              :sha octocat--checks-sha
-                              :ref (octocat--nonempty octocat--checks-ref))
-               (buffer-name))))
+  (octocat-vui-refresh-page 'octocat-checks--page
+                            (cons octocat--checks-repo octocat--checks-sha)
+                            (list :repo octocat--checks-repo
+                                  :sha octocat--checks-sha
+                                  :ref (octocat--nonempty octocat--checks-ref))))
 
 (defun octocat-checks-open (repo sha ref)
   "Show the CI results of commit SHA of REPO in their own buffer.

@@ -166,12 +166,16 @@ pre-seeded in the subtree cache, so no gh call is made."
           "\"author\":{\"name\":\"Bob\",\"date\":\"2026-05-28T10:00:00Z\"}}}]")
   "Two commits as the REST commits endpoint returns them.")
 
-(defun octocat-tree-tests--mount-file-log (&rest props)
-  "Mount the file log page in the current buffer with PROPS."
+(defun octocat-tree-tests--mount-file-log (&rest result)
+  "Mount the file log page in the current buffer.
+Its fetch gives the car of RESULT, or never returns when there is none."
   (octocat-file-log-mode)
   (setq octocat-file-log--repo "owner/repo"
         octocat-file-log--path "src/foo.el")
-  (apply #'octocat-file-log--mount props))
+  (cl-letf (((symbol-function 'octocat-tree--fetch-file-commits)
+             (lambda (_repo _path callback)
+               (when result (funcall callback (car result))))))
+    (octocat-file-log-refresh)))
 
 (ert-deftest octocat-tree-test-file-log-commit-line ()
   "A commit line shows short SHA, author and subject, and carries the SHA."
@@ -193,9 +197,9 @@ pre-seeded in the subtree cache, so no gh call is made."
   "The file log lists one line per commit under a header with the count."
   (with-temp-buffer
     (octocat-tree-tests--mount-file-log
-     :commits (append (json-parse-string octocat-tree-tests--file-log-commits-json
-                                         :null-object nil)
-                      nil))
+     (append (json-parse-string octocat-tree-tests--file-log-commits-json
+                                :null-object nil)
+             nil))
     (let ((text (buffer-string)))
       (should (string-match-p "owner/repo  src/foo.el  (2 commits)" text))
       (should (< (string-search "Fix parser" text)
@@ -207,13 +211,15 @@ pre-seeded in the subtree cache, so no gh call is made."
     (should-not (octocat-file-log--sha-at-point))))
 
 (ert-deftest octocat-tree-test-file-log-render-loading-and-empty ()
-  "The file log shows its text in place of the list, or a no-commits line."
+  "The file log shows no count while loading, an error, or a no-commits line."
   (with-temp-buffer
-    (octocat-tree-tests--mount-file-log :text "Loading…" :face 'octocat-dimmed)
-    (should (string-match-p "Loading…" (buffer-string)))
+    (octocat-tree-tests--mount-file-log)
     (should-not (string-match-p "commits)" (buffer-string))))
   (with-temp-buffer
-    (octocat-tree-tests--mount-file-log :commits nil)
+    (octocat-tree-tests--mount-file-log '(error . "boom"))
+    (should (string-match-p "Error loading commits: boom" (buffer-string))))
+  (with-temp-buffer
+    (octocat-tree-tests--mount-file-log nil)
     (should (string-match-p "(0 commits)" (buffer-string)))
     (should (string-match-p "(no commits found)" (buffer-string)))))
 

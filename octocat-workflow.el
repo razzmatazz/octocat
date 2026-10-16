@@ -199,15 +199,16 @@ by ON-MORE; LOADING is non-nil while that page is fetched."
        (cons (gethash "workflow" cached)
              (cl-coerce (gethash "runs" cached) 'list))))
 
-(vui-defcomponent octocat-workflow--page (repo id name)
-  "Workflow ID of REPO and its runs; NAME shows while it loads."
+(vui-defcomponent octocat-workflow--page (repo id name tick)
+  "Workflow ID of REPO and its runs; NAME shows while it loads.
+A new TICK fetches them again."
   :state ((limit octocat-workflow-runs-limit))
   :render
   (let* ((default (= limit octocat-workflow-runs-limit))
          (cached  (vui-use-memo (repo id)
                     (octocat-workflow--cache-pair
                      (octocat--detail-cache-load repo "workflow" id))))
-         (sticky  (octocat-vui-use-async-sticky (list 'workflow repo id limit)
+         (sticky  (octocat-vui-use-async-sticky (list 'workflow repo id limit tick)
                     (lambda (resolve reject)
                       (octocat--fetch-workflow
                        repo id limit
@@ -284,17 +285,16 @@ by ON-MORE; LOADING is non-nil while that page is fetched."
 
 (defun octocat-workflow-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current workflow buffer.
-Mounts the vui.el page, which paints the disk cache at once and fetches
-the workflow and its runs in the background."
+The page paints the disk cache at once and fetches the workflow and its
+runs in the background, in place."
   (interactive)
   (unless (and octocat--workflow-repo octocat--workflow-id)
     (user-error "Octocat: Buffer is not associated with a workflow"))
-  (octocat-vui-preserving-view
-    (vui-mount (vui-component 'octocat-workflow--page
-                              :repo octocat--workflow-repo
-                              :id octocat--workflow-id
-                              :name (or octocat--workflow-name ""))
-               (buffer-name))))
+  (octocat-vui-refresh-page 'octocat-workflow--page
+                            (cons octocat--workflow-repo octocat--workflow-id)
+                            (list :repo octocat--workflow-repo
+                                  :id octocat--workflow-id
+                                  :name (or octocat--workflow-name ""))))
 
 (defun octocat-workflow-open (repo id name path)
   "Show workflow ID of REPO in its own buffer.

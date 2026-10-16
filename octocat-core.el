@@ -1031,15 +1031,18 @@ is asked first and the matching view opened."
       ('commit (octocat-commit-open repo id))
       ('issue
        (message "Octocat: opening %s#%d…" repo id)
-       (octocat--run-gh
-        "resolve-ref"
-        (list "api" (format "repos/%s/issues/%d" repo id) "--jq" ".pull_request != null")
-        #'string-trim
-        (lambda (result)
-          (cond ((eq (car-safe result) 'error)
-                 (message "Octocat: cannot open %s#%d: %s" repo id (cdr result)))
-                ((equal result "true") (octocat-pr-open repo id))
-                (t (octocat-issue-open repo id)))))))))
+       (let ((buf (current-buffer)))
+         (octocat--run-gh
+          "resolve-ref"
+          (list "api" (format "repos/%s/issues/%d" repo id) "--jq" ".pull_request != null")
+          #'string-trim
+          (lambda (result)
+            (cond ((eq (car-safe result) 'error)
+                   (message "Octocat: cannot open %s#%d: %s" repo id (cdr result)))
+                  ((not (octocat--still-selected-p buf))
+                   (message "Octocat: not opening %s#%d, as you moved on" repo id))
+                  ((equal result "true") (octocat-pr-open repo id))
+                  (t (octocat-issue-open repo id))))))))))
 
 (setq octocat-markdown-ref-function #'octocat--markdown-open-ref)
 
@@ -1330,6 +1333,13 @@ From an octocat page, in the selected window; from elsewhere, wherever
   ;; for `octocat-quit-window', as `magit-maybe-set-dedicated' does.
   (unless (window-prev-buffers)
     (set-window-parameter nil 'octocat-dedicated t)))
+
+(defun octocat--still-selected-p (buffer)
+  "Return non-nil when BUFFER is still the selected window's buffer.
+An async callback may show a page or open a prompt only then: the user
+may have gone on to another buffer while `gh' ran, and must not be
+pulled back to it (see docs/user-interface-conventions.md)."
+  (eq (window-buffer (selected-window)) buffer))
 
 (defun octocat-quit-window (&optional kill)
   "Quit the selected window and bury its buffer, or kill it with KILL.

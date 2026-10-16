@@ -45,8 +45,8 @@
 (require 'vui)
 
 (declare-function octocat-repo-vui-use-cached "octocat-repo"
-                  (type repo number fetch &optional as-list))
-(declare-function octocat-pr--use-data "octocat-pr" (repo number))
+                  (type repo number fetch &optional as-list tick))
+(declare-function octocat-pr--use-data "octocat-pr" (repo number tick))
 (declare-function octocat-pr--header "octocat-pr" (repo pr bg width &optional tab))
 (declare-function octocat-pr-refresh "octocat-pr" (&optional _ignore-auto _noconfirm))
 (declare-function octocat-pr--tabs "octocat-pr" (current repo number width &optional files commits))
@@ -221,18 +221,19 @@ Write the review text, pick Comment, Approve or Request changes with
 
 ;;;; Components
 
-(vui-defcomponent octocat-pr-diff--page (repo number raw reviewing)
+(vui-defcomponent octocat-pr-diff--page (repo number raw reviewing tick)
   "The diff of pull request NUMBER of REPO, under the PR page's header.
 RAW shows the review comments' markdown verbatim.  REVIEWING non-nil
-shows a review being submitted in place of the submit button."
+shows a review being submitted in place of the submit button.  A new
+TICK fetches everything again."
   :render
-  (let* ((pr       (octocat-pr--use-data repo number))
+  (let* ((pr       (octocat-pr--use-data repo number tick))
          (tab-w    (octocat--markdown-width))
          (files    (octocat-repo-vui-use-cached
-                    "pr-diff" repo number #'octocat--fetch-pr-diff))
+                    "pr-diff" repo number #'octocat--fetch-pr-diff nil tick))
          (comments (octocat-repo-vui-use-cached
                     "pr-review-comments" repo number
-                    #'octocat--fetch-pr-review-comments t))
+                    #'octocat--fetch-pr-review-comments t tick))
          (loading  (and (or (memq 'pending (list (plist-get pr :status)
                                                  (plist-get files :status)
                                                  (plist-get comments :status)))
@@ -316,18 +317,17 @@ shows a review being submitted in place of the submit button."
 
 (defun octocat-pr-diff-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current PR diff buffer.
-Mounts the vui.el page, which fetches the file diffs and the inline
-review comments independently."
+The page fetches the file diffs and the inline review comments
+independently, in place."
   (interactive)
   (unless (and octocat--pr-diff-repo octocat--pr-diff-number)
     (user-error "Octocat: Buffer is not associated with a pull request diff"))
-  (octocat-vui-preserving-view
-    (vui-mount (vui-component 'octocat-pr-diff--page
-                              :repo octocat--pr-diff-repo
-                              :number octocat--pr-diff-number
-                              :raw octocat--markdown-raw
-                              :reviewing octocat-pr-diff--reviewing)
-               (buffer-name))))
+  (octocat-vui-refresh-page 'octocat-pr-diff--page
+                            (cons octocat--pr-diff-repo octocat--pr-diff-number)
+                            (list :repo octocat--pr-diff-repo
+                                  :number octocat--pr-diff-number
+                                  :raw octocat--markdown-raw
+                                  :reviewing octocat-pr-diff--reviewing)))
 
 (defun octocat-pr-diff-open (repo number)
   "Show the diff of pull request NUMBER of REPO in its own buffer."

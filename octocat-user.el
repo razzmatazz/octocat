@@ -220,11 +220,12 @@ AVATAR is a list of equally wide strings; the shorter list is padded."
 
 ;;;; Components
 
-(vui-defcomponent octocat-user--repos-section (login)
-  "Repositories of LOGIN, with its own \"load more\" limit."
+(vui-defcomponent octocat-user--repos-section (login tick)
+  "Repositories of LOGIN, with its own \"load more\" limit.
+A new TICK fetches them again."
   :state ((limit octocat-section-limit))
   :render
-  (let* ((sticky (octocat-vui-use-async-sticky (list 'user-repos login limit)
+  (let* ((sticky (octocat-vui-use-async-sticky (list 'user-repos login limit tick)
                    (lambda (resolve reject)
                      (octocat-user--fetch-repos
                       login limit
@@ -258,12 +259,12 @@ AVATAR is a list of equally wide strings; the shorter list is padded."
               (and (plist-get sticky :refreshing) (< (length repos) limit)) 2
               (octocat-vui-line-skeleton))))))))))
 
-(vui-defcomponent octocat-user--pinned-section (login)
+(vui-defcomponent octocat-user--pinned-section (login tick)
   "Pinned repositories of LOGIN, shown only when there are any.
 Pinned repositories are decoration, so nothing is drawn while they load
-or when the fetch fails."
+or when the fetch fails.  A new TICK fetches them again."
   :render
-  (let* ((result (vui-use-async (list 'user-pinned login)
+  (let* ((result (octocat-vui-use-async-sticky (list 'user-pinned login tick)
                    (lambda (resolve reject)
                      (octocat-user--fetch-pinned
                       login
@@ -312,15 +313,17 @@ time the window's width changes."
      (mapcar (lambda (line) (vui-text line))
              (if art (octocat-user--beside art lines) lines)))))
 
-(vui-defcomponent octocat-user--root (login)
-  "Root component of the user page: profile header, then repositories."
+(vui-defcomponent octocat-user--root (login tick)
+  "Root component of the user page: profile header, then repositories.
+A new TICK fetches everything again."
   :render
-  (let* ((result (vui-use-async (list 'user-profile login)
+  (let* ((result (octocat-vui-use-async-sticky (list 'user-profile login tick)
                    (lambda (resolve reject)
                      (octocat-user--fetch-profile
                       login
                       (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))
-         (loading (eq (plist-get result :status) 'pending)))
+         (loading (or (eq (plist-get result :status) 'pending)
+                      (plist-get result :refreshing))))
     (octocat-vui-use-mode-line-loading loading)
     (vui-vstack
      (pcase (plist-get result :status)
@@ -337,8 +340,8 @@ time the window's width changes."
            (vui-text (propertize (concat "@" login) 'face 'octocat-repo))
            (vui-text (octocat-vui-skeleton '((24) (40) (18)))))))
      (vui-newline)
-     (vui-component 'octocat-user--pinned-section :login login)
-     (vui-component 'octocat-user--repos-section :login login))))
+     (vui-component 'octocat-user--pinned-section :login login :tick tick)
+     (vui-component 'octocat-user--repos-section :login login :tick tick))))
 
 
 ;;;; Major mode
@@ -376,9 +379,8 @@ time the window's width changes."
   (interactive)
   (unless octocat-user--login
     (user-error "Octocat: Buffer is not associated with a GitHub user"))
-  (octocat-vui-preserving-view
-    (vui-mount (vui-component 'octocat-user--root :login octocat-user--login)
-               (buffer-name))))
+  (octocat-vui-refresh-page 'octocat-user--root octocat-user--login
+                            (list :login octocat-user--login)))
 
 (defun octocat-user-open (login)
   "Open (or switch to) the page of the GitHub user or organization LOGIN.
