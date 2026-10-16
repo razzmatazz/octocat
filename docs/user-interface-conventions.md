@@ -544,7 +544,10 @@ Where each action shows:
   failure.  `octocat-timeline-state-change` does the same for closing
   and reopening.
 - **In the merge box**, in place of its buttons: merging, converting to
-  draft, marking ready for review (`octocat-pr--merging`).
+  draft, marking ready for review (`octocat-pr--merging`).  Approving
+  the workflow runs of an outside contributor shows in place of its own
+  `[Approve workflows to run]` button, under the checks
+  (`octocat-pr--approving`), leaving the merge buttons alone.
 - **Under the review comments** on the PR's Files page: submitting a
   review (`octocat-pr-diff--submit-review`).
 - **In the mode line**, for an action with no button on the page to

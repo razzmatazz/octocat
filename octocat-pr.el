@@ -307,11 +307,12 @@ ROLLUP is a `statusCheckRollup' vector; outcomes are as in
     ('fail (propertize "✗" 'face 'octocat-ci-failure))
     (_     (propertize "●" 'face 'octocat-ci-pending))))
 
-(defun octocat-pr--merge-rows (pr)
+(defun octocat-pr--merge-rows (pr &optional awaiting)
   "Return the status rows of PR's merge box, as GitHub words them.
-Each is (KIND TITLE SUBTITLE CHECKS), KIND as for `octocat-pr--merge-icon'
-and SUBTITLE nil or a line under TITLE; CHECKS marks the row of the
-checks, under which they are listed."
+Each is (KIND TITLE SUBTITLE BELOW), KIND as for `octocat-pr--merge-icon'
+and SUBTITLE nil or a line under TITLE; BELOW is `checks' on the row of
+the checks, listed under it, and `approval' on that of the AWAITING
+workflow runs, with the button approving them under it."
   (let* ((checks  (or (octocat--get pr "statusCheckRollup") []))
          (counts  (octocat-pr--check-counts checks))
          (approvals (seq-count (lambda (r) (equal (gethash "state" r) "APPROVED"))
@@ -340,7 +341,16 @@ checks, under which they are listed."
                                                       '("failing" "in progress" "skipped" "successful")))
                                  ", ")
                       (if (= (length checks) 1) " check" " checks"))
-              t))
+              'checks))
+      (and awaiting
+           (list 'wait
+                 (if (cdr awaiting)
+                     (format "%d workflows awaiting approval" (length awaiting))
+                   "1 workflow awaiting approval")
+                 (if (cdr awaiting)
+                     "These workflows require approval from a maintainer."
+                   "This workflow requires approval from a maintainer.")
+                 'approval))
       (cond
        ((octocat-pr--conflicts-p pr)
         (list 'fail "This branch has conflicts that must be resolved"
@@ -364,27 +374,32 @@ A blocked merge is not refused: it may pass with admin rights."
   (cond ((eq (gethash "isDraft" pr) t) "Draft pull requests cannot be merged.")
         ((octocat-pr--conflicts-p pr) "This branch has conflicts that must be resolved")))
 
-(defun octocat-pr--merge-section (pr on-visit-check merging)
+(defun octocat-pr--merge-section (pr on-visit-check merging &optional awaiting approving)
   "Return the vnodes of the merge box of open PR, or nil.
 Like GitHub's, it holds the review, checks and conflict status, then
 the merge (or, for a draft, the ready for review) button.
 ON-VISIT-CHECK is called by RET on a check.  MERGING, a label such as
 \"Merging pull request…\", shows a change under way in place of the
-buttons."
+buttons.  AWAITING are the workflow runs awaiting approval, under the
+checks with a button approving them; APPROVING, a label, shows that
+under way in its place."
   (when (equal (gethash "state" pr) "OPEN")
     (let ((draft  (eq (gethash "isDraft" pr) t))
           (checks (or (octocat--get pr "statusCheckRollup") [])))
       (append
        (list (vui-text "Merge" :face 'octocat-section-heading))
        (mapcan (lambda (row)
-                 (pcase-let ((`(,kind ,title ,subtitle ,checks-p) row))
-                   (delq nil
-                         (list (vui-text (concat "  " (octocat-pr--merge-icon kind) " " title))
-                               (and subtitle
-                                    (vui-text (concat "    " subtitle) :face 'octocat-dimmed))
-                               (and checks-p
-                                    (octocat-checks-rows checks on-visit-check "    "))))))
-               (octocat-pr--merge-rows pr))
+                 (pcase-let ((`(,kind ,title ,subtitle ,below) row))
+                   (append
+                    (delq nil
+                          (list (vui-text (concat "  " (octocat-pr--merge-icon kind) " " title))
+                                (and subtitle
+                                     (vui-text (concat "    " subtitle) :face 'octocat-dimmed))
+                                (and (eq below 'checks)
+                                     (octocat-checks-rows checks on-visit-check "    "))))
+                    (and (eq below 'approval)
+                         (octocat-pr--approval-row awaiting approving)))))
+               (octocat-pr--merge-rows pr awaiting))
        (list (vui-newline))
        (cond
         (merging
@@ -412,6 +427,22 @@ buttons."
                  '("Convert to draft" "RET: convert this pull request to a draft"
                    octocat-pr-convert-to-draft "Still in progress?"))
            'tight))))))))
+
+(defun octocat-pr--approval-row (awaiting approving)
+  "Return the indented button approving each workflow run in AWAITING.
+APPROVING, a label or nil, shows the approval under way instead."
+  (if approving
+      (list (vui-text (concat "    " (octocat-vui-spinner) " " approving) :face 'bold))
+    ;; Indented a further two, under its row's title.
+    (list (vui-hstack
+           :spacing 0
+           (vui-text "  ")
+           (car (octocat-timeline-buttons
+                 (list (list "Approve workflows to run"
+                             "RET: let these workflow runs from an outside contributor start"
+                             (let ((ids (mapcar (lambda (run) (gethash "id" run)) awaiting)))
+                               (lambda () (octocat-pr-approve-workflows ids)))))
+                 'tight))))))
 
 (defun octocat-pr--merge-data (method methods defaults delete)
   "Return the merge dialog's user data for METHOD, one of METHODS or nil.
@@ -590,6 +621,49 @@ is the confirmation."
               (octocat-pr--open-merge-dialog
                pr methods (eq (gethash "deleteBranchOnMerge" result) t))))))))))
 
+(defvar-local octocat-pr--approving nil
+  "\"Approving workflows…\" while workflow runs are being approved, else nil.")
+
+(defun octocat-pr--set-approving (buf approving)
+  "Set BUF's workflow approval under way to APPROVING and show it in its page."
+  (when (buffer-live-p buf)
+    (with-current-buffer buf
+      (setq octocat-pr--approving approving)
+      (octocat-vui-update-page :approving approving))))
+
+(defun octocat-pr-approve-workflows (ids)
+  "Approve the current PR's workflow run of each of IDS to let it start.
+GitHub holds the runs of a PR from an outside contributor until a
+maintainer approves them.  Each is approved in turn, then the page
+refreshes."
+  (unless (and octocat--pr-repo octocat--pr-number)
+    (user-error "Octocat: Buffer is not associated with a pull request"))
+  (when octocat-pr--approving
+    (user-error "Octocat: Wait for \"%s\" to finish" octocat-pr--approving))
+  (let ((buf  (current-buffer))
+        (repo octocat--pr-repo)
+        (failed nil))
+    (octocat-pr--set-approving buf "Approving workflows…")
+    (cl-labels
+        ((next (ids)
+           (if ids
+               (octocat--run-gh "approve-run"
+                 (list "api" "--method" "POST"
+                       (format "repos/%s/actions/runs/%s/approve" repo (car ids)))
+                 #'identity
+                 (lambda (result)
+                   (when (eq (car-safe result) 'error)
+                     (setq failed (cdr result)))
+                   (next (cdr ids))))
+             (message (if failed
+                          (format "Octocat: Failed to approve workflows: %s" failed)
+                        "Octocat: Workflows approved"))
+             (when (buffer-live-p buf)
+               (with-current-buffer buf
+                 (setq octocat-pr--approving nil)
+                 (octocat-pr-refresh))))))
+      (next ids))))
+
 (defun octocat-pr--set-draft (draft)
   "Mark the current PR a draft if DRAFT, else ready for review."
   (unless (and octocat--pr-repo octocat--pr-number)
@@ -651,6 +725,30 @@ Calls CALLBACK with a single hash-table of PR data, or a cons \\=(error . MSG)."
 
 
 ;;;; Rendering
+
+(defun octocat-pr--fetch-awaiting-runs (repo sha callback)
+  "Fetch each workflow run of commit SHA in REPO awaiting approval.
+Calls CALLBACK with a list of run hash-tables, or \=(error . MSG)."
+  (octocat--run-gh "awaiting-runs"
+    (list "api" (format "repos/%s/actions/runs?head_sha=%s&status=action_required&per_page=100"
+                        repo sha))
+    (lambda (output)
+      (append (gethash "workflow_runs" (json-parse-string (string-trim output))) nil))
+    callback))
+
+(defun octocat-pr--use-awaiting-runs (repo sha)
+  "Return each workflow run of commit SHA in REPO awaiting approval.
+Nil until they are fetched, when SHA is nil, or when they cannot be,
+as for a repo without Actions.  Must be called during render, like any
+hook."
+  (let ((async (vui-use-async (list 'awaiting-runs repo sha)
+                 (lambda (resolve reject)
+                   (if (not sha)
+                       (funcall resolve nil)
+                     (octocat-pr--fetch-awaiting-runs
+                      repo sha
+                      (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject))))))))
+    (and (eq (plist-get async :status) 'ready) (plist-get async :data))))
 
 (defun octocat-pr--commit-items (repo pr)
   "Return a timeline item for each commit of PR (a hash-table) in REPO.
@@ -859,15 +957,21 @@ user's page."
                         requests)))))
     (and parts (octocat-repo-vui--separate parts ", "))))
 
-(vui-defcomponent octocat-pr--page (repo number raw merging action)
+(vui-defcomponent octocat-pr--page (repo number raw merging action approving)
   "Pull request NUMBER of REPO as a timeline; RAW shows markdown verbatim.
 MERGING and ACTION, labels or nil, show a change under way in the merge
-box and under the timeline."
+box and under the timeline; APPROVING, the approval of its workflow
+runs."
   :render
   (let* ((width  (octocat-vui-window-width))
          (bg     (octocat--label-background))
          (result (octocat-pr--use-data repo number))
          (timeline (octocat-timeline-use-events repo number))
+         (data     (and (eq (plist-get result :status) 'ready) (plist-get result :data)))
+         ;; Only an open PR's runs can be approved.
+         (awaiting (octocat-pr--use-awaiting-runs
+                    repo (and data (equal (gethash "state" data) "OPEN")
+                              (octocat-pr--head-sha data))))
          (events   (car timeline))
          (loading  (or (eq (plist-get result :status) 'pending)
                        (plist-get result :refreshing)
@@ -904,7 +1008,8 @@ box and under the timeline."
                   action)
                  (list (vui-newline))
                  ;; An open PR's checks are in its merge box, as on GitHub.
-                 (or (octocat-pr--merge-section pr on-visit-check merging)
+                 (or (octocat-pr--merge-section pr on-visit-check merging
+                                                awaiting approving)
                      (octocat-checks-block
                       (or (octocat--get pr "statusCheckRollup") [])
                       on-visit-check)))))))))
@@ -996,7 +1101,8 @@ background."
                               :number octocat--pr-number
                               :raw octocat--markdown-raw
                               :action octocat-timeline--action
-                              :merging octocat-pr--merging)
+                              :merging octocat-pr--merging
+                              :approving octocat-pr--approving)
                (buffer-name))))
 
 (defun octocat-pr-open (repo number)

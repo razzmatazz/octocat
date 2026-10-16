@@ -93,8 +93,19 @@
                      \"mergeable\":\"MERGEABLE\"}"))
                  '((ok "Changes approved" "1 approving review")
                    (wait "Some checks haven't completed yet"
-                         "1 in progress, 1 skipped, 1 successful checks" t)
+                         "1 in progress, 1 skipped, 1 successful checks" checks)
                    (ok "No conflicts with base branch")))))
+
+(ert-deftest octocat-pr-test-merge-rows-awaiting ()
+  "Workflow runs awaiting approval get a row of their own after the checks."
+  (let ((pr (octocat-pr-test--pr "{\"mergeable\":\"MERGEABLE\"}"))
+        (run (octocat-pr-test--pr "{\"id\":1}")))
+    (should (equal (octocat-pr--merge-rows pr (list run))
+                   '((wait "1 workflow awaiting approval"
+                           "This workflow requires approval from a maintainer." approval)
+                     (ok "No conflicts with base branch"))))
+    (should (equal (cadr (car (octocat-pr--merge-rows pr (list run run))))
+                   "2 workflows awaiting approval"))))
 
 (provide 'octocat-pr-tests)
 ;;; octocat-pr-tests.el ends here
