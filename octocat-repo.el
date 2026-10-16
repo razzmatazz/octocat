@@ -748,15 +748,18 @@ TAB-able link.  CELLS, OMIT and ON-EDIT-TITLE are as for
 (defun octocat-repo-vui--detail-fields (fields)
   "Return a vnode listing FIELDS under the title, or nil when none has a value.
 FIELDS is a list of (LABEL . VALUE), VALUE a string or a list of vnodes;
-a nil or empty VALUE is skipped.  The line is lined up with the title
-column."
+a nil or empty VALUE is skipped, and a nil LABEL shows VALUE alone.  The
+line is lined up with the title column."
   (let ((parts (delq nil
                      (mapcar (lambda (f)
                                (and (cdr f) (not (equal (cdr f) ""))
-                                    (cons (vui-text (concat (car f) " ") :face 'octocat-dimmed)
-                                          (if (stringp (cdr f))
-                                              (list (vui-text (cdr f)))
-                                            (cdr f)))))
+                                    (append
+                                     (and (car f)
+                                          (list (vui-text (concat (car f) " ")
+                                                          :face 'octocat-dimmed)))
+                                     (if (stringp (cdr f))
+                                         (list (vui-text (cdr f)))
+                                       (cdr f)))))
                              fields))))
     (and parts
          (vui-hstack :spacing 0

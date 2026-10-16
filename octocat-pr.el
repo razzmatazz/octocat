@@ -46,6 +46,7 @@
 (declare-function octocat-repo-vui--pr-row "octocat-repo" (repo pr width bg &optional compact))
 (declare-function octocat-repo-vui--state-label"octocat-repo" (state &optional draft))
 (declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title bg &optional branch omit))
+(declare-function octocat-repo-vui--cells "octocat-repo" (repo item bg))
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
 (declare-function octocat-repo-vui--logins "octocat-repo" (users))
 (declare-function octocat-repo-vui--numbers "octocat-repo" (repo refs open))
@@ -903,11 +904,13 @@ TAB is the page showing it, `conversation' (the default), `commits' or
                                        'octocat-branch))
               (propertize " → " 'face 'octocat-dimmed)
               (propertize base 'face 'octocat-branch))
-      ;; The checks and comments are further down the page.
-      '(:ci :comments))
+      ;; The checks and comments are further down the page; the review
+      ;; leads the line below, with the reviewers.
+      '(:review :ci :comments))
      (list
       (octocat-repo-vui--detail-fields
-       (list (cons "Reviewers" reviewers)
+       (list (cons nil (plist-get (octocat-repo-vui--cells repo pr bg) :review))
+             (cons "Reviewers" reviewers)
              (cons "Assignees" (octocat-repo-vui--logins (gethash "assignees" pr)))
              (cons "Milestone" (octocat-repo-vui--milestone pr))
              (cons "Closes"    (octocat-repo-vui--numbers
