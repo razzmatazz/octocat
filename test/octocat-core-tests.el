@@ -193,7 +193,9 @@
                   ("https://github.com/octo/cat/pulls"             (pr-list "octo/cat"))
                   ("https://github.com/octo/cat/issues"            (issue-list "octo/cat"))
                   ("https://github.com/octo/cat/actions"           (actions "octo/cat"))
-                  ("https://github.com/octo/cat/tree/main"         (tree "octo/cat"))
+                  ("https://github.com/octo/cat/tree"              (tree "octo/cat"))
+                  ("https://github.com/octo/cat/tree/main"         (tree "octo/cat" "main"))
+                  ("https://github.com/octo/cat/tree/main/src/a"   (tree "octo/cat" "main"))
                   ("https://github.com/octo/cat/actions/runs/42"   (run "octo/cat" 42))
                   ("https://github.com/octo/cat/actions/runs/42/attempts/2" (run "octo/cat" 42))
                   ("https://github.com/octo/cat/actions/runs/42/job/99" (job "octo/cat" 42 99))
@@ -242,7 +244,7 @@
                      (job "o/r" 3 4 nil)
                      (workflow "o/r" "ci.yml" "ci.yml" ".github/workflows/ci.yml")
                      (pr-list "o/r") (issue-list "o/r")
-                     (actions "o/r") (tree "o/r"))))))
+                     (actions "o/r") (tree "o/r" "main"))))))
 
 (ert-deftest octocat-core-test-browse-url-handler ()
   "`browse-url' sends the github.com links octocat can show to it.

@@ -1056,7 +1056,7 @@ is asked first and the matching view opened."
 (declare-function octocat-job-open      "octocat-job"      (repo run-id job-id name))
 (declare-function octocat-workflow-open "octocat-workflow" (repo id name path))
 (declare-function octocat-user-open     "octocat-user"     (login))
-(declare-function octocat-tree-open     "octocat-tree"     (&optional repo))
+(declare-function octocat-tree-open     "octocat-tree"     (&optional repo branch))
 (declare-function octocat-issue-list    "octocat"          (&optional repo))
 (declare-function octocat-pr-list       "octocat"          (&optional repo))
 (declare-function octocat-actions       "octocat"          (&optional repo))
@@ -1073,7 +1073,8 @@ is asked first and the matching view opened."
   "Return the octocat view of github.com URL as (KIND ARGS...), or nil.
 KIND is `user', `repo', `pr', `pr-diff', `pr-commits', `issue', `commit',
 `run', `job', `workflow', `pr-list', `issue-list', `actions' or `tree';
-nil means octocat has no view for URL."
+nil means octocat has no view for URL.  A `tree' URL's branch is taken
+to be its next segment: a branch with a slash is cut short."
   (when (string-match "\\`https?://\\(?:www\\.\\)?github\\.com\\(/[^?#]*\\)?\\(?:[?#].*\\)?\\'"
                       url)
     (let* ((parts (split-string (or (match-string 1 url) "") "/" t))
@@ -1090,7 +1091,8 @@ nil means octocat has no view for URL."
              ('("pulls") (list 'pr-list repo))
              ('("issues") (list 'issue-list repo))
              ('("actions") (list 'actions repo))
-             (`("tree" . ,_) (list 'tree repo))
+             ('("tree") (list 'tree repo))
+             (`("tree" ,branch . ,_) (list 'tree repo branch))
              (`("pull" ,n "commits" ,s . ,_)
               (and (funcall num n) (funcall sha s) (list 'commit repo s)))
              (`("pull" ,n "commits")
@@ -1125,7 +1127,7 @@ The handler `octocat-open-github-urls' adds to `browse-url-handlers'."
     (`(pr-list ,repo)      (octocat-pr-list repo))
     (`(issue-list ,repo)   (octocat-issue-list repo))
     (`(actions ,repo)      (octocat-actions repo))
-    (`(tree ,repo)         (octocat-tree-open repo))
+    (`(tree ,repo . ,branch) (octocat-tree-open repo (car branch)))
     (_ (user-error "Octocat: no view for %s" url))))
 
 ;; So `browse-url-with-browser-kind' skips it when asked for a browser.

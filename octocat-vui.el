@@ -731,7 +731,7 @@ each call, for the page's fetch keys (see `octocat-vui-use-cached')."
 (declare-function octocat-issue-list "octocat" ())
 (declare-function octocat-pr-list "octocat" ())
 (declare-function octocat-actions "octocat" ())
-(declare-function octocat-tree-open "octocat-tree" (&optional repo))
+(declare-function octocat-tree-open "octocat-tree" (&optional repo branch))
 (declare-function octocat-search-repo "octocat-search" ())
 
 (defvar-local octocat-vui-list--repo nil

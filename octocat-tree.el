@@ -215,13 +215,14 @@ The buffer is rendered by vui.el; see `octocat-file-log--page'.
 ;;;; API fetch helpers
 
 (defun octocat-tree--fetch-root-sha (repo branch callback)
-  "Fetch the root git tree SHA for REPO on BRANCH asynchronously.
-Calls CALLBACK with a SHA string, or a cons (error . MSG)."
+  "Fetch the root SHA for REPO on BRANCH asynchronously.
+BRANCH is any ref, \"HEAD\" included.  The SHA is of its commit, which
+the trees API takes for the commit's tree.  Calls CALLBACK with a SHA
+string, or a cons (error . MSG)."
   (octocat--run-gh
    "tree-root-sha"
-   (list "api"
-         (format "repos/%s/branches/%s" repo branch)
-         "--jq" ".commit.commit.tree.sha")
+   (list "api" (format "repos/%s/commits/%s" repo branch)
+         "-H" "Accept: application/vnd.github.sha")
    (lambda (output)
      (let ((s (string-trim output)))
        (if (string-empty-p s)
@@ -638,17 +639,18 @@ new TICK refetches it again."
 
 ;;;; Interactive commands — tree mode
 
-(defun octocat-tree-open (&optional repo)
+(defun octocat-tree-open (&optional repo branch)
   "Open the file tree browser for the current octocat-repo buffer.
 With REPO, an \"owner/name\" string, open it for that repository
-instead; this is how the tab strip of the other repo pages gets here."
+instead; this is how the tab strip of the other repo pages gets here.
+BRANCH, when given, is the branch to browse."
   (interactive)
   (unless (or repo (derived-mode-p 'octocat-repo-mode))
     (user-error "Octocat: Not in an octocat-repo buffer"))
   (let* ((in-repo  (derived-mode-p 'octocat-repo-mode))
          (repo     (or repo octocat-repo--repo))
          (default  (and in-repo octocat-repo--default-branch))
-         (branch   (or (and in-repo octocat-repo--branch) default "HEAD"))
+         (branch   (or branch (and in-repo octocat-repo--branch) default "HEAD"))
          (buf-name (format "*%s tree*" repo))
          (buf      (get-buffer-create buf-name)))
     (octocat-display-buffer buf)
