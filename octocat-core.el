@@ -104,7 +104,8 @@ clearing the cache keeps them."
   :group 'octocat)
 
 (defcustom octocat-max-width 112
-  "Most columns the text of a repo, issue or pull request page takes, or nil.
+  "Most columns a repo, list, issue or pull request page takes, or nil.
+The list pages are the issues, pull requests and Actions of a repo.
 The page keeps to the left of a wider window, as GitHub bounds its
 conversation column; what does not fit the column, such as a diff's long
 lines, runs on past it."

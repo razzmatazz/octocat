@@ -20,8 +20,8 @@
 
 ;;; Commentary:
 
-;; The Actions page, as GitHub's Actions tab: a repository's workflows
-;; and its recent runs across all workflows.  Opened by `M-x
+;; The Actions page, as GitHub's Actions tab: a repository's recent runs
+;; across all workflows, and on a second tab its workflows.  Opened by `M-x
 ;; octocat-actions' (octocat.el).  See "UI frameworks" in CONTRIBUTING.md.
 
 ;;; Code:
@@ -29,7 +29,7 @@
 (require 'octocat-core)
 (require 'octocat-vui)
 (require 'vui)
-(require 'vui-components) ; vui-collapsible, vui-list, etc.
+(require 'vui-components) ; vui-list, etc.
 (require 'octocat-repo) ; row builders and fetchers
 
 
@@ -53,7 +53,7 @@ SAVE-P, when given, says whether to save a fresh result.  See
        t))
 
 (vui-defcomponent octocat-actions--runs-section (repo current-branch tick)
-  "Workflow Runs section for REPO.
+  "The Runs tab of REPO's Actions page: its recent runs.
 TICK is the page's refresh tick."
   :state ((limit octocat-section-limit))
   :render
@@ -64,10 +64,7 @@ TICK is the page's refresh tick."
                    (lambda () (= limit octocat-section-limit))))
          (loading (octocat-actions--loading-p result)))
     (octocat-vui-use-mode-line-loading loading)
-    (vui-collapsible
-     :title "Workflow Runs"
-     :key 'workflow-runs :initially-expanded t :indent 0
-     (pcase (plist-get result :status)
+    (pcase (plist-get result :status)
        ('pending (vui-text (octocat-vui-line-skeleton)))
        ('error   (vui-text (format "%s\n" (plist-get result :error)) :face 'octocat-dimmed))
        ('ready
@@ -76,13 +73,18 @@ TICK is the page's refresh tick."
                          (min 25 (apply #'max 1
                                         (mapcar (lambda (r) (length (or (gethash "workflowName" r) "")))
                                                 runs)))
-                       1)))
+                       1))
+               (branch-w (octocat--branch-column-width runs "headBranch"))
+               (title-w (octocat-repo-vui--run-title-width
+                         runs (octocat-vui-window-width) wf-w branch-w)))
           (vui-fragment
            (if (null runs)
                (vui-text "(no workflow runs)\n" :face 'octocat-dimmed)
              (octocat-vui-reveal-list
               runs
-              (lambda (r) (octocat-repo-vui--workflow-run-row repo r current-branch wf-w))
+              (lambda (r)
+                (octocat-repo-vui--workflow-run-row
+                 repo r current-branch wf-w title-w branch-w))
               (lambda (r) (gethash "databaseId" r))))
            (when (and runs (or (plist-get result :refreshing)
                                (>= (length runs) limit)))
@@ -91,42 +93,58 @@ TICK is the page's refresh tick."
               "RET: load more runs"
               (lambda () (vui-set-state :limit (+ limit octocat-section-limit)))
               (and (plist-get result :refreshing) (< (length runs) limit)) 0
-              (octocat-vui-line-skeleton))))))))))
+              (octocat-vui-line-skeleton)))))))))
 
-(vui-defcomponent octocat-actions--workflows-section (repo tick)
-  "Workflows section for REPO (no pagination: run history lives in
-`octocat-actions--runs-section' instead).
-TICK is as for `octocat-actions--runs-section'."
-  :render
-  (let* ((result  (octocat-actions--use-cached
-                   repo "workflows" (list 'workflows repo tick)
-                   (lambda (callback) (octocat-repo--list-workflows repo callback))))
-         (loading (octocat-actions--loading-p result)))
-    (octocat-vui-use-mode-line-loading loading)
-    (vui-collapsible
-     :title "Workflows" :key 'workflows :initially-expanded t :indent 0
-     (pcase (plist-get result :status)
-       ('pending (vui-text (octocat-vui-line-skeleton)))
-       ('error   (vui-text (format "%s\n" (plist-get result :error)) :face 'octocat-dimmed))
-       ('ready
-        (let ((workflows (plist-get result :data)))
-          (if (null workflows)
-              (vui-text "(no workflows)\n" :face 'octocat-dimmed)
-            (vui-list workflows
-                      (lambda (wf) (octocat-repo-vui--workflow-row repo wf))
-                      (lambda (wf) (gethash "id" wf))))))))))
+(defun octocat-actions--workflows (repo result)
+  "Return the Workflows tab of REPO's Actions page, from RESULT.
+RESULT is the page's `octocat-actions--use-cached' result of the
+workflows (no pagination: run history lives on the Runs tab)."
+  (pcase (plist-get result :status)
+    ('pending (vui-text (octocat-vui-line-skeleton)))
+    ('error   (vui-text (format "%s\n" (plist-get result :error)) :face 'octocat-dimmed))
+    ('ready
+     (let ((workflows (plist-get result :data)))
+       (if (null workflows)
+           (vui-text "(no workflows)\n" :face 'octocat-dimmed)
+         (let* ((state-w (apply #'max (mapcar (lambda (wf)
+                                                (string-width
+                                                 (octocat-repo-vui--workflow-state wf)))
+                                              workflows)))
+                (name-w  (octocat-repo-vui--workflow-name-width
+                          workflows (octocat-vui-window-width) state-w)))
+           (vui-list workflows
+                     (lambda (wf) (octocat-repo-vui--workflow-row repo wf state-w name-w))
+                     (lambda (wf) (gethash "id" wf)))))))))
 
 (vui-defcomponent octocat-actions--page (repo current-branch tick)
-  "The Actions page of REPO: its workflows and recent runs.
-A new TICK refetches both, keeping what is shown until the fresh data
-replaces it."
+  "The Actions page of REPO: a Runs and a Workflows tab, Runs first.
+The workflows are fetched whichever tab shows, for the count on their
+tab; cached, it shows at once.  A new TICK refetches, keeping what is
+shown up until the fresh data replaces it."
+  :state ((tab 'runs))
   :render
-  (vui-vstack
-   (vui-component 'octocat-vui-list-header :repo repo :tab 'actions)
-   (vui-component 'octocat-actions--workflows-section :repo repo :tick tick)
-   (vui-newline)
-   (vui-component 'octocat-actions--runs-section
-                  :repo repo :current-branch current-branch :tick tick)))
+  (let* ((workflows (octocat-actions--use-cached
+                     repo "workflows" (list 'workflows repo tick)
+                     (lambda (callback) (octocat-repo--list-workflows repo callback))))
+         (count     (and (eq (plist-get workflows :status) 'ready)
+                         (length (plist-get workflows :data))))
+         (tab-of    (lambda (sym label help)
+                      (list label help
+                            (unless (eq tab sym) (lambda () (vui-set-state :tab sym)))))))
+    (octocat-vui-use-mode-line-loading
+     (and (eq tab 'workflows) (octocat-actions--loading-p workflows)))
+    (vui-vstack
+     (vui-component 'octocat-vui-list-header :repo repo :tab 'actions)
+     (octocat-vui-tab-row
+      (list (funcall tab-of 'runs "Runs" "RET: show the recent runs")
+            (funcall tab-of 'workflows
+                     (if count (format "Workflows (%d)" count) "Workflows")
+                     "RET: show the workflows"))
+      (octocat-vui-window-width))
+     (if (eq tab 'runs)
+         (vui-component 'octocat-actions--runs-section
+                        :repo repo :current-branch current-branch :tick tick)
+       (octocat-actions--workflows repo workflows)))))
 
 (defun octocat-actions-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the current Actions page buffer.

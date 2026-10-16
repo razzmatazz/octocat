@@ -746,7 +746,8 @@ The choice is remembered for this page of this repository."
   (setq-local truncate-lines t)
   (add-hook 'completion-at-point-functions
             #'octocat-vui-list--qualifier-capf nil t)
-  (octocat--ts-eldoc-setup))
+  (octocat--ts-eldoc-setup)
+  (octocat--max-width-setup))
 
 (defun octocat-vui-commit-top-row (repo sha)
   "Return the top row of a page about commit SHA of REPO.

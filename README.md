@@ -85,6 +85,18 @@ against `octocat-list-page-size` (15) in the full view.  The choice is
 remembered per repository and page in `octocat-settings-file`, so it
 survives restarting Emacs; pages start in the full view.
 
+### Actions (`M-x octocat-actions`)
+
+The Actions page has two tabs, as on GitHub: **Runs**, shown first, lists
+the repository's recent workflow runs across all workflows, with a
+button to load more; **Workflows** lists its workflows and whether they
+are enabled, with their count on the tab.  `RET` on a tab switches to it, and `RET` on a row opens
+that run or workflow.
+
+Like the repo page and the issue and pull request pages, the list pages
+keep within `octocat-max-width` columns (112 by default, nil for the
+whole window); the titles of rows take whatever the other columns leave.
+
 ### PR detail view (`octocat-pr-mode`)
 
 Press `RET` on any PR row to open its detail buffer.  The buffer contains the

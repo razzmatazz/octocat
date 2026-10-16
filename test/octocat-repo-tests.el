@@ -133,6 +133,37 @@
           (should (equal (gethash "oid" (car got)) "abc")))
       (delete-directory octocat-cache-directory t))))
 
+(ert-deftest octocat-repo-test-run-title-width ()
+  "The run title column fits the longest title, within the width left."
+  (let ((runs (mapcar (lambda (title)
+                        (let ((r (make-hash-table :test #'equal)))
+                          (puthash "displayTitle" title r)
+                          r))
+                      (list (make-string 30 ?t) "short"))))
+    (should (= (octocat-repo-vui--run-title-width runs 200 4) 30))
+    (should (= (octocat-repo-vui--run-title-width runs 60 4)
+               octocat-repo-vui--subject-min-width))
+    ;; The other columns: branch 10, id 11, workflow 4, icon, date and gaps.
+    (let ((octocat-branch-max-width 10)
+          (date-w (string-width (octocat--format-ts-relative ""))))
+      (should (= (octocat-repo-vui--run-title-width runs (+ 37 date-w 27) 4) 27)))))
+
+(ert-deftest octocat-repo-test-workflow-columns ()
+  "Workflow rows give the name the room the state and file name leave."
+  (let ((wfs (mapcar (pcase-lambda (`(,name ,path))
+                       (let ((wf (make-hash-table :test #'equal)))
+                         (puthash "name" name wf)
+                         (puthash "path" path wf)
+                         (puthash "state" "active" wf)
+                         wf))
+                     '(("Test" ".github/workflows/test.yml")
+                       ("Release builds" ".github/workflows/release.yml")))))
+    (should (equal (octocat-repo-vui--workflow-file (car wfs)) "test.yml"))
+    (should (= (octocat-repo-vui--workflow-name-width wfs 200 6) 14))
+    ;; 30 columns leave 8 beside the state and release.yml: the floor wins.
+    (should (= (octocat-repo-vui--workflow-name-width wfs 30 6) 10))
+    (should (= (octocat-repo-vui--workflow-name-width (list (car wfs)) 200 6) 4))))
+
 (ert-deftest octocat-repo-test-commits-cache-id ()
   "The default branch keeps its cache; others get one each."
   (should (equal (octocat-repo--commits-cache-id nil) "default"))
