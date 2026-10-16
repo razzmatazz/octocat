@@ -1066,11 +1066,14 @@ whenever it changes, or with nil when there are no commits to show."
           (vui-fragment
            (if (null shown)
                (vui-text "(no commits)" :face 'octocat-dimmed)
-             (let ((author-w (octocat-repo-vui--author-width shown)))
+             ;; Columns from all loaded commits, so they hold as more show.
+             (let* ((author-w  (octocat-repo-vui--author-width commits))
+                    (subject-w (octocat-repo-vui--subject-width
+                                commits (octocat-vui-window-width) author-w)))
                (octocat-vui-reveal-list
                 shown
                 (lambda (c)
-                  (octocat-repo-vui--commit-row repo c head-info author-w))
+                  (octocat-repo-vui--commit-row repo c head-info author-w subject-w))
                 (lambda (c) (gethash "sha" c)))))
            (when (and shown (or (> (length commits) limit) (not done)))
              (octocat-vui-load-more-button
@@ -1151,10 +1154,7 @@ under its blob SHA, so while the branch stays put no request is made."
                       (octocat-tree--load-blob
                        repo oid
                        (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
-         ;; Capped as an issue's text, though the rest of the page is not:
-         ;; the commit rows are better off with the whole window.
-         (width (let ((w (octocat--markdown-width)))
-                  (if octocat-max-width (min w octocat-max-width) w)))
+         (width (octocat--markdown-width))
          (text  (vui-use-memo ((plist-get blob :data) raw width)
                   (and entry (plist-get blob :data)
                        (octocat-repo--doc-text (gethash "name" entry)
@@ -1321,7 +1321,8 @@ Everything but the commits comes from a single summary API call."
   (setq-local revert-buffer-function #'octocat-repo-refresh)
   (setq-local octocat--refresh-fn #'octocat-repo-refresh)
   (octocat-markdown--ensure-invisibility)
-  (octocat--ts-eldoc-setup))
+  (octocat--ts-eldoc-setup)
+  (octocat--max-width-setup))
 
 
 ;;;; Async refresh
