@@ -174,21 +174,30 @@ a dimmed marker; nil is an empty line."
                  (if width (truncate-string-to-width line (max 10 (1- width))) line)))
              rows "\n"))
 
-(defun octocat-vui-detail-skeleton (repo number width)
+(defun octocat-vui-detail-skeleton (repo number width &optional tabs)
   "Return grey bars shaped like the issue or PR NUMBER of REPO, cut to WIDTH.
 Shown when there is neither a cache nor a response yet: the header and
-the opening timeline entry, laid out as the real page lays them out."
-  (let ((state  octocat-repo-vui--state-width)
-        (indent (make-string (+ octocat-repo-vui--state-width 2) ?\s))
-        (rail   (concat (propertize "│" 'face 'octocat-dimmed) " ")))
+the opening timeline entry, laid out as the real page lays them out.
+TABS, a list of tab labels, adds the line of reviewers and the tab strip
+of a PR page (see `octocat-vui-tab-row')."
+  (let* ((state  octocat-repo-vui--state-width)
+         (indent (make-string (+ octocat-repo-vui--state-width 2) ?\s))
+         (rail   (concat (propertize "│" 'face 'octocat-dimmed) " "))
+         (strip  (and tabs (string-join tabs "  "))))
     (octocat-vui-skeleton
      `((,state "  " 44 "  " 16)
        (,indent ,(propertize repo 'face 'octocat-repo)
         ,(propertize (format "#%d" number) 'face 'octocat-pr-number)
         " " 24)
+       ,@(and tabs `((,indent 16 "  " 22)))
        nil
+       ,@(and tabs
+              `((,(propertize strip 'face '(octocat-dimmed underline))
+                 ,(propertize (make-string (max 0 (- width (string-width strip))) ?\s)
+                              'face 'underline))))
        (,(propertize "●" 'face 'octocat-dimmed) " " 36)
-       (,rail 64) (,rail 58) (,rail 40)
+       (,rail 64) (,rail 58) (,rail 62) (,rail 44) (,rail)
+       (,rail 60) (,rail 52) (,rail 30)
        nil)
      width)))
 

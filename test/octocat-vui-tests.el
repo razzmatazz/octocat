@@ -80,6 +80,15 @@
     (dolist (line (split-string text "\n"))
       (should (<= (string-width line) 30)))))
 
+(ert-deftest octocat-vui-test-detail-skeleton-tabs ()
+  "TABS adds a header line and the tab strip, still within WIDTH."
+  (let ((plain (split-string (octocat-vui-detail-skeleton "o/r" 7 40) "\n"))
+        (tabs  (split-string (octocat-vui-detail-skeleton "o/r" 7 40 '("A" "B")) "\n")))
+    (should (= (length tabs) (+ 2 (length plain))))
+    (should (seq-some (lambda (l) (string-prefix-p "A  B" l)) tabs))
+    (dolist (line tabs)
+      (should (<= (string-width line) 40)))))
+
 (ert-deftest octocat-vui-test-compact-list-skeleton ()
   "The compact list skeleton draws one-line rows within WIDTH."
   (let ((lines (split-string (octocat-vui-list-skeleton 30 t) "\n")))

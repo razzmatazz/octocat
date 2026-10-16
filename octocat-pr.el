@@ -857,6 +857,9 @@ Each group is (HEADING . COMMITS), COMMITS shaped by
           (or (octocat--get pr "commits") []))
     (nreverse (mapcar (lambda (g) (cons (car g) (nreverse (cdr g)))) groups))))
 
+(defconst octocat-pr--tab-labels '("Conversation" "Commits" "Files changed")
+  "The labels of a PR page's tabs (see `octocat-pr--tabs'), for its skeleton.")
+
 (defun octocat-pr--tabs (current repo number width &optional files commits)
   "Return the \"Conversation | Commits | Files changed\" tab strip of a PR.
 CURRENT is `conversation', `commits' or `files', the tab shown by this
@@ -986,7 +989,8 @@ runs.  A new TICK fetches everything again."
                            raw (octocat--markdown-width))))))
     (octocat-vui-use-mode-line-loading loading)
     (pcase (plist-get result :status)
-      ('pending (vui-text (octocat-vui-detail-skeleton repo number width)))
+      ('pending (vui-text (octocat-vui-detail-skeleton repo number width
+                                                        octocat-pr--tab-labels)))
       ('error   (vui-text (format "  Error: %s" (plist-get result :error)) :face 'error))
       ('ready
        (let* ((pr (plist-get result :data))
@@ -1029,7 +1033,8 @@ A new TICK fetches them again."
      (or (eq (plist-get result :status) 'pending)
          (plist-get result :refreshing)))
     (pcase (plist-get result :status)
-      ('pending (vui-text (octocat-vui-detail-skeleton repo number (octocat-vui-window-width))))
+      ('pending (vui-text (octocat-vui-detail-skeleton repo number (octocat-vui-window-width)
+                                                        octocat-pr--tab-labels)))
       ('error   (vui-vstack
                  (vui-text (format "Error: %s" (plist-get result :error)) :face 'error)
                  (octocat-pr--tabs 'commits repo number width)))
