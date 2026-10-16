@@ -227,11 +227,12 @@ PR's reviews and commits."
     ;; The post leads even when something predates it, like a PR's first
     ;; commit; the rest goes by time.
     (cons (car items)
-          (octocat-timeline--merge-renames
-           (octocat-timeline--merge-labels
-            (sort (cdr items)
-                  (lambda (a b) (string< (plist-get a :time) (plist-get b :time))))
-            bg)))))
+          (octocat-timeline--join-actions
+           (octocat-timeline--merge-renames
+            (octocat-timeline--merge-labels
+             (sort (cdr items)
+                   (lambda (a b) (string< (plist-get a :time) (plist-get b :time))))
+             bg))))))
 
 (defun octocat-timeline--merge-renames (items)
   "Return ITEMS with one actor's consecutive renames merged into one.
@@ -251,6 +252,73 @@ carries the time of the last change."
                                            (car rename) (cdr rename)))
                               prev)))
           (push item result))))
+    (nreverse result)))
+
+(defconst octocat-timeline--join-window 600
+  "Seconds within which one actor's actions in a row are shown as one line.
+Long enough to cover approving, waiting for checks, then merging.")
+
+(defun octocat-timeline--action-text (item)
+  "Return the text of what ITEM's actor did, if it can join others on a line.
+That is a single-line event, or a review without a body, such as an
+approval."
+  (pcase (plist-get item :kind)
+    ('event  (plist-get item :text))
+    ('review (and (string-empty-p (string-trim (or (plist-get item :body) "")))
+                  (plist-get item :verb)))))
+
+(defun octocat-timeline--action-rank (item)
+  "Return the place of ITEM among the joined phrases of a line, lowest first."
+  (cond ((eq (plist-get item :kind) 'review) 0)
+        ((member (plist-get item :state) '("head_ref_deleted" "head_ref_restored")) 2)
+        (t 1)))
+
+(defun octocat-timeline--join-actions (items)
+  "Return ITEMS with one actor's actions in a row joined into one line.
+Such as \"approved these changes, merged this and deleted the head
+branch\": consecutive items of `octocat-timeline--action-text' by one
+actor, each within `octocat-timeline--join-window' seconds of the one
+before.  The phrases go in the order they would happen, a review first
+and a branch deletion last, as events logged in the same second come in
+either order.  The line carries the last one's time and the bullet of
+the last one that has a colour."
+  (let (result run)
+    (cl-flet ((flush ()
+                (when run
+                  (push (if (cdr run)
+                            (let* ((ordered (sort (reverse run)
+                                                  (lambda (a b)
+                                                    (< (octocat-timeline--action-rank a)
+                                                       (octocat-timeline--action-rank b)))))
+                                   (texts   (mapcar #'octocat-timeline--action-text ordered))
+                                   (state   (or (seq-find
+                                                 (lambda (st)
+                                                   (not (eq (octocat-timeline--bullet-face st)
+                                                            'octocat-dimmed)))
+                                                 (mapcar (lambda (i) (plist-get i :state)) run))
+                                                (plist-get (car run) :state))))
+                              (list :time (plist-get (car run) :time)
+                                    :kind 'event
+                                    :actor (plist-get (car run) :actor)
+                                    :text (concat (string-join (butlast texts) ", ")
+                                                  " and " (car (last texts)))
+                                    :state state))
+                          (car run))
+                        result)
+                  (setq run nil))))
+      (dolist (item items)
+        (let ((prev (car run)))
+          (unless (and prev (octocat-timeline--action-text item)
+                       (not (string-empty-p (plist-get item :actor)))
+                       (equal (plist-get prev :actor) (plist-get item :actor))
+                       (let ((t0 (octocat-timeline--seconds (plist-get prev :time)))
+                             (t1 (octocat-timeline--seconds (plist-get item :time))))
+                         (and t0 t1 (<= (- t1 t0) octocat-timeline--join-window))))
+            (flush))
+          (if (octocat-timeline--action-text item)
+              (push item run)
+            (push item result))))
+      (flush))
     (nreverse result)))
 
 (defconst octocat-timeline--merge-window 60

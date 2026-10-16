@@ -143,6 +143,37 @@
     ;; Without events the merge still shows, from `mergedAt'.
     (should (equal (funcall kinds nil) '("merged this")))))
 
+(ert-deftest octocat-timeline-test-joins-actions ()
+  "One actor's approval, merge and branch deletion read as one line."
+  (let* ((item  (lambda (kind actor time &rest props)
+                  (append (list :kind kind :actor actor
+                                :time (format "2026-01-02T10:%s:00Z" time))
+                          props)))
+         (items (octocat-timeline--join-actions
+                 (list (funcall item 'review "@ann" "00" :verb "approved these changes"
+                                :body "" :state "approved")
+                       (funcall item 'event "@ann" "05" :text "merged this" :state "merged")
+                       (funcall item 'event "@ann" "05" :text "deleted the head branch"
+                                :state "head_ref_deleted")
+                       (funcall item 'event "@bob" "06" :text "restored the head branch")
+                       (funcall item 'review "@bob" "07" :verb "approved these changes"
+                                :body "looks good")
+                       (funcall item 'event "@bob" "59" :text "reopened this")))))
+    (should (equal (mapcar (lambda (i) (plist-get i :text)) items)
+                   '("approved these changes, merged this and deleted the head branch"
+                     "restored the head branch" nil "reopened this")))
+    (should (equal (plist-get (car items) :state) "merged"))
+    (should (equal (plist-get (car items) :time) "2026-01-02T10:05:00Z"))
+    ;; Logged in the same second, the deletion may come first.
+    (should (equal (plist-get (car (octocat-timeline--join-actions
+                                    (list (funcall item 'event "@ann" "05"
+                                                   :text "deleted the head branch"
+                                                   :state "head_ref_deleted")
+                                          (funcall item 'event "@ann" "05"
+                                                   :text "merged this" :state "merged"))))
+                              :text)
+                   "merged this and deleted the head branch"))))
+
 (ert-deftest octocat-timeline-test-post-leads ()
   "The opening post comes first even if an extra item predates it."
   (let* ((pr (json-parse-string
