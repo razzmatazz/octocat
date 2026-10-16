@@ -17,6 +17,24 @@
   (should (octocat-vui-list-filter-active-p "is:closed"))
   (should (octocat-vui-list-filter-active-p "")))
 
+(ert-deftest octocat-vui-test-run-args ()
+  "A runs query becomes gh run list options; the last of a qualifier wins."
+  (should (equal (octocat-actions--run-args "") '(nil)))
+  (should (equal (octocat-actions--run-args
+                  "branch:main status:failure workflow:\"CI build\" actor:me branch:dev foo")
+                 '(("--branch" "dev" "--status" "failure" "--workflow" "CI build"
+                    "--user" "me")
+                   "foo")))
+  (should (equal (octocat-actions--run-args "branch:") '(nil "branch:"))))
+
+(ert-deftest octocat-vui-test-filter-default-query-local ()
+  "A list page with its own default query counts only other queries as filters."
+  (with-temp-buffer
+    (setq-local octocat-vui-list--default-query "")
+    (should-not (octocat-vui-list-filter-active-p nil))
+    (should-not (octocat-vui-list-filter-active-p " "))
+    (should (octocat-vui-list-filter-active-p "is:open"))))
+
 (ert-deftest octocat-vui-test-filter-tokenize-keeps-quotes ()
   "Quoted values stay in one token."
   (should (equal (octocat-vui-list--tokenize "is:open label:\"good first issue\" bob")

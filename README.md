@@ -90,8 +90,17 @@ survives restarting Emacs; pages start in the full view.
 The Actions page has two tabs, as on GitHub: **Runs**, shown first, lists
 the repository's recent workflow runs across all workflows, with a
 button to load more; **Workflows** lists its workflows and whether they
-are enabled, with their count on the tab.  `RET` on a tab switches to it, and `RET` on a row opens
-that run or workflow.
+are enabled, with their count on the tab.  `RET` on a tab switches to
+it, and `RET` on a row opens that run or workflow.
+
+The runs are filtered as the pull request list is: a query in the field
+above them, such as `branch:main status:failure`, edited by hand (with
+completion) or through the **[Branch]**, **[Status]**, **[Workflow]**
+and **[Actor]** buttons (or `F`).  The qualifiers are `branch:`,
+`status:`, `workflow:`, `actor:` (who triggered the run), `event:` and
+`commit:`; GitHub has no search for runs, so each becomes the matching
+`gh run list` option, and anything else in the query is ignored, with a
+note saying so.
 
 Like the repo page and the issue and pull request pages, the list pages
 keep within `octocat-max-width` columns (112 by default, nil for the

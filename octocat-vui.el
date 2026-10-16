@@ -982,6 +982,10 @@ The first page is cached on disk and painted while it is refetched;
 ;; choosing an item checks it, choosing the checked item unchecks it.
 ;; The Label button reads all labels at once, comma-separated.
 ;; Either way the buffer is refreshed with the new query.
+;;
+;; The default query, the buttons and the completions are buffer-local,
+;; so a page with a query of its own, such as the Actions page's runs
+;; (octocat-actions.el), sets its own.
 
 (defvar-local octocat-vui-list--query nil
   "Current search query of this list buffer; nil means the default query.")
@@ -992,7 +996,10 @@ The first page is cached on disk and painted while it is refetched;
 (defconst octocat-vui-list--state-tokens '("is:open" "is:closed" "is:merged")
   "Query tokens that select the state of the listed items.")
 
-(defconst octocat-vui-list--qualifiers
+(defvar-local octocat-vui-list--default-query octocat--default-list-query
+  "Query this list starts with, and goes back to when the filter is cleared.")
+
+(defvar-local octocat-vui-list--qualifiers
   '("is:open" "is:closed" "is:merged" "is:draft" "author:" "author:@me"
     "assignee:" "assignee:@me" "label:" "-label:" "no:label" "no:assignee"
     "base:" "head:" "mentions:" "milestone:" "review:required"
@@ -1002,12 +1009,12 @@ The first page is cached on disk and painted while it is refetched;
 
 (defun octocat-vui-list-query ()
   "Return the search query of the current list buffer."
-  (or octocat-vui-list--query octocat--default-list-query))
+  (or octocat-vui-list--query octocat-vui-list--default-query))
 
 (defun octocat-vui-list-filter-active-p (query)
   "Return non-nil when QUERY differs from the default query."
-  (not (equal (string-trim (or query octocat--default-list-query))
-              octocat--default-list-query)))
+  (not (equal (string-trim (or query octocat-vui-list--default-query))
+              octocat-vui-list--default-query)))
 
 (defun octocat-vui-list--tokenize (query)
   "Split QUERY into whitespace-separated tokens, keeping quoted text whole."
@@ -1206,9 +1213,9 @@ as the way to enter a value."
   "Reset the query of the current list to the default."
   (interactive)
   (octocat-vui-list--check-filterable)
-  (octocat-vui-list--apply octocat--default-list-query))
+  (octocat-vui-list--apply octocat-vui-list--default-query))
 
-(defconst octocat-vui-list--facets
+(defvar-local octocat-vui-list--facets
   '(("State"    . octocat-vui-list-filter-state)
     ("Author"   . octocat-vui-list-filter-author)
     ("Assignee" . octocat-vui-list-filter-assignee)

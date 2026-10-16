@@ -272,16 +272,20 @@ run hash-tables, or a cons \\=(error . MSG) on failure."
    #'octocat--parse-json-list
    callback))
 
-(defun octocat-repo--list-recent-runs (repo limit callback)
+(defun octocat-repo--list-recent-runs (repo limit callback &optional args)
   "Fetch the LIMIT most recent workflow run entries across all workflows in REPO.
-Call CALLBACK with a list of run hash-tables (each including a
-\\='workflowName\\=' key), or a cons \\=(error . MSG) on failure."
+ARGS are more `gh run list' options, filtering the runs, such as
+\\=(\"--branch\" \"main\").  Call CALLBACK with a list of run hash-tables
+\(each including a \\='workflowName\\=' key), or a cons \\=(error . MSG) on
+failure."
   (octocat--run-gh
    "recent-runs"
-   (list "run" "list"
-         "--repo"  repo
-         "--limit" (number-to-string limit)
-         "--json"  "databaseId,displayTitle,status,conclusion,createdAt,headBranch,workflowName")
+   (append
+    (list "run" "list"
+          "--repo"  repo
+          "--limit" (number-to-string limit)
+          "--json"  "databaseId,displayTitle,status,conclusion,createdAt,headBranch,workflowName")
+    args)
    #'octocat--parse-json-list
    callback))
 
