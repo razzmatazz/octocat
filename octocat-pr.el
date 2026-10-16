@@ -43,7 +43,7 @@
 ;; The PR page and the PR list page below reuse the row builder and fetch
 ;; plumbing from octocat-repo.el, which requires this file (so cannot be
 ;; required here).
-(declare-function octocat-repo-vui--pr-row "octocat-repo" (repo pr width bg))
+(declare-function octocat-repo-vui--pr-row "octocat-repo" (repo pr width bg &optional compact))
 (declare-function octocat-repo-vui--state-label"octocat-repo" (state &optional draft))
 (declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title bg &optional branch omit))
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
@@ -1085,8 +1085,10 @@ background."
                                 :repo repo
                                 :kind 'pulls
                                 :query (octocat-vui-list-query)
-                                :row-fn (lambda (pr width)
-                                          (octocat-repo-vui--pr-row repo pr width bg)))
+                                :compact (octocat-vui-list-compact-p)
+                                :row-fn (lambda (pr width compact)
+                                          (octocat-repo-vui--pr-row
+                                           repo pr width bg compact)))
                  (buffer-name)))))
 
 (define-derived-mode octocat-pr-list-mode octocat-vui-list-mode "Octocat-PRs"
@@ -1095,6 +1097,7 @@ background."
 \\{octocat-pr-list-mode-map}"
   :group 'octocat
   (setq-local octocat-vui-list--states '("open" "closed" "merged" "all"))
+  (setq-local octocat-vui-list--view "pr-list")
   (setq-local revert-buffer-function #'octocat-pr-list-refresh))
 
 (provide 'octocat-pr)

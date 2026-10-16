@@ -10,6 +10,21 @@
 (require 'ert)
 (require 'octocat)
 
+(ert-deftest octocat-core-test-settings ()
+  "Settings survive a reload of the file; nil removes one."
+  (let* ((dir (make-temp-file "octocat-settings" t))
+         (octocat-settings-file (expand-file-name "sub/settings.eld" dir)))
+    (unwind-protect
+        (progn
+          (should-not (octocat--setting '(compact "o/r" "pr-list")))
+          (octocat--setting-put '(compact "o/r" "pr-list") t)
+          (octocat--setting-put '(compact "o/r" "issue-list") t)
+          (should (octocat--setting '(compact "o/r" "pr-list")))
+          (octocat--setting-put '(compact "o/r" "pr-list") nil)
+          (should-not (octocat--setting '(compact "o/r" "pr-list")))
+          (should (equal (octocat--settings-load) '(((compact "o/r" "issue-list") . t)))))
+      (delete-directory dir t))))
+
 (ert-deftest octocat-core-test-format-label-colour ()
   (let* ((label (make-hash-table :test 'equal)))
     (puthash "name" "bug" label)

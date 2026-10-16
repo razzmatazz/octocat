@@ -84,9 +84,23 @@ to disable caching."
   :type 'integer
   :group 'octocat)
 
-(defcustom octocat-list-page-size 25
-  "Number of items the PR and issue list pages show, and load, at a time."
+(defcustom octocat-list-page-size 15
+  "Number of items the PR and issue list pages show, and load, at a time.
+See `octocat-list-compact-page-size' for their compact view."
   :type 'integer
+  :group 'octocat)
+
+(defcustom octocat-list-compact-page-size 30
+  "Number of items the compact PR and issue list pages show at a time."
+  :type 'integer
+  :group 'octocat)
+
+(defcustom octocat-settings-file
+  (locate-user-emacs-file "octocat/settings.eld")
+  "File keeping the choices octocat remembers across sessions.
+Such as which list pages are compact; outside the cache directory, so
+clearing the cache keeps them."
+  :type 'file
   :group 'octocat)
 
 (defcustom octocat-max-width 112
@@ -642,6 +656,35 @@ Without the counts (see `octocat--flatten-list-item') it is
               (propertize (format "%d/%d" (gethash "ciPassed" pr) total)
                           'face 'octocat-dimmed))
     (octocat--ci-label pr)))
+
+;;;; Settings
+;;
+;; An alist of (KEY . VALUE) in `octocat-settings-file', read afresh on
+;; each lookup so Emacs sessions running side by side agree.
+
+(defun octocat--settings-load ()
+  "Return the settings alist, or nil when the file is absent or unreadable."
+  (when (file-readable-p octocat-settings-file)
+    (condition-case nil
+        (with-temp-buffer
+          (insert-file-contents octocat-settings-file)
+          (let ((data (read (current-buffer))))
+            (and (listp data) data)))
+      (error nil))))
+
+(defun octocat--setting (key)
+  "Return the value of the setting KEY, compared with `equal', or nil."
+  (alist-get key (octocat--settings-load) nil nil #'equal))
+
+(defun octocat--setting-put (key value)
+  "Save VALUE as the setting KEY, or remove KEY when VALUE is nil."
+  (let ((data (octocat--settings-load)))
+    (setf (alist-get key data nil t #'equal) value)
+    (make-directory (file-name-directory octocat-settings-file) t)
+    (with-temp-file octocat-settings-file
+      (let ((print-length nil) (print-level nil))
+        (prin1 data (current-buffer))
+        (insert "\n")))))
 
 ;;;; Disk cache
 
@@ -1415,10 +1458,11 @@ to pass for the next page, or nil on the last."
           :cursor (and (eq (gethash "hasNextPage" info) t)
                        (octocat--nonempty (gethash "endCursor" info))))))
 
-(defun octocat--list-items (kind repo callback &optional query after)
+(defun octocat--list-items (kind repo callback &optional query after limit)
   "Fetch a page of the KIND items of REPO matching the search QUERY.
 KIND is `issues' or `pulls'.  AFTER, a cursor from an earlier page,
-fetches the page after it; a page is `octocat-list-page-size' items.
+fetches the page after it; a page is LIMIT items, by default
+`octocat-list-page-size'.
 CALLBACK is called with the plist from `octocat--parse-list-items', or a
 cons \\=(error . MSG).  One API call."
   (octocat--run-gh
@@ -1426,7 +1470,7 @@ cons \\=(error . MSG).  One API call."
    (append (list "api" "graphql"
                  "-f" (concat "query=" (octocat--list-items-query kind))
                  "-f" (concat "q=" (octocat--search-query repo kind query))
-                 "-F" (format "limit=%d" octocat-list-page-size))
+                 "-F" (format "limit=%d" (or limit octocat-list-page-size)))
            (and after (list "-f" (concat "after=" after))))
    #'octocat--parse-list-items
    callback))

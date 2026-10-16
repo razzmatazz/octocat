@@ -39,7 +39,7 @@
 ;; The issue list page below reuses the row builder and fetch plumbing
 ;; from octocat-repo.el, which requires this file (so cannot be required
 ;; here).
-(declare-function octocat-repo-vui--issue-row "octocat-repo" (repo issue width bg))
+(declare-function octocat-repo-vui--issue-row "octocat-repo" (repo issue width bg &optional compact))
 (declare-function octocat-repo-vui--state-label "octocat-repo" (state &optional draft))
 (declare-function octocat-repo-vui--detail-header "octocat-repo" (repo item state on-edit-title bg &optional branch omit))
 (declare-function octocat-repo-vui--detail-fields "octocat-repo" (fields))
@@ -386,8 +386,10 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
                                 :repo repo
                                 :kind 'issues
                                 :query (octocat-vui-list-query)
-                                :row-fn (lambda (issue width)
-                                          (octocat-repo-vui--issue-row repo issue width bg)))
+                                :compact (octocat-vui-list-compact-p)
+                                :row-fn (lambda (issue width compact)
+                                          (octocat-repo-vui--issue-row
+                                           repo issue width bg compact)))
                  (buffer-name)))))
 
 (define-derived-mode octocat-issue-list-mode octocat-vui-list-mode "Octocat-Issues"
@@ -396,6 +398,7 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
 \\{octocat-issue-list-mode-map}"
   :group 'octocat
   (setq-local octocat-vui-list--states '("open" "closed" "all"))
+  (setq-local octocat-vui-list--view "issue-list")
   (setq-local revert-buffer-function #'octocat-issue-list-refresh))
 
 (provide 'octocat-issue)
