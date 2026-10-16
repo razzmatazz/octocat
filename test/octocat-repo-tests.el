@@ -115,6 +115,24 @@
                            '("new" "main")))))
       (delete-directory octocat-cache-directory t))))
 
+(ert-deftest octocat-repo-test-load-root-cached ()
+  "A commit's root files are fetched once, then served from the disk cache."
+  (let ((octocat-cache-directory (make-temp-file "octocat-root" t))
+        (calls 0) got)
+    (unwind-protect
+        (cl-letf (((symbol-function 'octocat-repo--list-root)
+                   (lambda (_repo ref callback)
+                     (cl-incf calls)
+                     (let ((e (make-hash-table :test #'equal)))
+                       (puthash "name" "README.md" e)
+                       (puthash "oid" ref e)
+                       (funcall callback (list e))))))
+          (dotimes (_ 2)
+            (octocat-repo--load-root "o/r" "abc" (lambda (r) (setq got r))))
+          (should (= calls 1))
+          (should (equal (gethash "oid" (car got)) "abc")))
+      (delete-directory octocat-cache-directory t))))
+
 (ert-deftest octocat-repo-test-commits-cache-id ()
   "The default branch keeps its cache; others get one each."
   (should (equal (octocat-repo--commits-cache-id nil) "default"))

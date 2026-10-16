@@ -364,6 +364,20 @@ a cons \\=(error . MSG)."
                      (and obj (gethash "entries" obj)))))
      callback)))
 
+(defun octocat-repo--load-root (repo sha callback)
+  "Call CALLBACK with the root files of REPO at commit SHA, or (error . MSG).
+They are as from `octocat-repo--list-root'.  A commit's files never
+change, so they are served from the disk cache when there, at once;
+else fetched and cached."
+  (if-let* ((cached (octocat--detail-cache-load repo "root-at" sha)))
+      (funcall callback (cl-coerce cached 'list))
+    (octocat-repo--list-root
+     repo sha
+     (lambda (result)
+       (unless (eq (car-safe result) 'error)
+         (octocat--detail-cache-save repo "root-at" sha (vconcat result)))
+       (funcall callback result)))))
+
 (defconst octocat-repo--doc-kinds
   '((readme   "README"          "readme")
     (coc      "Code of conduct" "code[-_]of[-_]conduct")
@@ -991,7 +1005,7 @@ the DEFAULT branch.  Without LABEL the heading is plain \"Commits\"."
   (if branch (concat "branch-" (octocat--cache-safe-repo branch)) "default"))
 
 (vui-defcomponent octocat-repo-vui--commits-section
-    (repo branch default-branch current-branch head-info)
+    (repo branch default-branch current-branch head-info on-head)
   "Commits section for REPO.
 The commits are those of BRANCH, or of the default branch when nil;
 the branch appears once in the title instead of on every row, with
@@ -1000,7 +1014,9 @@ when it is also the local CURRENT-BRANCH.  HEAD-INFO is the
 plist from `octocat--head-info', used to highlight the local HEAD commit.
 Every commit loaded is cached on disk under its branch head, so while the
 head stays put, reopening and \"load more\" reuse them; only commits
-beyond the cache are fetched, a page at a time, pinned to that head."
+beyond the cache are fetched, a page at a time, pinned to that head.
+ON-HEAD is called with the SHA of the head shown, cached or fresh,
+whenever it changes."
   ;; MORE is (:items LIST :done BOOL): the commits after the last load
   ;; more, DONE when that page came back short (end of history).
   :state ((limit octocat-repo-commits-page-size) (more nil) (fetching nil))
@@ -1034,6 +1050,11 @@ beyond the cache are fetched, a page at a time, pinned to that head."
       (when (and fresh label)
         (octocat--items-cache-save repo "history" cache-id commits label))
       nil)
+    (let ((head (and (eq (plist-get result :status) 'ready)
+                     (car commits) (gethash "sha" (car commits)))))
+      (vui-use-effect (head)
+        (when head (funcall on-head head))
+        nil))
     (vui-vstack
      (octocat-repo-vui--commits-heading label current-branch (and branch t) default-branch)
      (pcase (plist-get result :status)
@@ -1100,19 +1121,22 @@ it copies as from the file."
               (octocat--markdown-string text "" raw width)
             (octocat-markdown-render-verbatim text "")))))
 
-(vui-defcomponent octocat-repo-vui--docs-section (repo branch raw)
-  "The README of REPO at BRANCH, and a selector of its other documents.
-They are those of `octocat-repo--doc-kinds' at the root of BRANCH, nil
-for the default branch.  RAW shows markdown verbatim.  A long document
-is folded after `octocat-repo-doc-lines'.  The listing is cached under
-the branch, and a file under its blob SHA."
+(vui-defcomponent octocat-repo-vui--docs-section (repo head raw)
+  "The README of REPO at commit HEAD, and a selector of its other documents.
+They are those of `octocat-repo--doc-kinds' at the root of HEAD, the
+head of the branch shown, nil until the commits section knows it.  RAW
+shows markdown verbatim.  A long document is folded after
+`octocat-repo-doc-lines'.  The listing is cached under HEAD and a file
+under its blob SHA, so while the branch stays put no request is made."
   :state ((kind nil))
   :render
-  (let* ((root  (octocat-repo-vui-use-cached
-                 "root" repo (octocat-repo--commits-cache-id branch)
-                 (lambda (repo _id callback)
-                   (octocat-repo--list-root repo branch callback))
-                 t))
+  (let* ((root  (vui-use-async (list 'root repo head)
+                  (lambda (resolve reject)
+                    (if (null head)
+                        (funcall resolve nil)
+                      (octocat-repo--load-root
+                       repo head
+                       (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
          (docs  (and (eq (plist-get root :status) 'ready)
                      (octocat-repo--docs (plist-get root :data))))
          (doc   (or (assq kind docs) (car docs)))
@@ -1131,7 +1155,7 @@ the branch, and a file under its blob SHA."
                        (octocat-repo--doc-text (gethash "name" entry)
                                                (plist-get blob :data) raw width)))))
     (octocat-vui-use-mode-line-loading
-     (and (or (plist-get root :refreshing)
+     (and (or (eq (plist-get root :status) 'pending)
               (eq (plist-get blob :status) 'pending))
           t))
     (when docs
@@ -1163,6 +1187,9 @@ info, issue/PR summary line, then the UNPUSHED, the commits and the
 docs sections.  BRANCH is the branch whose commits and docs to show, nil
 for the default.  RAW shows markdown verbatim.
 Everything but the commits comes from a single summary API call."
+  ;; HEAD is (BRANCH . SHA), the head the commits section shows, for the
+  ;; docs at that commit; BRANCH tells a switched-from branch's apart.
+  :state ((head nil))
   :render
   (let* ((buf            (current-buffer))
          (head-info      (octocat--head-info))
@@ -1217,10 +1244,13 @@ Everything but the commits comes from a single summary API call."
      (vui-component 'octocat-repo-vui--commits-section
                     :key (or branch 'default)
                     :repo repo :branch branch :default-branch default-branch
-                    :current-branch current-branch :head-info head-info)
+                    :current-branch current-branch :head-info head-info
+                    :on-head (vui-async-callback (sha)
+                               (vui-set-state :head (cons branch sha))))
      (vui-component 'octocat-repo-vui--docs-section
                     :key (or branch 'default)
-                    :repo repo :branch branch :raw raw))))
+                    :repo repo :raw raw
+                    :head (and (equal (car head) branch) (cdr head))))))
 
 
 ;;;; Major mode
