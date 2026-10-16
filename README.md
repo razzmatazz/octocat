@@ -87,6 +87,16 @@ following collapsible sections (toggle with `TAB`):
 | **Reviews (N)** | Reviewer login and review state |
 | **Comments (N)** | Commenter login and a truncated snippet (your own comments are editable) |
 
+#### Tabs
+
+Under the header, as on GitHub, a tab row switches between the PR's
+pages: **Conversation** (this timeline), **Commits (N)** and **Files
+changed (N)**.  `RET` on a tab opens that page in its own buffer.  The
+Commits page lists the PR's commits oldest first, grouped under a
+"Commits on <day>" heading per day; `RET` on one opens the commit and
+`C-c C-o` opens the PR's commits on GitHub.  It reuses the PR page's
+data, so it fetches nothing more.
+
 #### Inline editing
 
 `RET` is context-sensitive in the PR detail buffer:

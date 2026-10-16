@@ -54,6 +54,10 @@
 (declare-function octocat-issue-open "octocat-issue" (repo number))
 (declare-function octocat-repo-vui--milestone "octocat-repo" (item))
 (declare-function octocat-repo-vui--resolve-or-reject "octocat-repo" (result resolve reject))
+(declare-function octocat-repo-vui--commit-row "octocat-repo"
+                  (repo commit head-info author-w &optional subject-w))
+(declare-function octocat-repo-vui--subject-width "octocat-repo" (commits width author-w))
+(declare-function octocat-repo-vui--author-width "octocat-repo" (commits))
 
 ;; The views the PR page opens; octocat.el loads them all.
 (declare-function octocat-checks-open  "octocat-checks"  (repo sha ref))
@@ -700,16 +704,60 @@ BG is as for `octocat--label-face'."
     (and commits (> (length commits) 0)
          (gethash "oid" (aref commits (1- (length commits)))))))
 
-(defun octocat-pr--tabs (current repo number width &optional files)
-  "Return the \"Conversation | Files changed\" tab strip of a pull request.
-CURRENT is `conversation' or `files', the tab shown by this buffer; the
-other opens that page of pull request NUMBER of REPO.  FILES, when
-non-nil, is the number of changed files shown on the \"Files changed\"
-tab, as GitHub does.  See `octocat-vui-tab-row' for WIDTH."
+(defun octocat-pr--rest-commit (commit)
+  "Return COMMIT of `gh pr view' shaped as the REST commits endpoint has it.
+That is what `octocat-repo-vui--commit-row' reads."
+  (let* ((writers (octocat--get commit "authors"))
+         (writer  (and writers (> (length writers) 0) (aref writers 0)))
+         (login   (and writer (octocat--nonempty (octocat--get writer "login"))))
+         (c       (make-hash-table :test #'equal))
+         (ca      (make-hash-table :test #'equal))
+         (rest    (make-hash-table :test #'equal)))
+    (puthash "name" (or (and writer (octocat--get writer "name")) "") ca)
+    (puthash "date" (or (octocat--get commit "authoredDate") "") ca)
+    (puthash "message" (or (octocat--get commit "messageHeadline") "") c)
+    (puthash "author" ca c)
+    (puthash "sha" (or (octocat--get commit "oid") "") rest)
+    (puthash "commit" c rest)
+    (puthash "author" (if login
+                          (let ((u (make-hash-table :test #'equal)))
+                            (puthash "login" login u)
+                            u)
+                        :null)
+             rest)
+    rest))
+
+(defun octocat-pr--commit-days (pr)
+  "Return the commits of PR grouped by local day, oldest first, as GitHub.
+Each group is (HEADING . COMMITS), COMMITS shaped by
+`octocat-pr--rest-commit'."
+  (let (groups)
+    (mapc (lambda (commit)
+            (let* ((ts  (octocat--get commit "committedDate"))
+                   (day (condition-case nil
+                            (format-time-string "Commits on %b %-d, %Y" (date-to-time ts))
+                          (error "Commits")))
+                   (rest (octocat-pr--rest-commit commit)))
+              (if (equal day (caar groups))
+                  (push rest (cdar groups))
+                (push (list day rest) groups))))
+          (or (octocat--get pr "commits") []))
+    (nreverse (mapcar (lambda (g) (cons (car g) (nreverse (cdr g)))) groups))))
+
+(defun octocat-pr--tabs (current repo number width &optional files commits)
+  "Return the \"Conversation | Commits | Files changed\" tab strip of a PR.
+CURRENT is `conversation', `commits' or `files', the tab shown by this
+buffer; the others open that page of pull request NUMBER of REPO.
+FILES and COMMITS, when non-nil, are the counts shown on their tabs, as
+GitHub does.  See `octocat-vui-tab-row' for WIDTH."
   (octocat-vui-tab-row
    (list (list "Conversation" "RET: show the conversation"
                (unless (eq current 'conversation)
                  (lambda () (octocat-pr-open repo number))))
+         (list (if commits (format "Commits (%d)" commits) "Commits")
+               "RET: show the commits"
+               (unless (eq current 'commits)
+                 (lambda () (octocat-pr-commits-open repo number))))
          (list (if files (format "Files changed (%d)" files) "Files changed")
                "RET: show the files changed"
                (unless (eq current 'files)
@@ -720,7 +768,8 @@ tab, as GitHub does.  See `octocat-vui-tab-row' for WIDTH."
   "Return the vnodes above the body: repo, title, branches, labels, tabs.
 PR is the hash-table of the pull request in REPO.  BG is as for
 `octocat--label-face'.  WIDTH is that of the tabs, see `octocat-pr--tabs'.
-TAB is the page showing it, `conversation' (the default) or `files'."
+TAB is the page showing it, `conversation' (the default), `commits' or
+`files'."
   (let* ((number   (gethash "number" pr))
          (state    (or (gethash "state" pr) "OPEN"))
          (head    (or (gethash "headRefName" pr) ""))
@@ -733,9 +782,10 @@ TAB is the page showing it, `conversation' (the default) or `files'."
       (octocat-repo-vui--state-label state (gethash "isDraft" pr))
       (lambda ()
         (octocat-pr--rename repo number
-                            (if (eq tab 'files)
-                                #'octocat-pr-diff-refresh
-                              #'octocat-pr-refresh)))
+                            (pcase tab
+                              ('files   #'octocat-pr-diff-refresh)
+                              ('commits #'octocat-pr-commits-refresh)
+                              (_        #'octocat-pr-refresh))))
       bg
       ;; The list leaves the branch out; the page shows it and its base.
       (concat (propertize head 'face (if (equal head local)
@@ -755,7 +805,8 @@ TAB is the page showing it, `conversation' (the default) or `files'."
                                 #'octocat-issue-open))))
       (vui-newline)
       (octocat-pr--tabs (or tab 'conversation) repo number width
-                        (gethash "changedFiles" pr))))))
+                        (gethash "changedFiles" pr)
+                        (length (or (octocat--get pr "commits") [])))))))
 
 (defun octocat-pr--use-data (repo number)
   "Return the `vui-use-async' result for the pull request NUMBER of REPO.
@@ -855,6 +906,40 @@ MERGING non-nil shows a merge under way."
                       on-visit-check)))))))))
 
 
+(vui-defcomponent octocat-pr-commits--page (repo number)
+  "The commits of pull request NUMBER of REPO, under the PR page's header."
+  :render
+  (let* ((width  (octocat--markdown-width))
+         (result (octocat-pr--use-data repo number))
+         (days   (vui-use-memo ((plist-get result :data))
+                   (octocat-pr--commit-days (plist-get result :data)))))
+    (octocat-vui-use-mode-line-loading
+     (or (eq (plist-get result :status) 'pending)
+         (plist-get result :refreshing)))
+    (pcase (plist-get result :status)
+      ('pending (vui-text (octocat-vui-detail-skeleton repo number (octocat-vui-window-width))))
+      ('error   (vui-vstack
+                 (vui-text (format "Error: %s" (plist-get result :error)) :face 'error)
+                 (octocat-pr--tabs 'commits repo number width)))
+      ('ready
+       (let* ((commits   (apply #'append (mapcar #'cdr days)))
+              (author-w  (octocat-repo-vui--author-width commits))
+              (subject-w (octocat-repo-vui--subject-width commits width author-w)))
+         (apply #'vui-vstack
+                (append
+                 (delq nil (octocat-pr--header repo (plist-get result :data)
+                                               (octocat--label-background) width 'commits))
+                 (mapcan (lambda (day)
+                           (cons (vui-text (car day) :face 'octocat-section-heading)
+                                 (append
+                                  (mapcar (lambda (c)
+                                            (octocat-repo-vui--commit-row
+                                             repo c nil author-w subject-w))
+                                          (cdr day))
+                                  (list (vui-newline)))))
+                         days))))))))
+
+
 ;;;; Major mode
 
 (defvar octocat-pr-mode-map
@@ -919,6 +1004,68 @@ background."
           octocat--pr-number number)
     (octocat-pr-refresh)))
 
+
+
+;;;; Commits page
+
+(defvar-local octocat--pr-commits-repo nil
+  "The \"owner/repo\" this PR commits buffer belongs to.")
+
+(defvar-local octocat--pr-commits-number nil
+  "The PR number this buffer is listing the commits of.")
+
+(defun octocat-pr-commits-browse ()
+  "Open the commits of this pull request in a browser."
+  (interactive)
+  (unless (and octocat--pr-commits-repo octocat--pr-commits-number)
+    (user-error "Octocat: Buffer is not associated with a pull request"))
+  (message "Octocat: Opening PR #%d commits in browser…" octocat--pr-commits-number)
+  (octocat-browse-external (format "https://github.com/%s/pull/%d/commits"
+                                   octocat--pr-commits-repo octocat--pr-commits-number)))
+
+(defvar octocat-pr-commits-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map vui-mode-map)
+    map)
+  "Keymap for `octocat-pr-commits-mode'.")
+(define-key octocat-pr-commits-mode-map (kbd "q") #'octocat-quit-window)
+(define-key octocat-pr-commits-mode-map (kbd "g") #'revert-buffer)
+(define-key octocat-pr-commits-mode-map (kbd "C-c C-o") #'octocat-pr-commits-browse)
+(define-key octocat-pr-commits-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
+(define-key octocat-pr-commits-mode-map (kbd "C-c C-s") #'octocat-search-repo)
+
+(define-derived-mode octocat-pr-commits-mode vui-mode "Octocat-PR-Commits"
+  "Major mode for the commits of a GitHub Pull Request.
+
+\\{octocat-pr-commits-mode-map}"
+  :group 'octocat
+  (setq-local buffer-read-only t)
+  (setq-local truncate-lines nil)
+  (setq-local revert-buffer-function #'octocat-pr-commits-refresh)
+  (setq-local octocat--refresh-fn #'octocat-pr-commits-refresh)
+  (octocat--ts-eldoc-setup)
+  (octocat--max-width-setup))
+
+(defun octocat-pr-commits-refresh (&optional _ignore-auto _noconfirm)
+  "Refresh the current PR commits buffer."
+  (interactive)
+  (unless (and octocat--pr-commits-repo octocat--pr-commits-number)
+    (user-error "Octocat: Buffer is not associated with a pull request"))
+  (octocat-vui-preserving-view
+    (vui-mount (vui-component 'octocat-pr-commits--page
+                              :repo octocat--pr-commits-repo
+                              :number octocat--pr-commits-number)
+               (buffer-name))))
+
+(defun octocat-pr-commits-open (repo number)
+  "Show the commits of pull request NUMBER of REPO in their own buffer."
+  (let ((buf (get-buffer-create (format "*%s pr %d commits*" repo number))))
+    (octocat-display-buffer buf)
+    (unless (derived-mode-p 'octocat-pr-commits-mode)
+      (octocat-pr-commits-mode))
+    (setq octocat--pr-commits-repo   repo
+          octocat--pr-commits-number number)
+    (octocat-pr-commits-refresh)))
 
 
 ;;;; PR list page

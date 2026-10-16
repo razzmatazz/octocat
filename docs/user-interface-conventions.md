@@ -548,7 +548,7 @@ where the bare identity would collide.
 |---|---|
 | Repo | `*owner/repo*` |
 | PR / issue | `*owner/repo#12*` |
-| PR diff | `*owner/repo#12 diff*` |
+| PR diff / commits | `*owner/repo#12 diff*`, `*owner/repo#12 commits*` |
 | Commit / checks | `*owner/repo@abc1234*`, `*owner/repo@abc1234 checks*` |
 | Run / job | `*owner/repo run 123*`, `*owner/repo job 456*` |
 | Workflow | `*owner/repo/CI*` |
@@ -601,7 +601,7 @@ owner/repo  [Code]  [Issues (N)]  [Pull requests (N)]  [Actions]
 
 ### Tabs over content
 
-Tabs that switch what is shown below them (a PR's Conversation / Files
+Tabs that switch what is shown below them (a PR's Conversation / Commits / Files
 changed, the repo page's README / License) use `octocat-vui-tab-row`: the
 row is underlined across the page, like GitHub's tab bar, so it reads as
 a header rather than the content's first line, with no blank line after.

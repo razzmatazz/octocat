@@ -160,11 +160,11 @@ Longer names are truncated with a trailing ellipsis (…).")
 Used by PR titles, issue titles, workflow-run display titles, and commit
 subjects so all list views share a uniform column width.")
 
-(defun octocat--format-title (title)
-  "Return TITLE truncated/padded to `octocat-title-width' characters.
+(defun octocat--format-title (title &optional width)
+  "Return TITLE truncated/padded to WIDTH or `octocat-title-width' characters.
 Strings shorter than the width are space-padded; longer ones are
 truncated with a trailing ellipsis (…)."
-  (truncate-string-to-width title octocat-title-width nil ?\s "…"))
+  (truncate-string-to-width title (or width octocat-title-width) nil ?\s "…"))
 
 (defun octocat--label-background ()
   "Return the frame's background colour if it is dark, else nil.
@@ -1007,6 +1007,7 @@ is asked first and the matching view opened."
 ;; claim it; "open in browser" commands use `octocat-browse-external'.
 
 (declare-function octocat-pr-diff-open  "octocat-pr-diff"  (repo number))
+(declare-function octocat-pr-commits-open "octocat-pr"    (repo number))
 (declare-function octocat-run-open      "octocat-run"      (repo run-id))
 (declare-function octocat-job-open      "octocat-job"      (repo run-id job-id name))
 (declare-function octocat-workflow-open "octocat-workflow" (repo id name path))
@@ -1026,9 +1027,9 @@ is asked first and the matching view opened."
 
 (defun octocat--github-url-target (url)
   "Return the octocat view of github.com URL as (KIND ARGS...), or nil.
-KIND is `user', `repo', `pr', `pr-diff', `issue', `commit', `run', `job',
-`workflow', `pr-list', `issue-list', `actions' or `tree'; nil means
-octocat has no view for URL."
+KIND is `user', `repo', `pr', `pr-diff', `pr-commits', `issue', `commit',
+`run', `job', `workflow', `pr-list', `issue-list', `actions' or `tree';
+nil means octocat has no view for URL."
   (when (string-match "\\`https?://\\(?:www\\.\\)?github\\.com\\(/[^?#]*\\)?\\(?:[?#].*\\)?\\'"
                       url)
     (let* ((parts (split-string (or (match-string 1 url) "") "/" t))
@@ -1048,6 +1049,8 @@ octocat has no view for URL."
              (`("tree" . ,_) (list 'tree repo))
              (`("pull" ,n "commits" ,s . ,_)
               (and (funcall num n) (funcall sha s) (list 'commit repo s)))
+             (`("pull" ,n "commits")
+              (and (funcall num n) (list 'pr-commits repo (funcall num n))))
              (`("pull" ,n "files" . ,_)
               (and (funcall num n) (list 'pr-diff repo (funcall num n))))
              (`("pull" ,n . ,_) (and (funcall num n) (list 'pr repo (funcall num n))))
@@ -1067,6 +1070,7 @@ The handler `octocat-open-github-urls' adds to `browse-url-handlers'."
     (`(repo ,repo)         (octocat-visit-repo repo))
     (`(pr ,repo ,n)        (octocat-pr-open repo n))
     (`(pr-diff ,repo ,n)   (octocat-pr-diff-open repo n))
+    (`(pr-commits ,repo ,n) (octocat-pr-commits-open repo n))
     ;; github.com redirects /issues/N of a PR to it, so ask which it is.
     (`(issue ,repo ,n)     (octocat--markdown-open-ref 'issue repo n))
     (`(commit ,repo ,sha)  (octocat-commit-open repo sha))

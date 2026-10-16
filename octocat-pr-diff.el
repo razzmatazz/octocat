@@ -50,7 +50,7 @@
 (declare-function octocat-pr--header "octocat-pr" (repo pr bg width &optional tab))
 (declare-function octocat-pr--merge-icon "octocat-pr" (kind))
 (declare-function octocat-pr-refresh "octocat-pr" (&optional _ignore-auto _noconfirm))
-(declare-function octocat-pr--tabs "octocat-pr" (current repo number width &optional files))
+(declare-function octocat-pr--tabs "octocat-pr" (current repo number width &optional files commits))
 (declare-function octocat-switch-repo "octocat-core" ())
 (declare-function octocat-search-repo "octocat-search" ())
 

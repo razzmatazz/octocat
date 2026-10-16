@@ -170,6 +170,7 @@
                   ("https://github.com/octo/cat/pull/12"           (pr "octo/cat" 12))
                   ("https://github.com/octo/cat/pull/12#issuecomment-1" (pr "octo/cat" 12))
                   ("https://github.com/octo/cat/pull/12/files"     (pr-diff "octo/cat" 12))
+                  ("https://github.com/octo/cat/pull/12/commits"   (pr-commits "octo/cat" 12))
                   ("https://github.com/octo/cat/pull/12/commits/abc1234"
                    (commit "octo/cat" "abc1234"))
                   ("https://github.com/octo/cat/issues/7"          (issue "octo/cat" 7))
@@ -205,6 +206,7 @@
               ((symbol-function 'octocat-visit-repo)    (lambda (&rest a) (push (cons 'repo a) opened)))
               ((symbol-function 'octocat-pr-open)       (lambda (&rest a) (push (cons 'pr a) opened)))
               ((symbol-function 'octocat-pr-diff-open)  (lambda (&rest a) (push (cons 'pr-diff a) opened)))
+              ((symbol-function 'octocat-pr-commits-open) (lambda (&rest a) (push (cons 'pr-commits a) opened)))
               ((symbol-function 'octocat--markdown-open-ref) (lambda (&rest a) (push (cons 'ref a) opened)))
               ((symbol-function 'octocat-commit-open)   (lambda (&rest a) (push (cons 'commit a) opened)))
               ((symbol-function 'octocat-run-open)      (lambda (&rest a) (push (cons 'run a) opened)))
@@ -214,13 +216,13 @@
               ((symbol-function 'octocat-issue-list)    (lambda (&rest a) (push (cons 'issue-list a) opened)))
               ((symbol-function 'octocat-actions)       (lambda (&rest a) (push (cons 'actions a) opened)))
               ((symbol-function 'octocat-tree-open)     (lambda (&rest a) (push (cons 'tree a) opened))))
-      (dolist (path '("octocat" "o/r" "o/r/pull/1" "o/r/pull/1/files" "o/r/issues/2"
+      (dolist (path '("octocat" "o/r" "o/r/pull/1" "o/r/pull/1/files" "o/r/pull/1/commits" "o/r/issues/2"
                       "o/r/commit/abc1234" "o/r/actions/runs/3" "o/r/actions/runs/3/job/4"
                       "o/r/actions/workflows/ci.yml"
                       "o/r/pulls" "o/r/issues" "o/r/actions" "o/r/tree/main"))
         (octocat-browse-url (concat "https://github.com/" path))))
     (should (equal (nreverse opened)
-                   '((user "octocat") (repo "o/r") (pr "o/r" 1) (pr-diff "o/r" 1)
+                   '((user "octocat") (repo "o/r") (pr "o/r" 1) (pr-diff "o/r" 1) (pr-commits "o/r" 1)
                      (ref issue "o/r" 2) (commit "o/r" "abc1234") (run "o/r" 3)
                      (job "o/r" 3 4 nil)
                      (workflow "o/r" "ci.yml" "ci.yml" ".github/workflows/ci.yml")

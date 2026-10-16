@@ -831,34 +831,59 @@ line up with no more padding than the different names require."
        (apply #'max 0 (mapcar (lambda (c) (string-width (octocat--commit-author c)))
                               commits))))
 
-(defun octocat-repo-vui--commit-row (repo commit head-info author-w)
+(defun octocat-repo-vui--subject (commit)
+  "Return the first line of COMMIT's message."
+  (let ((c (gethash "commit" commit)))
+    (car (split-string (or (and c (gethash "message" c)) "") "\n"))))
+
+(defconst octocat-repo-vui--subject-min-width 24
+  "Narrowest subject column, so short subjects still leave a gap before the author.")
+
+(defun octocat-repo-vui--date (commit)
+  "Return the relative author date of COMMIT, as on its row."
+  (let* ((c  (gethash "commit" commit))
+         (ca (and c (gethash "author" c))))
+    (octocat--format-ts-relative (or (and ca (gethash "date" ca)) ""))))
+
+(defun octocat-repo-vui--subject-width (commits width author-w)
+  "Return the width of the subject column for COMMITS: the longest subject.
+It is at least `octocat-repo-vui--subject-min-width', and at most what
+WIDTH columns leave beside the SHA, the AUTHOR-W wide author and the
+date, so the rows fill the page but do not wrap."
+  (let ((rest (+ 7 2 2 author-w 2
+                 (apply #'max 0 (mapcar (lambda (c) (string-width (octocat-repo-vui--date c)))
+                                        commits)))))
+    (max octocat-repo-vui--subject-min-width
+         (min (- width rest)
+              (apply #'max 0 (mapcar (lambda (c) (string-width (octocat-repo-vui--subject c)))
+                                     commits))))))
+
+(defun octocat-repo-vui--commit-row (repo commit head-info author-w &optional subject-w)
   "Return a row vnode for COMMIT in REPO.
 HEAD-INFO as in `octocat-repo-vui--commits-section'; the local HEAD
 commit is highlighted.  AUTHOR-W is the width of the author column, see
-`octocat-repo-vui--author-width'."
-  (let* ((head-hash (and head-info (plist-get head-info :hash)))
+`octocat-repo-vui--author-width'; SUBJECT-W that of the subject column,
+`octocat-title-width' by default."
+  (let* ((subject-w (or subject-w octocat-title-width))
+         (head-hash (and head-info (plist-get head-info :hash)))
          (sha       (or (gethash "sha" commit) ""))
          (short     (substring sha 0 (min 7 (length sha))))
          (is-head   (and head-hash
                         (>= (length sha) (length head-hash))
                         (string-prefix-p head-hash sha)))
-         (c         (gethash "commit" commit))
-         (message   (or (and c (gethash "message" c)) ""))
-         (subject   (car (split-string message "\n")))
-         (ca        (and c (gethash "author" c)))
+         (subject   (octocat-repo-vui--subject commit))
          (author    (octocat--commit-author commit))
-         (date      (octocat--format-ts-relative
-                     (or (and ca (gethash "date" ca)) "")))
+         (date      (octocat-repo-vui--date commit))
          (line
           (concat
            (propertize (format "%-7s" short)
                        'face (if is-head 'octocat-branch-current 'octocat-commit-sha))
            "  "
            (if is-head
-               (let* ((text (truncate-string-to-width subject octocat-title-width nil nil "…"))
-                      (pad  (make-string (- octocat-title-width (string-width text)) ?\s)))
+               (let* ((text (truncate-string-to-width subject subject-w nil nil "…"))
+                      (pad  (make-string (- subject-w (string-width text)) ?\s)))
                  (concat (propertize text 'face 'octocat-branch-current) pad))
-             (octocat--format-title subject))
+             (octocat--format-title subject subject-w))
            "  "
            (propertize (truncate-string-to-width author author-w nil ?\s "…")
                        'face 'octocat-pr-author)
