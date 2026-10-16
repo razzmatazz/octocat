@@ -753,6 +753,29 @@ nil LABEL shows VALUE alone.  Labels and separators are dimmed."
     (and parts
          (vui-text (mapconcat #'identity parts (propertize " · " 'face 'octocat-dimmed))))))
 
+(defun octocat-vui-tab-row (tabs width)
+  "Return a row of TABS underlined across WIDTH columns, as GitHub's tab bar.
+Each tab is (LABEL HELP ON-CLICK); the current one has no ON-CLICK and is
+a heading, the others are buttons.  The underline sets the row apart from
+what is below it without a blank line."
+  (let* ((ul    (lambda (face) (list face 'underline)))
+         (nodes (mapcar (pcase-lambda (`(,label ,help ,on-click))
+                          (if on-click
+                              (vui-button label :face (funcall ul 'octocat-dimmed)
+                                          :help-echo help :on-click on-click)
+                            (vui-text label :face (funcall ul 'octocat-section-heading))))
+                        tabs))
+         ;; Buttons are drawn in brackets.
+         (used  (+ (apply #'+ (mapcar (pcase-lambda (`(,label ,_ ,on-click))
+                                        (+ (string-width label) (if on-click 2 0)))
+                                      tabs))
+                   (* 2 (1- (length tabs))))))
+    (apply #'vui-hstack :spacing 0
+           (append (cdr (mapcan (lambda (n) (list (vui-text "  " :face 'underline) n))
+                                nodes))
+                   (list (vui-text (make-string (max 0 (- width used)) ?\s)
+                                   :face 'underline))))))
+
 (defun octocat-vui-repo-tabs (repo current &optional issues prs)
   "Return a list of vnodes: the tab strip of REPO's pages, as on GitHub.
 The tabs are those of `octocat--repo-tabs'.  CURRENT is the symbol of

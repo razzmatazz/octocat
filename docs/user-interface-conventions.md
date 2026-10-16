@@ -599,6 +599,13 @@ owner/repo  [Code]  [Issues (N)]  [Pull requests (N)]  [Actions]
   `octocat-actions`, take the repo as an optional argument: a buffer's
   repo is not derivable from its mode or `default-directory`.
 
+### Tabs over content
+
+Tabs that switch what is shown below them (a PR's Conversation / Files
+changed, the repo page's README / License) use `octocat-vui-tab-row`: the
+row is underlined across the page, like GitHub's tab bar, so it reads as
+a header rather than the content's first line, with no blank line after.
+
 ### Detail pages
 
 Detail pages (PR, issue, PR diff, commit, checks, workflow, run, job) do

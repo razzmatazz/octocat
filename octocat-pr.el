@@ -700,33 +700,27 @@ BG is as for `octocat--label-face'."
     (and commits (> (length commits) 0)
          (gethash "oid" (aref commits (1- (length commits)))))))
 
-(defun octocat-pr--tabs (current repo number &optional files)
+(defun octocat-pr--tabs (current repo number width &optional files)
   "Return the \"Conversation | Files changed\" tab strip of a pull request.
-CURRENT is `conversation' or `files', the tab shown by this buffer; it is
-drawn as plain emphasised text, the other as a `vui-button' opening that
-page of pull request NUMBER of REPO.  FILES, when non-nil, is the number
-of changed files shown on the \"Files changed\" tab, as GitHub does."
-  (let ((files-label (if files (format "Files changed (%d)" files) "Files changed")))
-    (vui-hstack
-     :spacing 2
-     (if (eq current 'conversation)
-         (vui-text "Conversation" :face 'octocat-section-heading)
-       (vui-button "Conversation"
-                   :face 'octocat-dimmed
-                   :help-echo "RET: show the conversation"
-                   :on-click (lambda () (octocat-pr-open repo number))))
-     (if (eq current 'files)
-         (vui-text files-label :face 'octocat-section-heading)
-       (vui-button files-label
-                   :face 'octocat-dimmed
-                   :help-echo "RET: show the files changed"
-                   :on-click (lambda () (octocat-pr-diff-open repo number)))))))
+CURRENT is `conversation' or `files', the tab shown by this buffer; the
+other opens that page of pull request NUMBER of REPO.  FILES, when
+non-nil, is the number of changed files shown on the \"Files changed\"
+tab, as GitHub does.  See `octocat-vui-tab-row' for WIDTH."
+  (octocat-vui-tab-row
+   (list (list "Conversation" "RET: show the conversation"
+               (unless (eq current 'conversation)
+                 (lambda () (octocat-pr-open repo number))))
+         (list (if files (format "Files changed (%d)" files) "Files changed")
+               "RET: show the files changed"
+               (unless (eq current 'files)
+                 (lambda () (octocat-pr-diff-open repo number)))))
+   width))
 
-(defun octocat-pr--header (repo pr bg &optional tab)
+(defun octocat-pr--header (repo pr bg width &optional tab)
   "Return the vnodes above the body: repo, title, branches, labels, tabs.
 PR is the hash-table of the pull request in REPO.  BG is as for
-`octocat--label-face'.  TAB is the page showing it, `conversation' (the
-default) or `files'."
+`octocat--label-face'.  WIDTH is that of the tabs, see `octocat-pr--tabs'.
+TAB is the page showing it, `conversation' (the default) or `files'."
   (let* ((number   (gethash "number" pr))
          (state    (or (gethash "state" pr) "OPEN"))
          (head    (or (gethash "headRefName" pr) ""))
@@ -760,9 +754,8 @@ default) or `files'."
                                 repo (gethash "closingIssuesReferences" pr)
                                 #'octocat-issue-open))))
       (vui-newline)
-      (octocat-pr--tabs (or tab 'conversation) repo number
-                        (gethash "changedFiles" pr))
-      (vui-newline)))))
+      (octocat-pr--tabs (or tab 'conversation) repo number width
+                        (gethash "changedFiles" pr))))))
 
 (defun octocat-pr--use-data (repo number)
   "Return the `vui-use-async' result for the pull request NUMBER of REPO.
@@ -842,7 +835,7 @@ MERGING non-nil shows a merge under way."
                                       (octocat--nonempty (gethash "headRefName" pr))))))
          (apply #'vui-vstack
                 (append
-                 (delq nil (octocat-pr--header repo pr bg))
+                 (delq nil (octocat-pr--header repo pr bg (octocat--markdown-width)))
                  entries
                  ;; Under the timeline, as they add to it; the checks and
                  ;; merge are about the PR as a whole.

@@ -47,10 +47,10 @@
 (declare-function octocat-repo-vui-use-cached "octocat-repo"
                   (type repo number fetch &optional as-list))
 (declare-function octocat-pr--use-data "octocat-pr" (repo number))
-(declare-function octocat-pr--header "octocat-pr" (repo pr bg &optional tab))
+(declare-function octocat-pr--header "octocat-pr" (repo pr bg width &optional tab))
 (declare-function octocat-pr--merge-icon "octocat-pr" (kind))
 (declare-function octocat-pr-refresh "octocat-pr" (&optional _ignore-auto _noconfirm))
-(declare-function octocat-pr--tabs "octocat-pr" (current repo number &optional files))
+(declare-function octocat-pr--tabs "octocat-pr" (current repo number width &optional files))
 (declare-function octocat-switch-repo "octocat-core" ())
 (declare-function octocat-search-repo "octocat-search" ())
 
@@ -228,6 +228,7 @@ RAW shows the review comments' markdown verbatim.  REVIEWING non-nil
 shows a review being submitted in place of the submit button."
   :render
   (let* ((pr       (octocat-pr--use-data repo number))
+         (tab-w    (octocat--markdown-width))
          (files    (octocat-repo-vui-use-cached
                     "pr-diff" repo number #'octocat--fetch-pr-diff))
          (comments (octocat-repo-vui-use-cached
@@ -249,14 +250,14 @@ shows a review being submitted in place of the submit button."
        ('ready (apply #'vui-vstack
                       (delq nil (octocat-pr--header
                                  repo (plist-get pr :data)
-                                 (octocat--label-background) 'files))))
+                                 (octocat--label-background) tab-w 'files))))
        ('error (vui-vstack
                 (vui-text (format "Error: %s" (plist-get pr :error)) :face 'error)
-                (octocat-pr--tabs 'files repo number)))
+                (octocat-pr--tabs 'files repo number tab-w)))
        (_      (vui-vstack
                 (vui-text (format "%s#%d  diff" repo number)
                           :face 'octocat-dimmed)
-                (octocat-pr--tabs 'files repo number))))
+                (octocat-pr--tabs 'files repo number tab-w))))
      (pcase (plist-get files :status)
        ('pending (vui-text (octocat-vui-skeleton '(("  " 40) ("  " 28) ("  " 34)))))
        ('error   (vui-text (format "  Error: %s" (plist-get files :error)) :face 'error))

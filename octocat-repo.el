@@ -1022,27 +1022,14 @@ the history it pages through cannot shift under it."
 
 (defun octocat-repo-vui--doc-tabs (docs shown width)
   "Return the selector of DOCS, from `octocat-repo--docs', as GitHub's.
-SHOWN, the kind of the one shown, is a heading; the others are buttons.
-The row is underlined across WIDTH columns, a bar over the file below
-that takes no line of its own."
-  (let* ((ul   (lambda (face) (list face 'underline)))
-         (tabs (mapcar (pcase-lambda (`(,kind ,label ,entry))
-                         (if (eq kind shown)
-                             (cons (vui-text label :face (funcall ul 'octocat-section-heading))
-                                   (string-width label))
-                           (cons (vui-button label
-                                             :face (funcall ul 'octocat-dimmed)
-                                             :help-echo (format "RET: show %s" (gethash "name" entry))
-                                             :on-click (lambda () (vui-set-state :kind kind)))
-                                 (+ 2 (string-width label)))))
-                       docs))
-         (used (+ (apply #'+ (mapcar #'cdr tabs)) (* 2 (1- (length tabs))))))
-    (apply #'vui-hstack :spacing 0
-           (append (cdr (mapcan (lambda (tab)
-                                  (list (vui-text "  " :face 'underline) (car tab)))
-                                tabs))
-                   (list (vui-text (make-string (max 0 (- width used)) ?\s)
-                                   :face 'underline))))))
+SHOWN is the kind of the one shown.  See `octocat-vui-tab-row' for WIDTH."
+  (octocat-vui-tab-row
+   (mapcar (pcase-lambda (`(,kind ,label ,entry))
+             (list label (format "RET: show %s" (gethash "name" entry))
+                   (unless (eq kind shown)
+                     (lambda () (vui-set-state :kind kind)))))
+           docs)
+   width))
 
 (defun octocat-repo--doc-text (name content raw width)
   "Return the rows of file NAME's CONTENT, rendered when it is markdown.
