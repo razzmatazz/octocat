@@ -523,8 +523,33 @@ in place, not with a remount (see docs/using-vui.md).  While it is set,
 hide the buttons that would start the action again, and make their
 commands refuse with a `user-error`.
 
-The merge and review dialogs follow it (`octocat-pr--submit-merge`,
-`octocat-pr-diff--submit-review`); copy them.
+Lead the in-progress line with the turning block spinner the mode line
+shows while loading, `octocat-vui-spinner`: `▘ Merging pull request…`.
+The mode line's `:loading` is for fetching the page; an action under way
+is shown where its button was, so the spinner says it is still running.
+The spinner animates through its `display` property, without
+re-rendering the page.
+
+A dialog whose text the user typed (a comment, a description) must not
+lose it: if `gh` fails, reopen the dialog with the text.
+
+Where each action shows:
+
+- **Under the timeline**, in place of its `+ Add a comment` / Close row:
+  posting or editing a comment or description, closing, reopening
+  (`octocat-timeline--action`, drawn by
+  `octocat-timeline-buttons-or-action`).  A dialog's submit function
+  hands its `gh` call to `octocat-timeline-submit`, which closes the
+  dialog, shows the action, refreshes, and reopens the dialog on
+  failure.  `octocat-timeline-state-change` does the same for closing
+  and reopening.
+- **In the merge box**, in place of its buttons: merging, converting to
+  draft, marking ready for review (`octocat-pr--merging`).
+- **Under the review comments** on the PR's Files page: submitting a
+  review (`octocat-pr-diff--submit-review`).
+- **In the mode line**, for an action with no button on the page to
+  replace, such as renaming the title: `octocat-vui-mode-line-action`
+  shows `(Octocat-PR:saving ▘)`, ahead of `:loading`.
 
 ---
 

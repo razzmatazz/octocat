@@ -52,51 +52,40 @@
 
 ;;;; Edit / comment commands — submit helpers
 
-(defun octocat-issue--submit-comment (body source on-success on-error)
+(defun octocat-issue--submit-comment (body source on-success _on-error)
   "Submit BODY as a new comment on the issue in SOURCE buffer.
-Calls ON-SUCCESS on completion or ON-ERROR with a message on failure."
-  (with-current-buffer source
-    (let ((repo octocat--issue-repo)
-          (num  (number-to-string octocat--issue-number)))
-      (octocat--run-gh "comment"
-        (list "issue" "comment" num "--repo" repo "--body" body)
-        (lambda (out) (string-trim out))
-        (lambda (result)
-          (if (eq (car-safe result) 'error)
-              (funcall on-error (cdr result))
-            (funcall on-success)))))))
+See `octocat-timeline-submit' for ON-SUCCESS."
+  (octocat-timeline-submit
+   "Posting comment…" "comment"
+   (with-current-buffer source
+     (list "issue" "comment" (number-to-string octocat--issue-number)
+           "--repo" octocat--issue-repo "--body" body))
+   body source on-success))
 
-(defun octocat-issue--submit-edit-body (body source on-success on-error)
+(defun octocat-issue--submit-edit-body (body source on-success _on-error)
   "Replace the body of the issue in SOURCE buffer with BODY.
-Calls ON-SUCCESS on completion or ON-ERROR with a message on failure."
-  (with-current-buffer source
-    (let ((repo octocat--issue-repo)
-          (num  (number-to-string octocat--issue-number)))
-      (octocat--run-gh "edit-body"
-        (list "issue" "edit" num "--repo" repo "--body" body)
-        (lambda (out) (string-trim out))
-        (lambda (result)
-          (if (eq (car-safe result) 'error)
-              (funcall on-error (cdr result))
-            (funcall on-success)))))))
+See `octocat-timeline-submit' for ON-SUCCESS."
+  (octocat-timeline-submit
+   "Saving description…" "edit-body"
+   (with-current-buffer source
+     (list "issue" "edit" (number-to-string octocat--issue-number)
+           "--repo" octocat--issue-repo "--body" body))
+   body source on-success))
 
-(defun octocat-issue--submit-edit-comment (body source on-success on-error)
+(defun octocat-issue--submit-edit-comment (body source on-success _on-error)
   "Edit the comment identified in `octocat-edit--user-data' with BODY.
 The :comment-id plist key is read from the edit buffer (current-buffer at
 call time).  SOURCE supplies the repo string.
-Calls ON-SUCCESS on completion or ON-ERROR with a message on failure."
+See `octocat-timeline-submit' for ON-SUCCESS."
   (let ((repo       (with-current-buffer source octocat--issue-repo))
         (comment-id (plist-get octocat-edit--user-data :comment-id)))
-    (octocat--run-gh "edit-comment"
-      (list "api"
-            (format "repos/%s/issues/comments/%s" repo comment-id)
-            "--method" "PATCH"
-            "-f" (format "body=%s" body))
-      (lambda (out) (string-trim out))
-      (lambda (result)
-        (if (eq (car-safe result) 'error)
-            (funcall on-error (cdr result))
-          (funcall on-success))))))
+    (octocat-timeline-submit
+     "Saving comment…" "edit-comment"
+     (list "api"
+           (format "repos/%s/issues/comments/%s" repo comment-id)
+           "--method" "PATCH"
+           "-f" (format "body=%s" body))
+     body source on-success)))
 
 ;;;; Edit / comment commands
 
@@ -105,16 +94,18 @@ Calls ON-SUCCESS on completion or ON-ERROR with a message on failure."
   (interactive)
   (unless (and octocat--issue-repo octocat--issue-number)
     (user-error "Octocat: Buffer is not associated with an issue"))
+  (octocat-timeline-ensure-idle)
   (octocat--open-edit-buffer
    (format "New comment on issue #%d" octocat--issue-number)
    #'octocat-issue--submit-comment
-   #'octocat-issue-refresh))
+   #'ignore))
 
 (defun octocat-issue-edit-body ()
   "Open an edit buffer to replace the body of the current issue."
   (interactive)
   (unless (and octocat--issue-repo octocat--issue-number)
     (user-error "Octocat: Buffer is not associated with an issue"))
+  (octocat-timeline-ensure-idle)
   ;; Pre-populate with the current body from the cache so the user can
   ;; edit in-place rather than retyping everything.
   (let* ((cache (octocat--detail-cache-load octocat--issue-repo "issue" octocat--issue-number))
@@ -122,7 +113,7 @@ Calls ON-SUCCESS on completion or ON-ERROR with a message on failure."
     (octocat--open-edit-buffer
      (format "Edit body of issue #%d" octocat--issue-number)
      #'octocat-issue--submit-edit-body
-     #'octocat-issue-refresh
+     #'ignore
      body)))
 
 (defun octocat-issue-edit-title ()
@@ -139,11 +130,14 @@ Calls ON-SUCCESS on completion or ON-ERROR with a message on failure."
       (let ((repo octocat--issue-repo)
             (num  octocat--issue-number)
             (buf  (current-buffer)))
+        ;; In the mode line: the page has no button for this to replace.
+        (octocat-vui-mode-line-action buf ":saving")
         (octocat--run-gh
          "edit-title"
          (list "issue" "edit" (number-to-string num) "--repo" repo "--title" new)
          #'identity
          (lambda (result)
+           (octocat-vui-mode-line-action buf nil)
            (if (eq (car-safe result) 'error)
                (message "Octocat: failed to update title: %s" (cdr result))
              (when (buffer-live-p buf)
@@ -170,10 +164,11 @@ On someone else\\='s comment: signal an error."
           (user-error "Octocat: You can't edit someone else's comment"))
         (unless comment-id
           (user-error "Octocat: Could not determine comment ID from URL"))
+        (octocat-timeline-ensure-idle)
         (octocat--open-edit-buffer
          (format "Edit comment on issue #%d" octocat--issue-number)
          #'octocat-issue--submit-edit-comment
-         #'octocat-issue-refresh
+         #'ignore
          body
          (list :comment-id comment-id))))
      (t
@@ -204,7 +199,7 @@ On someone else\\='s comment: signal an error."
   (unless (and octocat--issue-repo octocat--issue-number)
     (user-error "Octocat: Buffer is not associated with an issue"))
   (octocat-timeline-state-change "issue" verb octocat--issue-repo
-                                 octocat--issue-number #'octocat-issue-refresh))
+                                 octocat--issue-number))
 
 (defun octocat-issue-close ()
   "Close the current issue, after asking."
@@ -263,8 +258,9 @@ BG is as for `octocat--label-face'."
                                 #'octocat-pr-open))))
       (vui-newline)))))
 
-(vui-defcomponent octocat-issue--page (repo number raw)
-  "Issue NUMBER of REPO as a timeline; RAW shows markdown bodies verbatim."
+(vui-defcomponent octocat-issue--page (repo number raw action)
+  "Issue NUMBER of REPO as a timeline; RAW shows markdown bodies verbatim.
+ACTION, a label or nil, shows a change under way under the timeline."
   :render
   (let* ((width  (octocat-vui-window-width))
          (bg     (octocat--label-background))
@@ -304,12 +300,12 @@ BG is as for `octocat--label-face'."
                 (append
                  (delq nil (octocat-issue--header repo issue bg))
                  entries
-                 (octocat-timeline-buttons
+                 (octocat-timeline-buttons-or-action
                   (list '("+ Add a comment" "RET: write a comment" octocat-issue-add-comment)
                         (if (equal (gethash "state" issue) "OPEN")
                             '("Close issue" "RET: close this issue" octocat-issue-close)
                           '("Reopen issue" "RET: reopen this issue" octocat-issue-reopen)))
-                  t))))))))
+                  action))))))))
 
 
 ;;;; Major mode
@@ -354,7 +350,8 @@ Mounts the vui.el page for the issue, which paints the disk cache at once
     (vui-mount (vui-component 'octocat-issue--page
                               :repo octocat--issue-repo
                               :number octocat--issue-number
-                              :raw octocat--markdown-raw)
+                              :raw octocat--markdown-raw
+                              :action octocat-timeline--action)
                (buffer-name))))
 
 (defun octocat-issue-open (repo number)

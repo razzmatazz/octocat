@@ -72,51 +72,40 @@
 
 ;;;; Edit / comment commands — submit helpers
 
-(defun octocat-pr--submit-comment (body source on-success on-error)
+(defun octocat-pr--submit-comment (body source on-success _on-error)
   "Submit BODY as a new comment on the PR in SOURCE buffer.
-Calls ON-SUCCESS on completion or ON-ERROR with a message on failure."
-  (with-current-buffer source
-    (let ((repo octocat--pr-repo)
-          (num  (number-to-string octocat--pr-number)))
-      (octocat--run-gh "comment"
-        (list "pr" "comment" num "--repo" repo "--body" body)
-        (lambda (out) (string-trim out))
-        (lambda (result)
-          (if (eq (car-safe result) 'error)
-              (funcall on-error (cdr result))
-            (funcall on-success)))))))
+See `octocat-timeline-submit' for ON-SUCCESS."
+  (octocat-timeline-submit
+   "Posting comment…" "comment"
+   (with-current-buffer source
+     (list "pr" "comment" (number-to-string octocat--pr-number)
+           "--repo" octocat--pr-repo "--body" body))
+   body source on-success))
 
-(defun octocat-pr--submit-edit-body (body source on-success on-error)
+(defun octocat-pr--submit-edit-body (body source on-success _on-error)
   "Replace the body of the PR in SOURCE buffer with BODY.
-Calls ON-SUCCESS on completion or ON-ERROR with a message on failure."
-  (with-current-buffer source
-    (let ((repo octocat--pr-repo)
-          (num  (number-to-string octocat--pr-number)))
-      (octocat--run-gh "edit-body"
-        (list "pr" "edit" num "--repo" repo "--body" body)
-        (lambda (out) (string-trim out))
-        (lambda (result)
-          (if (eq (car-safe result) 'error)
-              (funcall on-error (cdr result))
-            (funcall on-success)))))))
+See `octocat-timeline-submit' for ON-SUCCESS."
+  (octocat-timeline-submit
+   "Saving description…" "edit-body"
+   (with-current-buffer source
+     (list "pr" "edit" (number-to-string octocat--pr-number)
+           "--repo" octocat--pr-repo "--body" body))
+   body source on-success))
 
-(defun octocat-pr--submit-edit-comment (body source on-success on-error)
+(defun octocat-pr--submit-edit-comment (body source on-success _on-error)
   "Edit the comment identified in `octocat-edit--user-data' with BODY.
 The :comment-id plist key is read from the edit buffer (current-buffer at
 call time).  SOURCE supplies the repo string.
-Calls ON-SUCCESS on completion or ON-ERROR with a message on failure."
+See `octocat-timeline-submit' for ON-SUCCESS."
   (let ((repo       (with-current-buffer source octocat--pr-repo))
         (comment-id (plist-get octocat-edit--user-data :comment-id)))
-    (octocat--run-gh "edit-comment"
-      (list "api"
-            (format "repos/%s/issues/comments/%s" repo comment-id)
-            "--method" "PATCH"
-            "-f" (format "body=%s" body))
-      (lambda (out) (string-trim out))
-      (lambda (result)
-        (if (eq (car-safe result) 'error)
-            (funcall on-error (cdr result))
-          (funcall on-success))))))
+    (octocat-timeline-submit
+     "Saving comment…" "edit-comment"
+     (list "api"
+           (format "repos/%s/issues/comments/%s" repo comment-id)
+           "--method" "PATCH"
+           "-f" (format "body=%s" body))
+     body source on-success)))
 
 ;;;; Edit / comment commands
 
@@ -125,16 +114,18 @@ Calls ON-SUCCESS on completion or ON-ERROR with a message on failure."
   (interactive)
   (unless (and octocat--pr-repo octocat--pr-number)
     (user-error "Octocat: Buffer is not associated with a pull request"))
+  (octocat-timeline-ensure-idle)
   (octocat--open-edit-buffer
    (format "New comment on PR #%d" octocat--pr-number)
    #'octocat-pr--submit-comment
-   #'octocat-pr-refresh))
+   #'ignore))
 
 (defun octocat-pr-edit-body ()
   "Open an edit buffer to replace the body of the current PR."
   (interactive)
   (unless (and octocat--pr-repo octocat--pr-number)
     (user-error "Octocat: Buffer is not associated with a pull request"))
+  (octocat-timeline-ensure-idle)
   ;; Pre-populate with the current body from the cache so the user can
   ;; edit in-place rather than retyping everything.
   (let* ((cache (octocat--detail-cache-load octocat--pr-repo "pr" octocat--pr-number))
@@ -142,7 +133,7 @@ Calls ON-SUCCESS on completion or ON-ERROR with a message on failure."
     (octocat--open-edit-buffer
      (format "Edit body of PR #%d" octocat--pr-number)
      #'octocat-pr--submit-edit-body
-     #'octocat-pr-refresh
+     #'ignore
      body)))
 
 (defun octocat-pr--rename (repo num refresh)
@@ -156,11 +147,14 @@ it runs in that buffer, so the PR and PR diff pages can share this."
     (when (string-empty-p new)
       (user-error "Octocat: Title must not be empty"))
     (unless (string-equal new current)
+      ;; In the mode line: the page has no button for this to replace.
+      (octocat-vui-mode-line-action buf ":saving")
       (octocat--run-gh
        "edit-title"
        (list "pr" "edit" (number-to-string num) "--repo" repo "--title" new)
        #'identity
        (lambda (result)
+         (octocat-vui-mode-line-action buf nil)
          (if (eq (car-safe result) 'error)
              (message "Octocat: failed to update title: %s" (cdr result))
            (when (buffer-live-p buf)
@@ -194,10 +188,11 @@ On someone else\\='s comment: signal an error."
           (user-error "Octocat: You can't edit someone else's comment"))
         (unless comment-id
           (user-error "Octocat: Could not determine comment ID from URL"))
+        (octocat-timeline-ensure-idle)
         (octocat--open-edit-buffer
          (format "Edit comment on PR #%d" octocat--pr-number)
          #'octocat-pr--submit-edit-comment
-         #'octocat-pr-refresh
+         #'ignore
          body
          (list :comment-id comment-id))))
      (t
@@ -228,7 +223,7 @@ On someone else\\='s comment: signal an error."
   (unless (and octocat--pr-repo octocat--pr-number)
     (user-error "Octocat: Buffer is not associated with a pull request"))
   (octocat-timeline-state-change "pr" verb octocat--pr-repo
-                                 octocat--pr-number #'octocat-pr-refresh))
+                                 octocat--pr-number))
 
 (defun octocat-pr-close ()
   "Close the current PR, after asking."
@@ -373,8 +368,9 @@ A blocked merge is not refused: it may pass with admin rights."
   "Return the vnodes of the merge box of open PR, or nil.
 Like GitHub's, it holds the review, checks and conflict status, then
 the merge (or, for a draft, the ready for review) button.
-ON-VISIT-CHECK is called by RET on a check.  MERGING non-nil shows a
-merge under way in place of the buttons."
+ON-VISIT-CHECK is called by RET on a check.  MERGING, a label such as
+\"Merging pull request…\", shows a change under way in place of the
+buttons."
   (when (equal (gethash "state" pr) "OPEN")
     (let ((draft  (eq (gethash "isDraft" pr) t))
           (checks (or (octocat--get pr "statusCheckRollup") [])))
@@ -392,8 +388,7 @@ merge under way in place of the buttons."
        (list (vui-newline))
        (cond
         (merging
-         (list (vui-text (concat "  " (octocat-pr--merge-icon 'wait)
-                                 " Merging pull request…")
+         (list (vui-text (concat "  " (octocat-vui-spinner) " " merging)
                          :face 'bold)))
         (draft
          (append
@@ -461,10 +456,10 @@ a narrow window."
   (force-mode-line-update))
 
 (defvar-local octocat-pr--merging nil
-  "Non-nil while this PR buffer's merge is under way.")
+  "The merge box's change under way, such as \"Merging pull request…\", or nil.")
 
 (defun octocat-pr--set-merging (buf merging)
-  "Set BUF's merge under way to MERGING and show it in its page."
+  "Set BUF's merge box change under way to MERGING and show it in its page."
   (when (buffer-live-p buf)
     (with-current-buffer buf
       (setq octocat-pr--merging merging)
@@ -483,7 +478,7 @@ ON-ERROR is called only for a missing method."
                            "Pick a merge method with \\[octocat-pr-merge-cycle]"))
       (with-current-buffer source
         (let ((number octocat--pr-number))
-          (setq octocat-pr--merging t)
+          (setq octocat-pr--merging "Merging pull request…")
           (octocat--run-gh "merge"
             (octocat-pr--merge-args octocat--pr-repo number method text delete)
             #'string-trim
@@ -548,7 +543,7 @@ accidental choice."
          (data     (octocat-pr--merge-data method methods defaults delete))
          (win      (octocat--open-edit-buffer
                     title #'octocat-pr--submit-merge
-                    (lambda (source) (octocat-pr--set-merging source t))
+                    (lambda (source) (octocat-pr--set-merging source "Merging pull request…"))
                     (cdr (assoc method defaults)) data)))
     (with-current-buffer (window-buffer win)
       (goto-char (point-min))
@@ -571,7 +566,7 @@ is the confirmation."
          (source  (current-buffer)))
     (cond
      ((not pr) (user-error "Octocat: PR not loaded yet"))
-     (octocat-pr--merging (user-error "Octocat: PR #%d is being merged" octocat--pr-number))
+     (octocat-pr--merging (user-error "Octocat: Wait for \"%s\" to finish" octocat-pr--merging))
      ((not (equal (gethash "state" pr) "OPEN"))
       (user-error "Octocat: PR #%d is not open" octocat--pr-number))
      (refusal (user-error "Octocat: %s" refusal)))
@@ -599,19 +594,27 @@ is the confirmation."
   "Mark the current PR a draft if DRAFT, else ready for review."
   (unless (and octocat--pr-repo octocat--pr-number)
     (user-error "Octocat: Buffer is not associated with a pull request"))
+  (when octocat-pr--merging
+    (user-error "Octocat: Wait for \"%s\" to finish" octocat-pr--merging))
   (let ((buf    (current-buffer))
         (number octocat--pr-number))
+    (octocat-pr--set-merging
+     buf (if draft "Converting to draft…" "Marking ready for review…"))
     (octocat--run-gh "ready"
       (append (list "pr" "ready" (number-to-string number) "--repo" octocat--pr-repo)
               (and draft (list "--undo")))
       #'identity
       (lambda (result)
         (if (eq (car-safe result) 'error)
-            (message "Octocat: Failed to update PR #%d: %s" number (cdr result))
+            (progn
+              (message "Octocat: Failed to update PR #%d: %s" number (cdr result))
+              (octocat-pr--set-merging buf nil))
           (message "Octocat: PR #%d %s" number
                    (if draft "converted to draft" "is ready for review"))
           (when (buffer-live-p buf)
-            (with-current-buffer buf (octocat-pr-refresh))))))))
+            (with-current-buffer buf
+              (setq octocat-pr--merging nil)
+              (octocat-pr-refresh))))))))
 
 (defun octocat-pr-ready ()
   "Mark the current draft PR ready for review."
@@ -856,9 +859,10 @@ user's page."
                         requests)))))
     (and parts (octocat-repo-vui--separate parts ", "))))
 
-(vui-defcomponent octocat-pr--page (repo number raw merging)
+(vui-defcomponent octocat-pr--page (repo number raw merging action)
   "Pull request NUMBER of REPO as a timeline; RAW shows markdown verbatim.
-MERGING non-nil shows a merge under way."
+MERGING and ACTION, labels or nil, show a change under way in the merge
+box and under the timeline."
   :render
   (let* ((width  (octocat-vui-window-width))
          (bg     (octocat--label-background))
@@ -890,14 +894,14 @@ MERGING non-nil shows a merge under way."
                  entries
                  ;; Under the timeline, as they add to it; the checks and
                  ;; merge are about the PR as a whole.
-                 (octocat-timeline-buttons
+                 (octocat-timeline-buttons-or-action
                   (list '("+ Add a comment" "RET: write a comment" octocat-pr-add-comment)
                         (pcase (gethash "state" pr)
                           ("OPEN"   '("Close pull request" "RET: close this pull request"
                                       octocat-pr-close))
                           ("CLOSED" '("Reopen pull request" "RET: reopen this pull request"
                                       octocat-pr-reopen))))
-                  t)
+                  action)
                  (list (vui-newline))
                  ;; An open PR's checks are in its merge box, as on GitHub.
                  (or (octocat-pr--merge-section pr on-visit-check merging)
@@ -991,6 +995,7 @@ background."
                               :repo octocat--pr-repo
                               :number octocat--pr-number
                               :raw octocat--markdown-raw
+                              :action octocat-timeline--action
                               :merging octocat-pr--merging)
                (buffer-name))))
 

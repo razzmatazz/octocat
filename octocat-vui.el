@@ -526,8 +526,25 @@ this, so they do not shift as the new rows appear."
   (let ((mlp (buffer-local-value 'mode-line-process buf)))
     (and (consp mlp) (memq 'octocat-vui--spinner mlp))))
 
+(defvar-local octocat-vui--page-spinner nil
+  "Non-nil if this buffer's text may hold a spinner, see `octocat-vui-spinner'.")
+
+(defun octocat-vui--turn-page-spinners (buf)
+  "Show the current frame on every spinner in BUF's text.
+Return nil, and forget BUF, once it has none."
+  (with-current-buffer buf
+    (let ((pos (point-min)) found)
+      (with-silent-modifications
+        (while (setq pos (text-property-any pos (point-max) 'octocat-vui-spinner t))
+          (let ((end (or (next-single-property-change pos 'octocat-vui-spinner)
+                         (point-max))))
+            (setq found t)
+            (put-text-property pos end 'display octocat-vui--spinner)
+            (setq pos end))))
+      (setq octocat-vui--page-spinner found))))
+
 (defun octocat-vui--spinner-tick ()
-  "Advance the spinner in every visible mode line.
+  "Advance the spinner in every visible mode line and page.
 Stop the timer once no buffer shows it."
   (setq octocat-vui--spinner-index
         (% (1+ octocat-vui--spinner-index) (length octocat-vui--spinner-frames))
@@ -538,7 +555,10 @@ Stop the timer once no buffer shows it."
       (when (octocat-vui--mode-line-busy-p buf)
         (setq busy t)
         (when (get-buffer-window buf 'visible)
-          (with-current-buffer buf (force-mode-line-update)))))
+          (with-current-buffer buf (force-mode-line-update))))
+      (when (and (buffer-local-value 'octocat-vui--page-spinner buf)
+                 (octocat-vui--turn-page-spinners buf))
+        (setq busy t)))
     (unless busy
       (cancel-timer octocat-vui--spinner-timer)
       (setq octocat-vui--spinner-timer nil))))
@@ -548,17 +568,43 @@ Stop the timer once no buffer shows it."
   (octocat-vui--spinner-start)
   (list (concat label " ") 'octocat-vui--spinner))
 
+(defun octocat-vui-spinner ()
+  "Return a spinner to render in the current buffer's page.
+It turns in step with the mode line's, through its `display' property,
+so the page is not re-rendered for each frame; it stops once the page
+no longer shows it."
+  (setq octocat-vui--page-spinner t)
+  (octocat-vui--spinner-start)
+  (propertize (aref octocat-vui--spinner-frames 0) 'octocat-vui-spinner t))
+
 (defvar-local octocat-vui--loading 0
   "How many components of this buffer are loading.")
+
+(defvar-local octocat-vui--action nil
+  "The mode line label of an action under way here, such as \":saving\", or nil.")
+
+(defun octocat-vui--show-busy ()
+  "Show the current buffer's action, else whether it is loading, in its mode line."
+  (setq mode-line-process
+        (cond (octocat-vui--action (octocat-vui-mode-line-busy octocat-vui--action))
+              ((> octocat-vui--loading 0) (octocat-vui-mode-line-busy ":loading"))))
+  (force-mode-line-update))
 
 (defun octocat-vui--add-loading (buf n)
   "Add N to BUF's loading count; show \":loading\" while it is positive."
   (when (buffer-live-p buf)
     (with-current-buffer buf
       (setq octocat-vui--loading (max 0 (+ octocat-vui--loading n)))
-      (setq mode-line-process (and (> octocat-vui--loading 0)
-                                   (octocat-vui-mode-line-busy ":loading")))
-      (force-mode-line-update))))
+      (octocat-vui--show-busy))))
+
+(defun octocat-vui-mode-line-action (buf label)
+  "Show LABEL, such as \":saving\", and a spinner in BUF's mode line.
+A nil LABEL clears it.  For an action with no place on the page; it
+takes precedence over \":loading\"."
+  (when (buffer-live-p buf)
+    (with-current-buffer buf
+      (setq octocat-vui--action label)
+      (octocat-vui--show-busy))))
 
 (defmacro octocat-vui-use-mode-line-loading (loading)
   "Show \":loading\" in the mode line while LOADING, a variable, is true.

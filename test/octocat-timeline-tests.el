@@ -160,5 +160,48 @@
     (should (equal (funcall text "{\"event\":\"review_requested\",\"requested_team\":{\"name\":\"core\"}}")
                    "requested a review from core"))))
 
+(defun octocat-timeline-tests--submit (result)
+  "Submit text from an edit dialog with `gh' returning RESULT.
+Return (ACTION-WHILE-RUNNING ACTION-AFTER REFRESHED REOPENED CLOSED)."
+  (let ((source (generate-new-buffer " source"))
+        running refreshed reopened closed)
+    (unwind-protect
+        (cl-letf (((symbol-function 'octocat-vui-update-page) #'ignore)
+                  ((symbol-function 'octocat--run-gh)
+                   (lambda (_name _args _parse callback)
+                     (setq running (buffer-local-value 'octocat-timeline--action source))
+                     (funcall callback result)))
+                  ((symbol-function 'octocat--open-edit-buffer)
+                   (lambda (&rest args) (setq reopened args))))
+          (with-current-buffer source
+            (setq-local octocat--refresh-fn (lambda () (setq refreshed t))))
+          (with-temp-buffer
+            (setq octocat-edit--title "New comment"
+                  octocat-edit--submit-fn #'ignore)
+            (octocat-timeline-submit "Posting comment…" "comment" '("x")
+                                     "hello" source (lambda () (setq closed t))))
+          (list running (buffer-local-value 'octocat-timeline--action source)
+                refreshed reopened closed))
+      (kill-buffer source))))
+
+(ert-deftest octocat-timeline-test-submit-success ()
+  "A submitted dialog closes at once, shows its action, then refreshes."
+  (pcase-let ((`(,running ,after ,refreshed ,reopened ,closed)
+               (octocat-timeline-tests--submit "ok")))
+    (should (equal running "Posting comment…"))
+    (should-not after)
+    (should refreshed)
+    (should-not reopened)
+    (should closed)))
+
+(ert-deftest octocat-timeline-test-submit-failure-reopens ()
+  "A failed submission reopens the dialog with the typed text."
+  (pcase-let ((`(,_running ,after ,refreshed ,reopened ,_closed)
+               (octocat-timeline-tests--submit '(error . "boom"))))
+    (should-not after)
+    (should-not refreshed)
+    (should (equal (nth 0 reopened) "New comment"))
+    (should (equal (nth 3 reopened) "hello"))))
+
 (provide 'octocat-timeline-tests)
 ;;; octocat-timeline-tests.el ends here

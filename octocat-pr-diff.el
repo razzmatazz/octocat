@@ -48,7 +48,6 @@
                   (type repo number fetch &optional as-list))
 (declare-function octocat-pr--use-data "octocat-pr" (repo number))
 (declare-function octocat-pr--header "octocat-pr" (repo pr bg width &optional tab))
-(declare-function octocat-pr--merge-icon "octocat-pr" (kind))
 (declare-function octocat-pr-refresh "octocat-pr" (&optional _ignore-auto _noconfirm))
 (declare-function octocat-pr--tabs "octocat-pr" (current repo number width &optional files commits))
 (declare-function octocat-switch-repo "octocat-core" ())
@@ -267,7 +266,7 @@ shows a review being submitted in place of the submit button."
      (octocat-diff-comments-section "Review Comments" comments
                                     raw (octocat--markdown-width))
      (if reviewing
-         (vui-text (concat "  " (octocat-pr--merge-icon 'wait) " Submitting review…")
+         (vui-text (concat "  " (octocat-vui-spinner) " Submitting review…")
                    :face 'bold)
        (apply #'vui-vstack
               (octocat-timeline-buttons

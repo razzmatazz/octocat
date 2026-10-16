@@ -113,5 +113,27 @@
       (octocat-vui--add-loading buf -1)
       (should (null mode-line-process)))))
 
+(ert-deftest octocat-vui-test-mode-line-action ()
+  "An action shows in the mode line ahead of :loading, which it gives back."
+  (with-temp-buffer
+    (let ((buf (current-buffer)))
+      (octocat-vui--add-loading buf 1)
+      (octocat-vui-mode-line-action buf ":saving")
+      (should (equal mode-line-process '(":saving " octocat-vui--spinner)))
+      (octocat-vui-mode-line-action buf nil)
+      (should (equal mode-line-process '(":loading " octocat-vui--spinner))))))
+
+(ert-deftest octocat-vui-test-page-spinner ()
+  "A page spinner turns with the mode line's until the page drops it."
+  (with-temp-buffer
+    (let ((buf (current-buffer))
+          (octocat-vui--spinner "▝"))
+      (insert "  " (octocat-vui-spinner) " Merging…")
+      (should (octocat-vui--turn-page-spinners buf))
+      (should (equal (get-text-property 3 'display) "▝"))
+      (erase-buffer)
+      (should-not (octocat-vui--turn-page-spinners buf))
+      (should-not octocat-vui--page-spinner))))
+
 (provide 'octocat-vui-tests)
 ;;; octocat-vui-tests.el ends here

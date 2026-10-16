@@ -56,6 +56,7 @@
 ;;; Code:
 
 (require 'octocat-core)
+(require 'octocat-edit)
 (require 'octocat-vui)
 (require 'time-date) ; date-to-time
 (require 'vui)
@@ -478,23 +479,81 @@ entry in BUTTONS is skipped."
                          nodes))
                  (nreverse nodes))))))
 
-(defun octocat-timeline-state-change (kind verb repo number refresh)
-  "Close or reopen issue or PR NUMBER of REPO after asking, then REFRESH.
+(defvar-local octocat-timeline--action nil
+  "What this page is doing to its issue or PR, such as \"Posting comment…\".
+Nil when idle.  The page shows it in place of its buttons, see
+`octocat-timeline-buttons-or-action'.")
+
+(defun octocat-timeline-set-action (buf label)
+  "Set BUF's action under way to LABEL, or nil, and show it in its page."
+  (when (buffer-live-p buf)
+    (with-current-buffer buf
+      (setq octocat-timeline--action label)
+      (octocat-vui-update-page :action label))))
+
+(defun octocat-timeline-ensure-idle ()
+  "Refuse with a `user-error' while the current page's action is under way."
+  (when octocat-timeline--action
+    (user-error "Octocat: Wait for \"%s\" to finish" octocat-timeline--action)))
+
+(defun octocat-timeline-buttons-or-action (buttons action)
+  "Return the timeline's closing row of BUTTONS, or ACTION under way instead.
+ACTION is a label such as \"Posting comment…\", or nil; it hangs off the
+rail as the buttons do, behind a spinner."
+  (if (not action)
+      (octocat-timeline-buttons buttons t)
+    (list (vui-text octocat-timeline--rail)
+          (vui-text (concat (octocat-vui-spinner) " " action) :face 'bold))))
+
+(defun octocat-timeline--finish (buf)
+  "End BUF's action, then refresh BUF to show its result."
+  (when (buffer-live-p buf)
+    (with-current-buffer buf
+      (setq octocat-timeline--action nil)
+      (funcall octocat--refresh-fn))))
+
+(defun octocat-timeline-submit (label name args body source on-success)
+  "Run `gh' ARGS, logged as NAME, for edit dialog text BODY, in the background.
+Call it from the dialog's submit function.  The dialog closes at once
+through ON-SUCCESS and SOURCE shows LABEL as its action until `gh'
+returns, so a slow GitHub does not block.  On failure the dialog
+reopens with BODY, so nothing typed is lost."
+  (let ((title     octocat-edit--title)
+        (submit-fn octocat-edit--submit-fn)
+        (data      octocat-edit--user-data))
+    (octocat-timeline-set-action source label)
+    (octocat--run-gh name args #'string-trim
+      (lambda (result)
+        (if (not (eq (car-safe result) 'error))
+            (octocat-timeline--finish source)
+          (message "Octocat: Failed: %s" (cdr result))
+          (when (buffer-live-p source)
+            (octocat-timeline-set-action source nil)
+            (with-current-buffer source
+              (octocat--open-edit-buffer title submit-fn #'ignore body data))))))
+    (funcall on-success)))
+
+(defun octocat-timeline-state-change (kind verb repo number)
+  "Close or reopen issue or PR NUMBER of REPO after asking.
 KIND is \"issue\" or \"pr\" (the `gh' subcommand) and VERB is \"close\" or
-\"reopen\".  REFRESH is called in the current buffer on success."
-  (when (y-or-n-p (format "%s %s #%d? " (capitalize verb)
-                          (if (equal kind "pr") "pull request" "issue") number))
-    (let ((buf (current-buffer)))
-      (octocat--run-gh
-       verb
-       (list kind verb (number-to-string number) "--repo" repo)
-       #'identity
-       (lambda (result)
-         (if (eq (car-safe result) 'error)
-             (message "Octocat: failed to %s #%d: %s" verb number (cdr result))
-           (message "Octocat: #%d %s" number (if (equal verb "close") "closed" "reopened"))
-           (when (buffer-live-p buf)
-             (with-current-buffer buf (funcall refresh)))))))))
+\"reopen\".  The current page shows it under way, then refreshes."
+  (octocat-timeline-ensure-idle)
+  (let ((noun (if (equal kind "pr") "pull request" "issue")))
+    (when (y-or-n-p (format "%s %s #%d? " (capitalize verb) noun number))
+      (let ((buf (current-buffer)))
+        (octocat-timeline-set-action
+         buf (format "%s %s…" (if (equal verb "close") "Closing" "Reopening") noun))
+        (octocat--run-gh
+         verb
+         (list kind verb (number-to-string number) "--repo" repo)
+         #'identity
+         (lambda (result)
+           (if (eq (car-safe result) 'error)
+               (progn
+                 (message "Octocat: failed to %s #%d: %s" verb number (cdr result))
+                 (octocat-timeline-set-action buf nil))
+             (message "Octocat: #%d %s" number (if (equal verb "close") "closed" "reopened"))
+             (octocat-timeline--finish buf))))))))
 
 (defun octocat-timeline-target ()
   "Return what the timeline entry at point stands for, or nil.
