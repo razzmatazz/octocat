@@ -142,10 +142,12 @@ Files (3)
   -(removed line)
   A src/bar.el  +40 -0
 
-Comments (0)
+Comments (1)
+  …
 ```
 
-Each file is collapsible.  `RET` on the top line opens the repo, on a
+Each file is collapsible.  The Comments section shows only when the
+commit has comments.  `RET` on the top line opens the repo, on a
 check opens the commit's checks.
 
 ---

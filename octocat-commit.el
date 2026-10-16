@@ -224,8 +224,14 @@ are fetched independently; each shows its cached copy until then."
                                (vui-fragment section (vui-newline)))
                              (octocat-diff-files-section
                               (or (gethash "files" data) []) by-path raw md-width)
-                             (vui-newline)
-                             (octocat-diff-comments-section "Comments" comments raw md-width)))))))))
+                             ;; Most commits have none, so the section is left
+                             ;; out unless there are any, or they failed to load.
+                             (when (or (plist-get comments :data)
+                                       (eq (plist-get comments :status) 'error))
+                               (vui-fragment
+                                (vui-newline)
+                                (octocat-diff-comments-section
+                                 "Comments" comments raw md-width)))))))))))
 
 
 ;;;; Major mode
