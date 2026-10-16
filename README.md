@@ -166,9 +166,10 @@ check opens the commit's checks.
 
 ### File tree browser (`octocat-tree-mode`)
 
-From any per-repository buffer, press `C-c C-f` or `RET` on the **[Code]**
-token in the header to open an interactive file tree browser for the branch
-the repo page shows (the default branch unless switched there).
+From any per-repository buffer, press `C-c C-t` to open an interactive file
+tree browser for the branch the repo page shows (the default branch unless
+switched there).  The **[Code]** tab in the header of the list pages leads
+to the repo page itself, as on GitHub.
 
 ```
 owner/repo  ⎇[main ▾]  [Code]

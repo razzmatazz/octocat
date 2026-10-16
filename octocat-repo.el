@@ -1185,7 +1185,7 @@ under its blob SHA, so while the branch stays put no request is made."
   "Return the tab strip of REPO's pages, as GitHub's tabs.
 The issue and PR tabs show their open counts from SUMMARY, the plist
 from `octocat-repo--fetch-summary', or an ellipsis while it loads."
-  (octocat-vui-repo-tabs repo nil
+  (octocat-vui-repo-tabs repo 'code
                          (or (plist-get summary :open-issues) "…")
                          (or (plist-get summary :open-prs) "…")))
 

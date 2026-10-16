@@ -577,7 +577,7 @@ repository page".
 
 ### The tab strip
 
-The repo page, the issue / PR / Actions list pages and the file tree share
+The repo page and the issue / PR / Actions list pages share
 one strip, `octocat-vui-repo-tabs`, imitating GitHub's repository tabs:
 
 ```
@@ -587,7 +587,8 @@ owner/repo  [Code]  [Issues (N)]  [Pull requests (N)]  [Actions]
 - Tabs are buttons (bracketed), so they follow the rule above.
 - The tab of the page being shown is drawn as an un-bracketed
   `octocat-section-heading` and is not clickable.
-- The repo page itself is home: no tab is current there.
+- Code is the repo page itself, as on GitHub, so it is current there.
+  The file tree is one key away, `C-c C-t`, rather than a tab.
 - On list pages the counts are `(…)` until known; the repo page passes the
   open counts from its summary.
 - Pages that show the strip put it on the top line, next to the repo name.
