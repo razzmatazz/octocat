@@ -187,6 +187,7 @@ Off an entry, such as on the header, move left."
   ;; global bindings go here.
   (evil-define-key* 'normal octocat-repo-mode-map
     (kbd "C-c C-o") #'octocat-repo-browse
+    (kbd "C-c C-v") #'octocat-toggle-markdown
     (kbd "C-c C-f") #'octocat-tree-find-file
     (kbd "C-c C-b") #'octocat-repo-switch-branch
     (kbd "C-c C-r") #'octocat-switch-repo

@@ -182,5 +182,18 @@
     (should (equal (mapcar #'vui-vnode-button-label links) '("#3" "o/x#4")))
     (should (equal (funcall (vui-vnode-button-on-click (cadr links))) '("o/x" 4)))))
 
+(ert-deftest octocat-repo-test-docs ()
+  "The documents are found by name, a markdown README winning, in GitHub's order."
+  (let* ((entry (lambda (name)
+                  (let ((h (make-hash-table :test #'equal)))
+                    (puthash "name" name h)
+                    h)))
+         (docs (octocat-repo--docs
+                (mapcar entry '("LICENSE" "Makefile" "README" "readme.md"
+                                "README.txt" "CONTRIBUTING.md" "licenses.txt")))))
+    (should (equal (mapcar #'car docs) '(readme contrib license)))
+    (should (equal (gethash "name" (nth 2 (assq 'readme docs))) "readme.md"))
+    (should (equal (gethash "name" (nth 2 (assq 'license docs))) "LICENSE"))))
+
 (provide 'octocat-repo-tests)
 ;;; octocat-repo-tests.el ends here

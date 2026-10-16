@@ -289,8 +289,9 @@ or `""` give `""`.
 
 ## Copyable content is not indented
 
-Text a user may copy out verbatim (diff lines, code, job logs) starts at column 0,
-so it pastes as-is.  Decoration (headings, comment boxes) may indent.
+Text a user may copy out verbatim (diff lines, code, job logs, a file such as
+the repo page's README) starts at column 0, so it pastes as-is.  A file shows
+as it would in its own buffer.  Decoration (headings, comment boxes) may indent.
 
 ---
 

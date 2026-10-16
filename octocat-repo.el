@@ -81,9 +81,15 @@ every time its \"Load more\" button is used."
   :type 'integer
   :group 'octocat)
 
-(defcustom octocat-repo-commits-page-size 25
+(defcustom octocat-repo-commits-page-size 10
   "Number of commits the repo buffer shows, and loads, at a time."
   :type 'integer
+  :group 'octocat)
+
+(defcustom octocat-repo-doc-lines 20
+  "Lines of the repo buffer's README shown before the rest is folded away.
+The rest expands on RET.  Nil never folds."
+  :type '(choice (const :tag "Never fold" nil) integer)
   :group 'octocat)
 
 
@@ -333,6 +339,67 @@ user or :null.  It also has its \"cursor\", for the page after it."
                 (puthash "cursor" (gethash "cursor" edge) commit)
                 commit))
             (gethash "edges" (gethash "history" obj)))))
+
+(defconst octocat-repo--root-query
+  "query($owner:String!,$name:String!,$expr:String!){repository(owner:$owner,name:$name){object(expression:$expr){...on Tree{entries{name type oid}}}}}"
+  "GraphQL query behind `octocat-repo--list-root'.")
+
+(defun octocat-repo--list-root (repo ref callback)
+  "Fetch the files at the root of REPO at REF (nil for the default branch).
+Calls CALLBACK with a list of hash-tables with \"name\" and \"oid\", or
+a cons \\=(error . MSG)."
+  (let ((parts (split-string repo "/")))
+    (octocat--run-gh
+     "repo-root"
+     (list "api" "graphql"
+           "-f" (concat "query=" octocat-repo--root-query)
+           "-f" (concat "owner=" (car parts))
+           "-f" (concat "name=" (cadr parts))
+           "-f" (concat "expr=" (or ref "HEAD") ":"))
+     (lambda (json)
+       (let* ((r   (gethash "repository"
+                            (gethash "data" (json-parse-string json :null-object nil))))
+              (obj (and r (gethash "object" r))))
+         (seq-filter (lambda (e) (equal (gethash "type" e) "blob"))
+                     (and obj (gethash "entries" obj)))))
+     callback)))
+
+(defconst octocat-repo--doc-kinds
+  '((readme   "README"          "readme")
+    (coc      "Code of conduct" "code[-_]of[-_]conduct")
+    (contrib  "Contributing"    "contributing")
+    (license  "License"         "\\(?:licen[cs]e\\|copying\\)")
+    (security "Security"        "security"))
+  "The documents GitHub offers below a repository's files, in its order.
+Each is (KIND LABEL STEM): a root file is one when its name, ignoring
+case, is STEM, a regexp, with or without an extension.")
+
+(defun octocat-repo--markdown-file-p (name)
+  "Return non-nil when file NAME is markdown, by its extension."
+  (string-match-p "\\.\\(?:md\\|markdown\\|mdown\\|mkdn?\\)\\'" (downcase name)))
+
+(defun octocat-repo--docs (entries)
+  "Return the documents among ENTRIES, root files from `octocat-repo--list-root'.
+Each is (KIND LABEL ENTRY), in the order of `octocat-repo--doc-kinds'.
+Of several files of a kind a markdown one wins, then the shortest name,
+so README.md beats README.txt and README."
+  (delq nil
+        (mapcar
+         (pcase-lambda (`(,kind ,label ,stem))
+           (let* ((re (concat "\\`" stem "\\(?:\\.[^.]+\\)?\\'"))
+                  (hits (seq-filter (lambda (e)
+                                      (let ((case-fold-search t))
+                                        (string-match-p re (gethash "name" e))))
+                                    entries))
+                  (rank (lambda (e)
+                          (let ((n (gethash "name" e)))
+                            (+ (if (octocat-repo--markdown-file-p n) 0 1000)
+                               (length n))))))
+             (when hits
+               (list kind label
+                     (car (sort hits (lambda (a b) (< (funcall rank a)
+                                                      (funcall rank b)))))))))
+         octocat-repo--doc-kinds)))
 
 (defun octocat-repo--commits-merge (base &rest others)
   "Return the longest of BASE and OTHERS with the head commit of BASE.
@@ -951,6 +1018,89 @@ the history it pages through cannot shift under it."
       (octocat-repo--list-commits repo (gethash "sha" (car commits)) on-page
                                   (gethash "cursor" (car (last commits)))))))
 
+;;;; Docs
+
+(defun octocat-repo-vui--doc-tabs (docs shown width)
+  "Return the selector of DOCS, from `octocat-repo--docs', as GitHub's.
+SHOWN, the kind of the one shown, is a heading; the others are buttons.
+The row is underlined across WIDTH columns, a bar over the file below
+that takes no line of its own."
+  (let* ((ul   (lambda (face) (list face 'underline)))
+         (tabs (mapcar (pcase-lambda (`(,kind ,label ,entry))
+                         (if (eq kind shown)
+                             (cons (vui-text label :face (funcall ul 'octocat-section-heading))
+                                   (string-width label))
+                           (cons (vui-button label
+                                             :face (funcall ul 'octocat-dimmed)
+                                             :help-echo (format "RET: show %s" (gethash "name" entry))
+                                             :on-click (lambda () (vui-set-state :kind kind)))
+                                 (+ 2 (string-width label)))))
+                       docs))
+         (used (+ (apply #'+ (mapcar #'cdr tabs)) (* 2 (1- (length tabs))))))
+    (apply #'vui-hstack :spacing 0
+           (append (cdr (mapcan (lambda (tab)
+                                  (list (vui-text "  " :face 'underline) (car tab)))
+                                tabs))
+                   (list (vui-text (make-string (max 0 (- width used)) ?\s)
+                                   :face 'underline))))))
+
+(defun octocat-repo--doc-text (name content raw width)
+  "Return the rows of file NAME's CONTENT, rendered when it is markdown.
+RAW and WIDTH are as for `octocat--markdown-string'.  Not indented, so
+it copies as from the file."
+  (let ((text (decode-coding-string content 'utf-8)))
+    (string-remove-suffix
+     "\n" (if (octocat-repo--markdown-file-p name)
+              (octocat--markdown-string text "" raw width)
+            (octocat-markdown-render-verbatim text "")))))
+
+(vui-defcomponent octocat-repo-vui--docs-section (repo branch raw)
+  "The README of REPO at BRANCH, and a selector of its other documents.
+They are those of `octocat-repo--doc-kinds' at the root of BRANCH, nil
+for the default branch.  RAW shows markdown verbatim.  A long document
+is folded after `octocat-repo-doc-lines'.  The listing is cached under
+the branch, and a file under its blob SHA."
+  :state ((kind nil))
+  :render
+  (let* ((root  (octocat-repo-vui-use-cached
+                 "root" repo (octocat-repo--commits-cache-id branch)
+                 (lambda (repo _id callback)
+                   (octocat-repo--list-root repo branch callback))
+                 t))
+         (docs  (and (eq (plist-get root :status) 'ready)
+                     (octocat-repo--docs (plist-get root :data))))
+         (doc   (or (assq kind docs) (car docs)))
+         (entry (nth 2 doc))
+         (oid   (and entry (gethash "oid" entry)))
+         (blob  (vui-use-async (list 'doc repo oid)
+                  (lambda (resolve reject)
+                    (if (null oid)
+                        (funcall resolve nil)
+                      (octocat-tree--load-blob
+                       repo oid
+                       (lambda (r) (octocat-repo-vui--resolve-or-reject r resolve reject)))))))
+         (width (octocat--markdown-width))
+         (text  (vui-use-memo ((plist-get blob :data) raw width)
+                  (and entry (plist-get blob :data)
+                       (octocat-repo--doc-text (gethash "name" entry)
+                                               (plist-get blob :data) raw width)))))
+    (octocat-vui-use-mode-line-loading
+     (and (or (plist-get root :refreshing)
+              (eq (plist-get blob :status) 'pending))
+          t))
+    (when docs
+      (vui-vstack
+       (vui-newline)
+       (octocat-repo-vui--doc-tabs docs (car doc) width)
+       (pcase (plist-get blob :status)
+         ('pending (vui-text (octocat-vui-line-skeleton)))
+         ('error   (vui-text (format "%s" (plist-get blob :error)) :face 'octocat-dimmed))
+         (_        (let ((text (or text "")))
+                     (octocat-vui-fold-lines
+                      text (octocat-vui-line-ends text) octocat-repo-doc-lines
+                      ;; One per document, so switching starts folded.
+                      (intern (format "doc-fold-%s" (car doc))) ""))))))))
+
 ;;;; Root
 
 (defun octocat-repo-vui--nav-buttons (repo summary)
@@ -961,10 +1111,11 @@ from `octocat-repo--fetch-summary', or an ellipsis while it loads."
                          (or (plist-get summary :open-issues) "…")
                          (or (plist-get summary :open-prs) "…")))
 
-(vui-defcomponent octocat-repo-vui--root (repo branch local-dir unpushed)
+(vui-defcomponent octocat-repo-vui--root (repo branch local-dir unpushed raw)
   "Root component for the repo buffer: header, local-head/fork-parent
-info, issue/PR summary line, then the UNPUSHED and the commits sections.
-BRANCH is the branch whose commits to show, nil for the default.
+info, issue/PR summary line, then the UNPUSHED, the commits and the
+docs sections.  BRANCH is the branch whose commits and docs to show, nil
+for the default.  RAW shows markdown verbatim.
 Everything but the commits comes from a single summary API call."
   :render
   (let* ((buf            (current-buffer))
@@ -1020,7 +1171,10 @@ Everything but the commits comes from a single summary API call."
      (vui-component 'octocat-repo-vui--commits-section
                     :key (or branch 'default)
                     :repo repo :branch branch :default-branch default-branch
-                    :current-branch current-branch :head-info head-info))))
+                    :current-branch current-branch :head-info head-info)
+     (vui-component 'octocat-repo-vui--docs-section
+                    :key (or branch 'default)
+                    :repo repo :branch branch :raw raw))))
 
 
 ;;;; Major mode
@@ -1064,6 +1218,7 @@ Everything but the commits comes from a single summary API call."
 (define-key octocat-repo-mode-map (kbd "C-c C-f") #'octocat-tree-find-file)
 (define-key octocat-repo-mode-map (kbd "C-c C-b") #'octocat-repo-switch-branch)
 (define-key octocat-repo-mode-map (kbd "C-c C-o") #'octocat-repo-browse)
+(define-key octocat-repo-mode-map (kbd "C-c C-v") #'octocat-toggle-markdown)
 (define-key octocat-repo-mode-map (kbd "C-c C-r") #'octocat-switch-repo)
 (define-key octocat-repo-mode-map (kbd "C-c C-s") #'octocat-search-repo)
 
@@ -1075,6 +1230,8 @@ Everything but the commits comes from a single summary API call."
   (setq-local buffer-read-only t)
   (setq-local truncate-lines t)
   (setq-local revert-buffer-function #'octocat-repo-refresh)
+  (setq-local octocat--refresh-fn #'octocat-repo-refresh)
+  (octocat-markdown--ensure-invisibility)
   (octocat--ts-eldoc-setup))
 
 
@@ -1093,6 +1250,7 @@ the Commentary at the top of this file)."
                               :repo octocat-repo--repo
                               :branch octocat-repo--branch
                               :local-dir octocat-repo--local-dir
+                              :raw octocat--markdown-raw
                               :unpushed (and octocat-repo--local-dir
                                              (octocat-repo--unpushed
                                               octocat-repo--local-dir)))

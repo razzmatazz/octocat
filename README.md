@@ -63,6 +63,16 @@ Run `M-x octocat-repo` inside any Git repository that has a GitHub `origin`
 remote.  This opens a per-repo buffer listing Pull Requests, Issues,
 Workflow Runs, and Commits.
 
+Below the latest commits (`octocat-repo-commits-page-size`, 10 by
+default, with a button to load more) the page shows the repository's
+README, as GitHub does under its file list.  A selector above it offers
+the other documents found at the root of the branch shown — Code of
+conduct, Contributing, License and Security — and `RET` on one shows it
+in place of the README.  Only the first `octocat-repo-doc-lines` (20)
+lines show, the rest folded behind a "more lines" row that `RET`
+expands.  Markdown files are rendered; `C-c C-v` shows them
+raw.  Other files, such as a plain-text LICENSE, are shown as they are.
+
 ### PR detail view (`octocat-pr-mode`)
 
 Press `RET` on any PR row to open its detail buffer.  The buffer contains the
@@ -200,7 +210,7 @@ owner/repo  src/foo.el  (7 commits)
 | `C-c C-a` | Add a comment (PR and issue detail views); submit a review (PR files changed view; `C-c C-t` picks Comment / Approve / Request changes) |
 | `C-c C-e` | Edit body or comment at point (PR and issue detail views) |
 | `C-c C-m` | Merge the PR (PR detail view): edit the commit message, `C-c C-t` picks Merge / Squash / Rebase, `C-c C-d` toggles deleting the branch, `C-c C-c` merges |
-| `C-c C-v` | Toggle between rendered and raw markdown (PR, commit, and issue detail views) |
+| `C-c C-v` | Toggle between rendered and raw markdown (repo page, PR, commit, and issue detail views) |
 | `C-c C-t` | Open file tree browser (repo buffer) |
 | `C-c C-b` | Pick the branch shown (repo buffer's commits, file tree); `[reset to main]` on the repo page goes back to the default branch |
 | `C-c C-f` | Open fuzzy file finder — `completing-read` over the full recursive file list; works from both the repo buffer and the file tree browser (list is cached after first fetch) |
